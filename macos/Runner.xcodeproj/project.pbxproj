@@ -31,6 +31,9 @@
 		A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000003 /* MacPlatformBridge.swift */; };
 		A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000005 /* AccessibilitySelection.swift */; };
 		A13A00000000000000000008 /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000007 /* SelectionMonitor.swift */; };
+		A13A0000000000000000000A /* TextSelectionContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000009 /* TextSelectionContext.swift */; };
+		A13A0000000000000000000C /* OverlayAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A0000000000000000000B /* OverlayAnchor.swift */; };
+		A13A0000000000000000000E /* SelectionGestureDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A0000000000000000000D /* SelectionGestureDetector.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 /* End PBXBuildFile section */
 
@@ -79,6 +82,9 @@
 		A13A00000000000000000003 /* MacPlatformBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPlatformBridge.swift; sourceTree = "<group>"; };
 		A13A00000000000000000005 /* AccessibilitySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilitySelection.swift; sourceTree = "<group>"; };
 		A13A00000000000000000007 /* SelectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionMonitor.swift; sourceTree = "<group>"; };
+		A13A00000000000000000009 /* TextSelectionContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSelectionContext.swift; sourceTree = "<group>"; };
+		A13A0000000000000000000B /* OverlayAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayAnchor.swift; sourceTree = "<group>"; };
+		A13A0000000000000000000D /* SelectionGestureDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionGestureDetector.swift; sourceTree = "<group>"; };
 		33CEB47222A05771004F2AC0 /* Flutter-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Debug.xcconfig"; sourceTree = "<group>"; };
 		33CEB47422A05771004F2AC0 /* Flutter-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Release.xcconfig"; sourceTree = "<group>"; };
 		33CEB47722A0578A004F2AC0 /* Flutter-Generated.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = "Flutter-Generated.xcconfig"; path = "ephemeral/Flutter-Generated.xcconfig"; sourceTree = "<group>"; };
@@ -180,6 +186,9 @@
 				A13A00000000000000000003 /* MacPlatformBridge.swift */,
 				A13A00000000000000000005 /* AccessibilitySelection.swift */,
 				A13A00000000000000000007 /* SelectionMonitor.swift */,
+				A13A00000000000000000009 /* TextSelectionContext.swift */,
+				A13A0000000000000000000B /* OverlayAnchor.swift */,
+				A13A0000000000000000000D /* SelectionGestureDetector.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
 				33CC11242044D66E0003C045 /* Resources */,
@@ -372,6 +381,9 @@
 				A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */,
 				A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */,
 				A13A00000000000000000008 /* SelectionMonitor.swift in Sources */,
+				A13A0000000000000000000A /* TextSelectionContext.swift in Sources */,
+				A13A0000000000000000000C /* OverlayAnchor.swift in Sources */,
+				A13A0000000000000000000E /* SelectionGestureDetector.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

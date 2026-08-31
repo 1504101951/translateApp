@@ -10,15 +10,15 @@ Flutter/Dart 负责应用界面与全部翻译业务；Swift 只负责 macOS 启
 
 ## 仓库状态
 
-当前 Swift Package 是原型参考。重构后不保留 Swift 与 Dart 两套翻译业务实现。
+产品实现是 Flutter/Dart + `macos/Runner` 桥。旧的 Swift Package 原型已删除。
 
 ## 开发
 
-当前基线是 Issue #13：Flutter macOS 壳 + Swift 非激活 Overlay。
+当前基线：#13 壳 + #2 选区翻译最小闭环。
 
 ```text
 flutter test
 flutter run -d macos
 ```
 
-运行后菜单栏会出现「选区翻译」。选「探测 Overlay」可验证 Flutter 内容嵌在非激活 NSPanel 中：顶部条可拖动，「点击」可点，不应抢走源应用焦点。
+运行后菜单栏会出现「选区翻译」。首次需授予辅助功能权限。在其他应用里用鼠标拖选文字，点浮层「翻译」。

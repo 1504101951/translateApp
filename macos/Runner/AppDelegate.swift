@@ -24,14 +24,16 @@ class AppDelegate: FlutterAppDelegate {
     private func configureStatusItem() {
         statusItem.button?.title = "选区翻译"
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "探测 Overlay", action: #selector(probeOverlay), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "授予辅助功能权限", action: #selector(requestAccess), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
     }
 
-    @objc private func probeOverlay() {
-        MacPlatformBridge.Shared.instance?.emitProbeSelection()
+    @objc private func requestAccess() {
+        if !AccessibilitySelection.isTrusted(prompt: true) {
+            AccessibilitySelection.openSettings()
+        }
     }
 
     @objc private func quit() {

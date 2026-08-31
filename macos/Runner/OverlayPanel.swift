@@ -40,6 +40,10 @@ final class OverlayPanelController {
         dragBar.panel = panel
     }
 
+    func contains(_ point: NSPoint) -> Bool {
+        panel.isVisible && panel.frame.contains(point)
+    }
+
     func attachFlutter(_ controller: FlutterViewController) {
         flutterController = controller
         guard let container = panel.contentView else { return }

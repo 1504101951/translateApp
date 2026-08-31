@@ -73,6 +73,23 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         }
     }
 
+    func overlayContains(_ point: NSPoint) -> Bool {
+        overlay?.contains(point) ?? false
+    }
+
+    func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat) {
+        let sessionId = UUID().uuidString
+        currentSessionId = sessionId
+        emit([
+            "type": "selectionCaptured",
+            "sessionId": sessionId,
+            "text": text,
+            "gesture": gesture,
+            "x": x,
+            "y": y,
+        ])
+    }
+
     func emitProbeSelection() {
         let sessionId = UUID().uuidString
         currentSessionId = sessionId
