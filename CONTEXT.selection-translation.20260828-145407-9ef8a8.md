@@ -2,16 +2,28 @@
 
 This context defines the user-facing language for translating text selected in another macOS application.
 
+**Current Platform Scope**: The product currently supports macOS 14 and later only. Android, iOS, and Windows are future platform directions and are not part of the current specification, tickets, or acceptance criteria.
+
+_Avoid_: Current Cross-Platform Release, Four-Platform Delivery
+
 Thread: 20260828-145407-9ef8a8
 Topic: selection-translation
 
 ## Language
 
-**Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced or dismissed.
+**Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced, dismissed, becomes empty, or the user switches away from the source application.
 
-**Selection Gesture**: A mouse drag, double-click, or triple-click that selects text and begins a Selection Session. Keyboard-created selections do not begin a Selection Session.
+**Selection Gesture**: A mouse drag, double-click, triple-click, or Select All Gesture that selects text and begins a Selection Session. Other keyboard-created selections do not begin a Selection Session.
 
-_Avoid_: Keyboard Selection
+_Avoid_: Keyboard Selection, Shift Selection
+
+**Select All Gesture**: Command-A when it produces readable selected text. It is a Selection Gesture.
+
+_Avoid_: Full Keyboard Selection Monitoring
+
+**Text Selection Context**: A focused control that presents document or field text, such as a text area, text field, web area, or a chat message list. File trees and tables are not a Text Selection Context.
+
+_Avoid_: Any Selected String, File Name Selection
 
 **Selection Limit**: The maximum 50,000 characters accepted for one translation. An oversized selection may show the Translation Trigger State, but activation ends locally with a size-limit message and sends no text to a Translation Provider.
 
@@ -29,9 +41,9 @@ _Avoid_: Floating Window, Popup
 
 _Avoid_: Translation Button
 
-**Translation Result State**: The expanded state of the Translation Overlay that presents translation progress and the resulting text. It remains available while the user works elsewhere and ends only when dismissed, when the user presses Escape, or when a new Selection Session begins.
+**Translation Result State**: The expanded state of the Translation Overlay that presents translation progress and the resulting text. It ends when dismissed, when the user presses Escape, when a new Selection Session begins, when the selection becomes empty, or when the user switches away from the source application.
 
-_Avoid_: Result Window
+_Avoid_: Result Window, Persistent Result Across Apps
 
 **Translation History**: The persistent chronological collection of successfully completed translation results available outside their original Selection Sessions. Cancelled, failed, and incomplete attempts are absent.
 

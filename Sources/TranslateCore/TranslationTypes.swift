@@ -55,11 +55,12 @@ public struct TranslationSnapshot: Equatable, Sendable {
     }
 }
 
-/// 能开始 Selection Session 的鼠标手势。键盘选区不是 Selection Gesture。
+/// 能开始 Selection Session 的手势。除 Select All Gesture 外，键盘选区不是 Selection Gesture。
 public enum SelectionGesture: Equatable, Sendable {
     case drag
     case doubleClick
     case tripleClick
+    case selectAll
 }
 
 /// 全局鼠标监听交给检测器的指针事件。不含键盘。

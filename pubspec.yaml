@@ -1,0 +1,19 @@
+name: translate_app
+description: macOS 14+ 全局选区翻译。Flutter/Dart 负责应用与业务；Swift 只做系统桥。
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

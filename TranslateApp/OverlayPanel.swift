@@ -10,13 +10,13 @@ final class OverlayPanelController {
 
     private let session: SelectionSessionController
     private let panel: TranslationPanel
-    private let hosting: NSHostingView<OverlayView>
+    private let hosting: NonActivatingHostingView<OverlayView>
     private var anchor = CGPoint.zero
 
     init(session: SelectionSessionController) {
         self.session = session
         let root = OverlayView(session: session, onActivate: {}, onDismiss: {}, onContentChange: {})
-        hosting = NSHostingView(rootView: root)
+        hosting = NonActivatingHostingView(rootView: root)
         panel = TranslationPanel(
             contentRect: NSRect(x: 0, y: 0, width: 88, height: 36),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -25,12 +25,12 @@ final class OverlayPanelController {
         )
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
+        panel.becomesKeyOnlyIfNeeded = false
         panel.contentView = hosting
 
         hosting.rootView = OverlayView(
@@ -57,8 +57,8 @@ final class OverlayPanelController {
             return
         }
         syncFrame()
+        // 只前置，不成为 Key Window，避免源应用失活、选区高亮消失。
         panel.orderFrontRegardless()
-        panel.makeKey()
     }
 
     private func syncFrame() {
@@ -77,19 +77,17 @@ final class OverlayPanelController {
     }
 }
 
+/// 拒绝成为 Key / Main，点击也不激活 TranslateApp。
 final class TranslationPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
-            NotificationCenter.default.post(name: .overlayEscape, object: nil)
-            return
-        }
-        super.keyDown(with: event)
-    }
 }
 
-extension Notification.Name {
-    static let overlayEscape = Notification.Name("TranslateApp.overlayEscape")
+/// SwiftUI 默认 HostingView 会抢 first responder；关掉后点击不会把源应用挤掉。
+final class NonActivatingHostingView<Content: View>: NSHostingView<Content> {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
 }

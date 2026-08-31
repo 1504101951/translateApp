@@ -1,34 +1,49 @@
 import AppKit
 import TranslateCore
 
-/// 只监听左键指针事件，把完成的 Selection Gesture 交给应用层。
-///
-/// 不订阅键盘，因此键盘创建的选区不会开始 Selection Session。
+/// 监听左键指针事件，以及 Command-A / Escape。其他键盘选区不订阅。
 @MainActor
 final class SelectionMonitor {
     var onGesture: ((SelectionGesture, CGPoint) -> Void)?
+    var onEscape: (() -> Void)?
 
     private var detector = SelectionGestureDetector()
-    private var localMonitor: Any?
-    private var globalMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
+    private var localKeyMonitor: Any?
+    private var globalKeyMonitor: Any?
 
     func start() {
-        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+        let mouseMask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseMask) { [weak self] event in
             let kind = Self.kind(from: event)
             let clickCount = event.clickCount
             let location = NSEvent.mouseLocation
             Task { @MainActor in
-                self?.consume(kind: kind, clickCount: clickCount, location: location)
+                self?.consumeMouse(kind: kind, clickCount: clickCount, location: location)
             }
             return event
         }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseMask) { [weak self] event in
             let kind = Self.kind(from: event)
             let clickCount = event.clickCount
             let location = NSEvent.mouseLocation
             Task { @MainActor in
-                self?.consume(kind: kind, clickCount: clickCount, location: location)
+                self?.consumeMouse(kind: kind, clickCount: clickCount, location: location)
+            }
+        }
+
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let press = Self.keyPress(from: event)
+            Task { @MainActor in
+                self?.consumeKey(press)
+            }
+            return event
+        }
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let press = Self.keyPress(from: event)
+            Task { @MainActor in
+                self?.consumeKey(press)
             }
         }
     }
@@ -46,7 +61,18 @@ final class SelectionMonitor {
         }
     }
 
-    private func consume(kind: MousePointerEvent.Kind?, clickCount: Int, location: CGPoint) {
+    nonisolated private static func keyPress(from event: NSEvent) -> KeyPress {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return KeyPress(
+            keyCode: event.keyCode,
+            command: flags.contains(.command),
+            shift: flags.contains(.shift),
+            option: flags.contains(.option),
+            control: flags.contains(.control)
+        )
+    }
+
+    private func consumeMouse(kind: MousePointerEvent.Kind?, clickCount: Int, location: CGPoint) {
         guard let kind else { return }
         let pointer = MousePointerEvent(
             kind: kind,
@@ -59,6 +85,20 @@ final class SelectionMonitor {
         // AX 选区在 mouseUp 当下有时尚未写完，短暂让出再读。
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(80))
+            self.onGesture?(gesture, location)
+        }
+    }
+
+    private func consumeKey(_ press: KeyPress) {
+        if HotKeyRecognizer.isEscape(press) {
+            onEscape?()
+            return
+        }
+        guard let gesture = HotKeyRecognizer.selectionGesture(for: press) else { return }
+        let location = NSEvent.mouseLocation
+        // Command-A 之后系统需要一点时间填好选区。
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
             self.onGesture?(gesture, location)
         }
     }

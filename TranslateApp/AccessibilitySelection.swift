@@ -2,6 +2,7 @@ import ApplicationServices
 import AppKit
 import Darwin
 import Foundation
+import TranslateCore
 
 /// 从前台应用读取当前选区和选区矩形。
 ///
@@ -50,7 +51,9 @@ enum AccessibilitySelection {
             return (nil, nil)
         }
 
-        if let copied = await readByCopyingSelection() {
+        let copyRoles = focusedElement(from: app).map(ancestorRoles(of:)) ?? []
+        if TextSelectionContext.shouldCopyFallback(ancestorRoles: copyRoles),
+           let copied = await readByCopyingSelection() {
             return (copied, result.bounds)
         }
 
@@ -70,13 +73,16 @@ enum AccessibilitySelection {
             if isSecure(element) {
                 return (nil, nil)
             }
+            let roles = ancestorRoles(of: element)
+            if !TextSelectionContext.shouldReadSelectedText(ancestorRoles: roles) {
+                continue
+            }
             if let hit = selection(from: element) {
                 return (hit.text, hit.bounds)
             }
         }
 
-        let roots = candidates + [focusedWindow(from: app)].compactMap { $0 }
-        if let hit = searchSelectedText(roots: roots) {
+        if let hit = searchSelectedText(roots: candidates) {
             return (hit.text, hit.bounds)
         }
 
@@ -89,10 +95,6 @@ enum AccessibilitySelection {
 
     private static func focusedElement(from app: AXUIElement) -> AXUIElement? {
         axElement(attribute(app, kAXFocusedUIElementAttribute as CFString))
-    }
-
-    private static func focusedWindow(from app: AXUIElement) -> AXUIElement? {
-        axElement(attribute(app, kAXFocusedWindowAttribute as CFString))
     }
 
     private static func systemFocusedElement() -> AXUIElement? {
@@ -135,6 +137,9 @@ enum AccessibilitySelection {
             let element = queue.removeFirst()
             seen += 1
             if isSecure(element) { continue }
+            if let nodeRole = role(of: element), TextSelectionContext.nonTextRoles.contains(nodeRole) {
+                continue
+            }
             if let hit = selection(from: element) {
                 return hit
             }
@@ -151,6 +156,21 @@ enum AccessibilitySelection {
 
     private static func role(of element: AXUIElement) -> String? {
         stringAttribute(element, kAXRoleAttribute as CFString)
+    }
+
+    /// 从焦点控件走到窗口，供 Text Selection Context 判断。
+    private static func ancestorRoles(of element: AXUIElement) -> [String] {
+        var roles: [String] = []
+        var current: AXUIElement? = element
+        var steps = 0
+        while let node = current, steps < 16 {
+            if let role = role(of: node) {
+                roles.append(role)
+            }
+            current = axElement(attribute(node, kAXParentAttribute as CFString))
+            steps += 1
+        }
+        return roles
     }
 
     private static func isSecure(_ element: AXUIElement?) -> Bool {

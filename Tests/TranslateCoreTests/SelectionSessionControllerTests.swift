@@ -33,6 +33,10 @@ struct SelectionSessionControllerTests {
         controller.beginSession(from: .tripleClick, text: "paragraph")
         #expect(controller.snapshot.phase == .trigger)
         #expect(controller.snapshot.sourceText == "paragraph")
+
+        controller.beginSession(from: .selectAll, text: "all of it")
+        #expect(controller.snapshot.phase == .trigger)
+        #expect(controller.snapshot.sourceText == "all of it")
     }
 
     /// 目的：不可读取或纯空白选区不展示 Translation Overlay。

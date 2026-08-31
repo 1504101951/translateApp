@@ -18,9 +18,6 @@ struct OverlayView: View {
             .onChange(of: session.snapshot.phase) { _, _ in
                 onContentChange()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .overlayEscape)) { _ in
-                onDismiss()
-            }
     }
 
     @ViewBuilder
@@ -29,11 +26,15 @@ struct OverlayView: View {
         case .idle:
             EmptyView()
         case .trigger:
-            Button("翻译") {
-                Task { await onActivate() }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            Text("翻译")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.accentColor, in: Capsule())
+                .foregroundStyle(.white)
+                .onTapGesture {
+                    Task { await onActivate() }
+                }
         case .translating:
             resultColumn(title: "翻译中…", showsProgress: true)
         case .completed:
