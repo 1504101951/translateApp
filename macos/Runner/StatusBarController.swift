@@ -1,7 +1,7 @@
 import AppKit
 import FlutterMacOS
 
-/// 菜单栏入口，提供设置、自动按钮开关、辅助功能授权和退出操作。
+/// 菜单栏入口，提供设置、仅使用快捷键开关、辅助功能授权和退出操作。
 final class StatusBarController: NSObject, NSMenuDelegate {
     static let shared = StatusBarController()
 
@@ -41,7 +41,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let settings = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
-        let automatic = NSMenuItem(title: "自动显示翻译按钮", action: #selector(toggleAutomatic), keyEquivalent: "")
+        let automatic = NSMenuItem(title: "仅使用快捷键", action: #selector(toggleAutomatic), keyEquivalent: "")
         automatic.target = self
         automaticItem = automatic
         menu.addItem(automatic)
@@ -64,7 +64,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     /// enabled 为主 Dart 已成功保存的自动按钮设置；更新菜单状态，无返回值。
     func updateAutomatic(_ enabled: Bool) {
-        automaticItem?.state = enabled ? .on : .off
+        // 菜单勾选表示仅使用快捷键，与底层自动捕获状态相反。
+        automaticItem?.state = enabled ? .off : .on
     }
 
     /// menu 为即将展示的菜单；即时读取权限状态，无返回值。

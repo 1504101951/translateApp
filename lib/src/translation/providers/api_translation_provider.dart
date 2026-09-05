@@ -101,11 +101,13 @@ class ApiTranslationProvider implements TranslationProvider {
           final system =
               config.prompt +
               (config.semanticPairs
-                  ? '\nReturn one JSON object with "translation" (the entire fluent translation) and "segments" '
-                        '(an ordered array of {"source": verbatim contiguous source substring, "translation": translated paragraph}). '
-                        'Split by semantic paragraphs. Cover ALL source text in order without omissions or rewriting source. '
-                        'Do not include Markdown fences or explanations.'
-                  : '\nReturn only the complete translated text, without explanations.');
+                  ? '\n本次启用语义双语对照，以下格式要求优先于“只输出译文”：'
+                        '只输出一个合法 JSON 对象，包含 translation（完整、自然且保留段落的译文）'
+                        '和 segments（按原文顺序排列的数组，每项为 {"source":"原文片段","translation":"该片段的译文"}）。'
+                        '按语义句群或段落配对，不要逐词拆分。source 必须逐字取自连续的本次原文，'
+                        '按顺序完整覆盖所有非空白原文，不能改写、遗漏或重排；每个译文片段不能为空。'
+                        '不要输出 Markdown 代码围栏或解释。'
+                  : '\n只输出完整译文，不附加解释。');
           final input = jsonEncode({
             'source_language': request.detectedLanguage,
             'target_language': request.targetLanguage,

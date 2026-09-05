@@ -18,7 +18,8 @@ final class OverlayPanelController {
             defer: false
         )
         panel.isFloatingPanel = true
-        panel.level = .floating
+        // 来源 App 的浮动窗口可能反复置前；更高层级保持译文可见，仍不取得 key/main。
+        panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear

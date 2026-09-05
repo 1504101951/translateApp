@@ -8,6 +8,8 @@
 
 ## 辅助功能授权与签名
 
+打包会重新签封外层 App，再执行完整签名校验，使外层资源摘要与 Flutter 生成的 App.framework 一致。指定证书时先按相同身份签名嵌套框架。
+
 辅助功能由 macOS TCC 管理。Bundle ID 为 `com.coolyang.translateApp`；macOS 同时校验代码签名的 designated requirement。
 
 ad-hoc 签名的 requirement 可能直接绑定 `cdhash`。构建内容改变后代码哈希改变，已有授权可能不再适用，表现为系统开关已打开但 App 无法读取选区。仅固定安装路径或构建 Release 无法保证更新后保留授权。
@@ -35,4 +37,3 @@ App 不修改 TCC 数据库，也不添加只匹配 Bundle ID 的宽松自定义
 `build/macos/Build/Products/Debug/translate_app.app`、Xcode DerivedData 中的 `translate_app.app` 和临时测试目录中的同名 App 都是可再生成的构建产物。正式安装完成并退出旧进程后，可将这些 **App bundle** 移至废纸篓；无需删除仓库、整个 DerivedData 或偏好文件。
 
 Spotlight 中的名字可能相同，应先在 Finder 查看路径。保留 `~/Applications/TranslateApp.app` 作为日常启动入口。
-

@@ -10,7 +10,7 @@ macOS 14+ 全局选区翻译 App。Flutter/Dart 负责界面与翻译业务，Sw
 open ~/Applications/TranslateApp.app
 ```
 
-安装位置固定为 `~/Applications/TranslateApp.app`，可直接通过 Finder 或 Spotlight 启动。菜单栏「选区翻译」提供设置、自动按钮开关和退出入口。设置使用独立普通窗口，翻译浮层使用非激活面板。
+安装位置固定为 `~/Applications/TranslateApp.app`，可直接通过 Finder 或 Spotlight 启动。菜单栏「选区翻译」提供设置、仅使用快捷键开关和退出入口。设置使用独立普通窗口，翻译浮层使用非激活面板。
 
 打包签名、辅助功能授权与旧副本说明见 [macOS 安装](docs/macos.md)。
 
@@ -18,13 +18,13 @@ open ~/Applications/TranslateApp.app
 
 - 在其他应用拖选、双击、三击，或用 ⌘A、Shift 配合方向/Home/End/Page 键选中文字，会出现 84×36pt 的「翻译」按钮。
 - 点击按钮展开双语卡片，原文在上、译文在下，可分别复制；默认全局快捷键 **⌃⌥T** 直接翻译当前选区。
-- 自动按钮开关仅控制选区后的自动提示；关闭后全局快捷键仍可显示译文卡片。
-- 浮层不取得 key/main 窗口身份。拖动按钮或卡片标题可移动浮层；切应用、清空选区、Escape、关闭或新选区会结束会话并取消当前请求。
+- 「仅使用快捷键」默认关闭；开启后不再自动显示选区按钮，只能通过全局快捷键唤醒翻译。
+- 浮层使用 status-bar 窗口层级，位于普通及 floating 应用窗口之上，且不取得 key/main 窗口身份。拖动按钮或卡片标题可移动浮层；切应用、清空选区、Escape、关闭或新选区会结束会话并取消当前请求。
 - 文本在设备上识别语言；主要语言文本译为次要语言，其余或无法识别的文本译为主要语言。单次选区上限为 50,000 字符。
 
 ## 设置
 
-设置支持主要/次要语言、自动显示按钮、按键录制的全局快捷键、翻译服务、排除应用、登录启动和辅助功能授权状态。
+设置支持主要/次要语言、仅使用快捷键、按键录制的全局快捷键、翻译服务、排除应用、登录启动和辅助功能授权状态。
 
 快捷键在设置窗口点击录制，记录实际按键组合；Esc 或失焦取消。保存时校验启用的系统快捷键与 Carbon 独占占用，失败保留原组合。macOS 不提供其他 App 内部快捷键的统一枚举；普通非独占 Carbon 注册也不保证可检测。
 
@@ -47,7 +47,7 @@ open ~/Applications/TranslateApp.app
 
 API Key 和百度 App ID 仅保存于 macOS Keychain。编辑配置时不显示已保存密钥，留空保留；删除服务并保存会删除对应凭据。端点、模型、独立提示词等普通配置存入 UserDefaults。保存失败时恢复凭据和系统配置；翻译失败不会自动发送到其他服务。
 
-模型普通模式逐步显示译文。启用「按语义分段双语对照」后，模型一次生成完整译文与配对段落，完成后显示；应用验证源段落按顺序覆盖全部原文，界面使用本地原文。无效分段退回完整原文/译文；截断或损坏的结构报告失败。覆盖校验不能证明模型的语义对应完全准确，该功能不执行长文本请求分批。
+新建模型配置使用中文默认提示词，每个配置可独立编辑。语义模式会追加中文 JSON 格式约束，要求完整译文及逐字原文片段配对。模型普通模式逐步显示译文。启用「按语义分段双语对照」后，模型一次生成完整译文与配对段落，完成后显示；应用验证源段落按顺序覆盖全部原文，界面使用本地原文。无效分段退回完整原文/译文；截断或损坏的结构报告失败。覆盖校验不能证明模型的语义对应完全准确，该功能不执行长文本请求分批。
 
 接口参考：[百度通用翻译](https://fanyi-api.baidu.com/doc/21)、[Google Cloud v2](https://cloud.google.com/translate/docs/reference/rest/v2/translate)、[OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[Anthropic Messages](https://platform.claude.com/docs/en/api/messages)。
 

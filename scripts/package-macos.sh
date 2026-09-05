@@ -12,13 +12,15 @@ mkdir -p dist
 stage="$(mktemp -d dist/package.XXXXXX)"
 trap 'rm -rf "$stage"' EXIT
 ditto build/macos/Build/Products/Release/translate_app.app "$stage/TranslateApp.app"
+sign_flags=(--force --sign "$identity" --options runtime)
 if [[ "$identity" != "-" ]]; then
+  sign_flags+=(--timestamp)
   for framework in "$stage/TranslateApp.app/Contents/Frameworks/"*.framework; do
-    codesign --force --sign "$identity" --options runtime --timestamp "$framework"
+    codesign "${sign_flags[@]}" "$framework"
   done
-  codesign --force --sign "$identity" --options runtime --timestamp \
-    --entitlements macos/Runner/Release.entitlements "$stage/TranslateApp.app"
 fi
+# Flutter 可独立更新 App.framework；重新签封外层 App，使嵌套资源摘要与实际内容一致。
+codesign "${sign_flags[@]}" --entitlements macos/Runner/Release.entitlements "$stage/TranslateApp.app"
 codesign --verify --deep --strict "$stage/TranslateApp.app"
 rm -rf "$app"
 mv "$stage/TranslateApp.app" "$app"
@@ -27,4 +29,3 @@ if [[ "$identity" == "-" ]]; then
   echo "本机 ad-hoc 构建：更新后的辅助功能授权可能需要重新添加。稳定授权请配置固定签名证书。"
 fi
 echo "App: $PWD/$app"
-

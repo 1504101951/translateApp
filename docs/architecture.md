@@ -28,11 +28,11 @@ flowchart TD
 
 ## 窗口与会话
 
-- 翻译窗口是不能成为 key/main 的非激活 NSPanel；触发态为 84×36pt 单按钮，结果态为 380×360pt 双语卡片。
+- 翻译窗口使用高于 floating 的 status-bar 层级，是不能成为 key/main 的非激活 NSPanel；触发态为 84×36pt 单按钮，结果态为 380×360pt 双语卡片。
 - Flutter 区分点击和拖动，Swift 使用原生鼠标事件执行拖动。同一 Session 保留位置，新 Session 重新锚定。
 - Swift 保存当前来源 PID 和 sessionId，仅用于系统生命周期。失效时同步隐藏，再通知 Dart 取消 Provider 流；HTTP client 随取消关闭。
 - 选区、失效事件和窗口命令携带 sessionId。系统设置命令不属于选区会话，使用独立方法和设置修订号。
-- 自动捕获关闭时保留 Escape、外部点击和前台变化监听，使快捷键产生的会话仍能正常关闭。
+- 「仅使用快捷键」开启表示 automatic=false；菜单与表单均反向显示底层自动捕获状态。自动捕获关闭时保留 Escape、外部点击和前台变化监听，使快捷键产生的会话仍能正常关闭。
 - 全局热键使用 RegisterEventHotKey；同一组合不重复注册，新组合注册成功后才释放旧组合。
 
 ## 服务与凭据

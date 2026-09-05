@@ -25,7 +25,7 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const SettingsApp());
     await tester.pumpAndSettle();
-    await tester.tap(find.text('自动显示翻译按钮'));
+    await tester.tap(find.text('仅使用快捷键'));
     await tester.pumpAndSettle();
     revision = 1;
     await messenger.handlePlatformMessage(
@@ -34,11 +34,11 @@ void main() {
       (_) {},
     );
     await tester.pumpAndSettle();
-    // 草稿仍保留中文和关闭的开关，不用检查通道调用次数代替用户结果。
+    // 草稿仍保留中文和开启的仅快捷键开关，不用检查通道调用次数代替用户结果。
     expect(find.text('简体中文'), findsOneWidget);
     expect(
       tester.widget<SwitchListTile>(find.byType(SwitchListTile).first).value,
-      isFalse,
+      isTrue,
     );
     await tester.scrollUntilVisible(find.text('重新加载设置'), 300);
     await tester.pumpAndSettle();
@@ -53,7 +53,7 @@ void main() {
     expect(find.text('日本語'), findsOneWidget);
     expect(
       tester.widget<SwitchListTile>(find.byType(SwitchListTile).first).value,
-      isTrue,
+      isFalse,
     );
   });
 
@@ -144,10 +144,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('百度翻译').last);
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('仅使用快捷键'), 250);
+    await tester.tap(find.text('仅使用快捷键'));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('保存设置'), 350);
     await tester.tap(find.text('保存设置'));
     await tester.pumpAndSettle();
     expect(state['defaultServiceId'], credentialIds.single);
+    expect(state['automatic'], false);
     expect(find.text('已保存，下次翻译立即生效。'), findsOneWidget);
     await tester.scrollUntilVisible(find.byTooltip('删除 百度翻译'), -350);
     await tester.tap(find.byTooltip('删除 百度翻译'));

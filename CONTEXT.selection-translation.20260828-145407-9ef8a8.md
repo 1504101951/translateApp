@@ -11,6 +11,8 @@ Topic: selection-translation
 
 ## Language
 
+**Shortcut Only Mode**: A settings and menu switch labelled 仅使用快捷键. Enabled means Automatic Translation Trigger is disabled; the Global Translation Shortcut remains available. It is disabled by default.
+
 **Baidu Provider**: A Translation Provider backed by the official Baidu general translation API, with App ID and secret stored in macOS Keychain.
 
 **Bilingual Pair**: A source passage and its translated passage shown together in Translation Result State. Source passages use local selected text after checking ordered, complete source coverage. Invalid model pairing displays the full source above the full translation; coverage validation does not prove semantic accuracy. This display option makes one request and is separate from Segmented Translation.
