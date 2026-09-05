@@ -1,23 +1,14 @@
 import Cocoa
 import FlutterMacOS
 
+/// xib 仍会实例化这扇窗口。引擎改在 AppDelegate 创建，这里只负责立刻藏起来。
 class MainFlutterWindow: NSWindow {
-    private let overlay = OverlayPanelController()
-
     override func awakeFromNib() {
-        let flutterViewController = FlutterViewController()
-        RegisterGeneratedPlugins(registry: flutterViewController)
-
-        // 主窗口只用来启动引擎，立刻隐藏；Flutter 视图嵌进非激活 NSPanel。
-        contentViewController = nil
-        overlay.attachFlutter(flutterViewController)
-        MacPlatformBridge.register(
-            with: flutterViewController.engine.binaryMessenger,
-            overlay: overlay
-        )
-
-        isReleasedWhenClosed = false
-        orderOut(nil)
         super.awakeFromNib()
+        isReleasedWhenClosed = false
+        ignoresMouseEvents = true
+        alphaValue = 0
+        orderOut(nil)
+        StatusBarController.shared.install()
     }
 }

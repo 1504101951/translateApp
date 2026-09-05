@@ -5,6 +5,8 @@ dist/
 *.app
 xcuserdata/
 .DS_Store
+.boot.log
+.overlay.log
 
 # Flutter
 .dart_tool/

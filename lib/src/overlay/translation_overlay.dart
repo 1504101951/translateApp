@@ -3,142 +3,122 @@ import 'package:flutter/material.dart';
 import '../selection/selection_session.dart';
 import '../translation/translation_types.dart';
 
+/// 当前选区的触发按钮和译文卡片；窗口位置由 macOS 管理。
 class TranslationOverlay extends StatelessWidget {
+  /// session 提供状态；三个无参回调分别翻译、关闭、拖动；构造浮层内容。
   const TranslationOverlay({
     super.key,
     required this.session,
     required this.onActivate,
     required this.onDismiss,
+    required this.onDrag,
   });
 
+  static const triggerSize = Size(84, 36);
   final SelectionSession session;
   final VoidCallback onActivate;
   final VoidCallback onDismiss;
+  final VoidCallback onDrag;
 
+  /// context 提供主题；返回随会话更新的单按钮或结果卡片。
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: session,
       builder: (context, _) {
         final snap = session.snapshot;
+        if (snap.phase == TranslationPhase.idle) {
+          return const SizedBox.shrink();
+        }
+        if (snap.phase == TranslationPhase.trigger) {
+          // 触发态整块区域就是按钮，拖动手势胜出时不会误发翻译请求。
+          return Material(
+            color: Colors.transparent,
+            child: GestureDetector(
+              onPanStart: (_) => onDrag(),
+              child: FilledButton.icon(
+                onPressed: onActivate,
+                icon: const Icon(Icons.translate_rounded, size: 16),
+                label: const Text('翻译'),
+                style: FilledButton.styleFrom(
+                  foregroundColor: const Color(0xFF285FCB),
+                  backgroundColor: const Color(0xFFFAFBFE),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  // 保留主题字体，让中文和系统字体设置使用同一套字形回退。
+                  textStyle: Theme.of(context).textTheme.labelLarge!
+                      .copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9),
+                    side: const BorderSide(color: Color(0xFFDCE2ED)),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        final busy = snap.phase == TranslationPhase.translating;
+        final title = switch (snap.phase) {
+          TranslationPhase.translating => '翻译中…',
+          TranslationPhase.failed => snap.message ?? '翻译失败',
+          TranslationPhase.sizeLimited => snap.message ?? '选区过长',
+          _ => '译文',
+        };
         return Material(
-          color: const Color(0xF2FFFFFF),
+          color: const Color(0xFFFAFBFE),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            child: switch (snap.phase) {
-              TranslationPhase.idle => const SizedBox.shrink(),
-              TranslationPhase.trigger => _Trigger(
-                  onActivate: onActivate,
-                  onDismiss: onDismiss,
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 结果标题提供拖动区域，无需额外占用一条原生标题栏。
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (_) => onDrag(),
+                  child: Row(
+                    children: [
+                      if (busy)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 8),
+                          child: SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: onDismiss,
+                        tooltip: '关闭',
+                        icon: const Icon(Icons.close, size: 16),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
                 ),
-              TranslationPhase.translating => _Result(
-                  title: '翻译中…',
-                  body: snap.translatedText,
-                  busy: true,
-                  onDismiss: onDismiss,
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      snap.translatedText,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
                 ),
-              TranslationPhase.completed => _Result(
-                  title: '译文',
-                  body: snap.translatedText,
-                  busy: false,
-                  onDismiss: onDismiss,
-                ),
-              TranslationPhase.failed => _Result(
-                  title: snap.message ?? '翻译失败',
-                  body: snap.translatedText,
-                  busy: false,
-                  onDismiss: onDismiss,
-                ),
-              TranslationPhase.sizeLimited => _Result(
-                  title: snap.message ?? '选区过长',
-                  body: '',
-                  busy: false,
-                  onDismiss: onDismiss,
-                ),
-            },
+              ],
+            ),
           ),
         );
       },
-    );
-  }
-}
-
-class _Trigger extends StatelessWidget {
-  const _Trigger({required this.onActivate, required this.onDismiss});
-
-  final VoidCallback onActivate;
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        FilledButton(
-          onPressed: onActivate,
-          child: const Text('翻译'),
-        ),
-        const Spacer(),
-        IconButton(
-          onPressed: onDismiss,
-          icon: const Icon(Icons.close, size: 16),
-          visualDensity: VisualDensity.compact,
-        ),
-      ],
-    );
-  }
-}
-
-class _Result extends StatelessWidget {
-  const _Result({
-    required this.title,
-    required this.body,
-    required this.busy,
-    required this.onDismiss,
-  });
-
-  final String title;
-  final String body;
-  final bool busy;
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            if (busy)
-              const Padding(
-                padding: EdgeInsets.only(right: 8),
-                child: SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            ),
-            IconButton(
-              onPressed: onDismiss,
-              icon: const Icon(Icons.close, size: 16),
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            child: SelectableText(
-              body.isEmpty ? '' : body,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

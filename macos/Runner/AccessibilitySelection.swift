@@ -16,40 +16,39 @@ enum AccessibilitySelection {
         }
     }
 
-    static func readFrontmostSelection() async -> (text: String?, bounds: CGRect?) {
-        guard let running = NSWorkspace.shared.frontmostApplication else {
-            return (nil, nil)
-        }
-        if running.processIdentifier == getpid() {
-            return (nil, nil)
-        }
-
-        let app = AXUIElementCreateApplication(running.processIdentifier)
+    /// sourcePID 为手势发生时的前台进程；返回文字与 AppKit 矩形，失效时均为空。
+    static func readFrontmostSelection(sourcePID: pid_t) async -> (text: String?, bounds: CGRect?) {
+        guard !Task.isCancelled, sourcePID != getpid(),
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return (nil, nil) }
+        let app = AXUIElementCreateApplication(sourcePID)
+        // 部分 Electron 应用只有开启手动辅助功能后才暴露文本。
         enableManualAccessibility(app)
-
         var result = readOnce(app: app)
-        if isUsable(result.text) {
-            return result
-        }
-
+        if isUsable(result.text) { return result }
         for delay in [80, 180] {
-            try? await Task.sleep(for: .milliseconds(delay))
+            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return (nil, nil) }
+            // 重试期间切换应用时，不能读取或复制另一个应用的内容。
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return (nil, nil) }
             result = readOnce(app: app)
-            if isUsable(result.text) {
-                return result
-            }
+            if isUsable(result.text) { return result }
         }
-
-        if isSecure(focusedElement(from: app)) {
-            return (nil, nil)
-        }
-
+        guard !Task.isCancelled,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID,
+              !isSecure(focusedElement(from: app)) else { return (nil, nil) }
         let copyRoles = focusedElement(from: app).map(ancestorRoles(of:)) ?? []
+        // 仅文本上下文可回退到复制；文件树和密码控件禁止模拟 Command-C。
         if TextSelectionContext.shouldCopyFallback(ancestorRoles: copyRoles),
            let copied = await readByCopyingSelection() {
             return (copied, result.bounds)
         }
         return result
+    }
+
+    /// sourcePID 为会话来源；只用 AX 验证非空文字，不触发剪贴板回退，返回可读性。
+    static func hasReadableSelection(sourcePID: pid_t) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return false }
+        // 失效检查不能发送 Command-C，否则普通键盘操作也会改动剪贴板。
+        return isUsable(readOnce(app: AXUIElementCreateApplication(sourcePID)).text)
     }
 
     private static func readOnce(app: AXUIElement) -> (text: String?, bounds: CGRect?) {
@@ -72,7 +71,9 @@ enum AccessibilitySelection {
                 return (hit.text, hit.bounds)
             }
         }
-        if let hit = searchSelectedText(roots: candidates) {
+        if let hit = searchSelectedText(roots: candidates.filter {
+            !isSecure($0) && TextSelectionContext.shouldReadSelectedText(ancestorRoles: ancestorRoles(of: $0))
+        }) {
             return (hit.text, hit.bounds)
         }
         return (nil, nil)
@@ -82,7 +83,8 @@ enum AccessibilitySelection {
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
     }
 
-    private static func focusedElement(from app: AXUIElement) -> AXUIElement? {
+    /// app 为 AX 应用元素；返回焦点控件，用于读取文本和注册选区通知。
+    static func focusedElement(from app: AXUIElement) -> AXUIElement? {
         axElement(attribute(app, kAXFocusedUIElementAttribute as CFString))
     }
 
@@ -191,7 +193,8 @@ enum AccessibilitySelection {
         guard boundsStatus == .success, let boundsValue else { return nil }
         var rect = CGRect.zero
         guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) else { return nil }
-        let maxY = NSScreen.main?.frame.maxY ?? 0
+        // AX 原点位于菜单栏屏幕顶部，不随 key 窗口所在屏幕改变。
+        let maxY = NSScreen.screens.first?.frame.maxY ?? 0
         rect.origin.y = maxY - rect.origin.y - rect.height
         return rect
     }

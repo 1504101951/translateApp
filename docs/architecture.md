@@ -19,7 +19,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[鼠标选区或 Command-A] --> B{合法文本上下文?}
+    A[鼠标选区 / Command-A / Shift 扩选] --> B{合法文本上下文?}
     B -- 否 --> C[忽略]
     B -- 是 --> D[显示 Trigger Overlay]
     D --> E{点击翻译或会话失效?}
@@ -70,6 +70,8 @@ translateApp/
 - Dart → Swift：显示/隐藏 Overlay、权限设置、应用排除、Keychain、登录项。
 - Swift `NSPanel` 原生处理拖动；同一 `sessionId` 保留位置，新 Session 重置到新选区锚点。
 - 所有事件和命令携带 `sessionId`，过期 Session 的结果直接丢弃。
+- Trigger Overlay 为 84×36pt 的单一翻译按钮；Result Overlay 展示译文与关闭入口。Flutter 区分点击和拖动手势，Swift 使用当前鼠标事件执行非激活窗口拖动。
+- Swift 绑定来源 PID 读取选区，观察前台应用与 AX 选区变化；失效时同步隐藏窗口并发送 `selectionInvalidated`。Dart 取消 Provider 流订阅，Google Provider 随之关闭当前 HTTP 连接。
 
 ## 实施顺序
 

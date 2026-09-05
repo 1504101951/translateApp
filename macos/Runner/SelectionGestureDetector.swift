@@ -1,10 +1,22 @@
-import CoreGraphics
+import AppKit
 import Foundation
 
 enum SelectionGesture: String {
     case drag
     case doubleClick
     case tripleClick
+    case selectAll
+    case keyboard
+
+    /// keyCode 为硬件键码，modifiers 为修饰键；返回创建文本选区的手势或 nil。
+    static func keyboardGesture(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> SelectionGesture? {
+        let flags = modifiers.intersection([.command, .shift, .option, .control])
+        if keyCode == 0, flags == .command { return .selectAll }
+        // Shift 配合方向/Home/End/Page 键覆盖按字、按词、按行及全文扩选。
+        let navigationKeys: Set<UInt16> = [115, 116, 119, 121, 123, 124, 125, 126]
+        if flags.contains(.shift), navigationKeys.contains(keyCode) { return .keyboard }
+        return nil
+    }
 }
 
 struct MousePointerEvent {
@@ -15,7 +27,7 @@ struct MousePointerEvent {
     var y: CGFloat
 }
 
-/// 只识别鼠标拖拽/双击/三击。Command-A 属于 #11。
+/// 识别鼠标拖拽/双击/三击；键盘手势由 SelectionGesture 判定。
 struct SelectionGestureDetector {
     static let dragThreshold: CGFloat = 4
     private var originX: CGFloat?

@@ -13,13 +13,9 @@ Topic: selection-translation
 
 **Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced, dismissed, becomes empty, or the user switches away from the source application.
 
-**Selection Gesture**: A mouse drag, double-click, triple-click, or Select All Gesture that selects text and begins a Selection Session. Other keyboard-created selections do not begin a Selection Session.
-
-_Avoid_: Keyboard Selection, Shift Selection
+**Selection Gesture**: A mouse drag, double-click, triple-click, Select All Gesture, or Shift combined with arrow, Home, End, or Page keys that selects readable text and begins a Selection Session. Command and Option may refine a Shift selection by line or word.
 
 **Select All Gesture**: Command-A when it produces readable selected text. It is a Selection Gesture.
-
-_Avoid_: Full Keyboard Selection Monitoring
 
 **Text Selection Context**: A focused control that presents document or field text, such as a text area, text field, web area, or a chat message list. File trees and tables are not a Text Selection Context.
 
@@ -37,7 +33,7 @@ _Avoid_: Global Pause, Editable-Field Exclusion
 
 _Avoid_: Floating Window, Popup
 
-**Translation Trigger State**: The collapsed state of the Translation Overlay that offers the translation action without starting translation.
+**Translation Trigger State**: The collapsed state of the Translation Overlay, presented as one 84×36-point rounded translation button. Clicking starts translation; dragging moves the overlay while preserving the source application's keyboard focus.
 
 _Avoid_: Translation Button
 

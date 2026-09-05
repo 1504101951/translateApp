@@ -4,7 +4,9 @@ import 'package:translate_app/src/translation/language_direction.dart';
 import 'package:translate_app/src/translation/translation_types.dart';
 
 class RecordingProvider implements TranslationProvider {
-  RecordingProvider({this.events = const [TranslationUpdate('你好'), TranslationCompleted()]});
+  RecordingProvider({
+    this.events = const [TranslationUpdate('你好'), TranslationCompleted()],
+  });
 
   @override
   final id = 'recording';
@@ -33,14 +35,41 @@ void main() {
   });
 
   test('blank text stays idle', () {
-    final session = SelectionSession(provider: RecordingProvider(), language: language);
+    final session = SelectionSession(
+      provider: RecordingProvider(),
+      language: language,
+    );
     session.begin(sessionId: 's1', text: '  \n');
     expect(session.snapshot.phase, TranslationPhase.idle);
   });
 
+  test(
+    'late translation cannot reopen a dismissed or replaced selection',
+    () async {
+      // 在首个异步结果到达前结束 s1 并创建 s2；旧更新和完成事件都不能污染新选区。
+      final session = SelectionSession(
+        provider: RecordingProvider(),
+        language: language,
+      );
+      session.begin(sessionId: 's1', text: 'Hello');
+      final pending = session.activate();
+      session.dismiss();
+      session.begin(sessionId: 's2', text: 'New selection');
+      await pending;
+      expect(session.sessionId, 's2');
+      expect(session.snapshot.phase, TranslationPhase.trigger);
+      expect(session.snapshot.sourceText, 'New selection');
+      expect(session.snapshot.translatedText, isEmpty);
+    },
+  );
+
   test('activate translates and assembles updates', () async {
     final provider = RecordingProvider(
-      events: const [TranslationUpdate('你'), TranslationUpdate('好'), TranslationCompleted()],
+      events: const [
+        TranslationUpdate('你'),
+        TranslationUpdate('好'),
+        TranslationCompleted(),
+      ],
     );
     final session = SelectionSession(provider: provider, language: language);
     session.begin(sessionId: 's1', text: 'Hello');
@@ -65,10 +94,7 @@ void main() {
   test('limit inclusive still translates', () async {
     final provider = RecordingProvider();
     final session = SelectionSession(provider: provider, language: language);
-    session.begin(
-      sessionId: 's1',
-      text: 'a' * SelectionSession.selectionLimit,
-    );
+    session.begin(sessionId: 's1', text: 'a' * SelectionSession.selectionLimit);
     await session.activate();
     expect(session.snapshot.phase, TranslationPhase.completed);
     expect(provider.requests, hasLength(1));
