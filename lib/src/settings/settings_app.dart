@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_settings.dart';
+import 'service_config.dart';
+import 'service_editor.dart';
 
 /// 独立可激活窗口的设置 UI；所有偏好读写由主 Dart 引擎处理。
 class SettingsApp extends StatelessWidget {
@@ -39,6 +41,8 @@ class _SettingsPageState extends State<_SettingsPage>
   bool _dirty = false;
   bool _conflicted = false;
   int _revision = 0;
+  Set<String> _credentialIds = {};
+  final Map<String, Map<String, String>?> _credentials = {};
 
   /// 无参数；加载主引擎偏好，并监听菜单引起的偏好变化，无返回值。
   @override
@@ -95,6 +99,8 @@ class _SettingsPageState extends State<_SettingsPage>
         _revision = map['revision'] as int;
         _conflicted = false;
         _settings = AppSettings.fromMap(map);
+        _credentialIds = Set<String>.from(map['credentialIds'] as List? ?? []);
+        _credentials.clear();
         _message = map['error'] as String?;
         _failed = _message != null;
       });
@@ -115,12 +121,20 @@ class _SettingsPageState extends State<_SettingsPage>
       _settings!.validate();
       final saved = (await _channel.invokeMapMethod<Object?, Object?>(
         'saveSettings',
-        {..._settings!.toMap(), 'revision': _revision},
+        {
+          ..._settings!.toMap(),
+          'revision': _revision,
+          'credentials': _credentials,
+        },
       ))!;
       await _refreshStatus();
       if (!mounted) return;
       setState(() {
         _settings = AppSettings.fromMap(saved);
+        _credentialIds = Set<String>.from(
+          saved['credentialIds'] as List? ?? [],
+        );
+        _credentials.clear();
         _revision = saved['revision'] as int;
         _dirty = false;
         _conflicted = false;
@@ -133,9 +147,11 @@ class _SettingsPageState extends State<_SettingsPage>
         if (error is PlatformException && error.code == 'settings_conflict') {
           _conflicted = true;
         }
-        _message = error is PlatformException
-            ? error.message
-            : error.toString();
+        _message = switch (error) {
+          PlatformException(:final message) => message,
+          FormatException(:final message) => message,
+          _ => '操作失败，请重试。',
+        };
         _failed = true;
       });
     } finally {
@@ -179,9 +195,41 @@ class _SettingsPageState extends State<_SettingsPage>
 
   /// change 写入一次用户编辑；保留草稿，避免菜单刷新直接覆盖未保存内容。
   void _edit(VoidCallback change) {
+    // 保存回包会替换整个表单；等待期间不接收会被回包覆盖的新编辑。
+    if (_saving) return;
     setState(() {
       change();
       _dirty = true;
+    });
+  }
+
+  /// config 为已有配置或空；确认后更新本窗口草稿，不立即写入凭据。
+  Future<void> _editService([ServiceConfig? config]) async {
+    final draft =
+        await showDialog<
+          ({ServiceConfig config, Map<String, String> credentials})
+        >(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => ServiceEditor(
+            config: config,
+            credentials: _credentials[config?.id] ?? const {},
+            hasCredentials: _credentialIds.contains(config?.id),
+          ),
+        );
+    if (draft == null || !mounted) return;
+    _edit(() {
+      final index = _settings!.services.indexWhere(
+        (e) => e.id == draft.config.id,
+      );
+      if (index < 0) {
+        _settings!.services.add(draft.config);
+      } else {
+        _settings!.services[index] = draft.config;
+      }
+      if (draft.credentials.isNotEmpty) {
+        _credentials[draft.config.id] = draft.credentials;
+      }
     });
   }
 
@@ -263,6 +311,82 @@ class _SettingsPageState extends State<_SettingsPage>
               style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
             ),
           ),
+          const Divider(height: 28),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '翻译服务',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _saving ? null : () => _editService(),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('添加服务'),
+              ),
+            ],
+          ),
+          DropdownButtonFormField<String>(
+            key: ValueKey('default:${settings.defaultServiceId}'),
+            initialValue: settings.defaultServiceId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: '默认翻译服务',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem(
+                value: ServiceConfig.builtinId,
+                child: Text('Google 免费接口（非官方）'),
+              ),
+              ...settings.services.map(
+                (e) => DropdownMenuItem(value: e.id, child: Text(e.name)),
+              ),
+            ],
+            onChanged: _saving
+                ? null
+                : (value) => _edit(() => settings.defaultServiceId = value!),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              '添加百度、Google Cloud 或大模型 API；翻译发送到选中的服务。',
+              style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
+            ),
+          ),
+          for (final service in settings.services)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(service.name),
+              subtitle: Text(
+                '${ServiceConfig.kinds[service.kind]}${service.isModel ? ' · ${service.model}' : ''}',
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: '编辑 ${service.name}',
+                    onPressed: _saving ? null : () => _editService(service),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                  IconButton(
+                    tooltip: '删除 ${service.name}',
+                    onPressed: _saving
+                        ? null
+                        : () => _edit(() {
+                            settings.services.remove(service);
+                            _credentials[service.id] = null;
+                            if (settings.defaultServiceId == service.id) {
+                              settings.defaultServiceId =
+                                  ServiceConfig.builtinId;
+                            }
+                          }),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
+            ),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             title: const Text('自动显示翻译按钮'),

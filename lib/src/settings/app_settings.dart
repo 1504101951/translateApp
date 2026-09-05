@@ -1,4 +1,5 @@
 import '../translation/language_direction.dart';
+import 'service_config.dart';
 
 /// Dart 持有完整偏好；平台只负责存储及热键、登录项等系统副作用。
 class AppSettings {
@@ -11,7 +12,10 @@ class AppSettings {
     this.shortcutModifiers = 6144,
     this.launchAtLogin = false,
     Map<String, String>? excludedApps,
-  }) : excludedApps = excludedApps ?? {};
+    this.defaultServiceId = ServiceConfig.builtinId,
+    List<ServiceConfig>? services,
+  }) : excludedApps = excludedApps ?? {},
+       services = services ?? [];
 
   String primaryLanguage;
   String secondaryLanguage;
@@ -21,6 +25,8 @@ class AppSettings {
   int shortcutModifiers;
   bool launchAtLogin;
   final Map<String, String> excludedApps;
+  String defaultServiceId;
+  final List<ServiceConfig> services;
 
   static const languages = {
     'zh-CN': '简体中文',
@@ -54,6 +60,13 @@ class AppSettings {
       secondaryLanguage:
           map['secondaryLanguage'] as String? ?? language.secondaryCode,
       automatic: map['automatic'] as bool? ?? true,
+      defaultServiceId:
+          map['defaultServiceId'] as String? ?? ServiceConfig.builtinId,
+      services: (map['services'] as List? ?? [])
+          .map(
+            (e) => ServiceConfig.fromMap(Map<Object?, Object?>.from(e as Map)),
+          )
+          .toList(),
       shortcutKeyCode: map['shortcutKeyCode'] as int? ?? 17,
       shortcutLabel: map['shortcutLabel'] as String? ?? 'T',
       shortcutModifiers: map['shortcutModifiers'] as int? ?? 6144,
@@ -64,6 +77,14 @@ class AppSettings {
 
   /// 无参数；校验可执行的语言方向及系统快捷键，非法配置抛 FormatException。
   void validate() {
+    for (final service in services) {
+      service.validate();
+    }
+    if (services.map((e) => e.id).toSet().length != services.length ||
+        defaultServiceId != ServiceConfig.builtinId &&
+            !services.any((e) => e.id == defaultServiceId)) {
+      throw const FormatException('默认翻译服务不存在或配置标识重复。');
+    }
     if (primaryLanguage.isEmpty ||
         secondaryLanguage.isEmpty ||
         LanguageDirection.normalize(primaryLanguage) ==
@@ -82,6 +103,8 @@ class AppSettings {
 
   /// 无参数；返回可经 MethodChannel 和 UserDefaults 存储的标量字典。
   Map<String, Object> toMap() => {
+    'defaultServiceId': defaultServiceId,
+    'services': services.map((e) => e.toMap()).toList(),
     'primaryLanguage': primaryLanguage,
     'secondaryLanguage': secondaryLanguage,
     'automatic': automatic,

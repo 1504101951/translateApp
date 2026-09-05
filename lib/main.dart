@@ -9,6 +9,8 @@ import 'src/platform/macos_platform_bridge.dart';
 import 'src/selection/selection_session.dart';
 import 'src/settings/app_settings.dart';
 import 'src/settings/settings_app.dart';
+import 'src/settings/service_config.dart';
+import 'src/translation/providers/api_translation_provider.dart';
 import 'src/translation/providers/unofficial_google_provider.dart';
 import 'src/translation/translation_types.dart';
 
@@ -17,8 +19,22 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final bridge = MacosPlatformBridge();
   var settings = AppSettings.fromMap(await bridge.loadSettings());
+
+  /// config 为偏好快照；返回当前默认服务，凭据仅在请求前从 Keychain 读取。
+  TranslationProvider providerFor(AppSettings config) {
+    if (config.defaultServiceId == ServiceConfig.builtinId) {
+      return UnofficialGoogleProvider();
+    }
+    return ApiTranslationProvider(
+      config: config.services.singleWhere(
+        (e) => e.id == config.defaultServiceId,
+      ),
+      credentials: () => bridge.readCredentials(config.defaultServiceId),
+    );
+  }
+
   final session = SelectionSession(
-    provider: UnofficialGoogleProvider(),
+    provider: providerFor(settings),
     detectLanguage: bridge.detectLanguage,
     language: settings.direction,
   );
@@ -26,29 +42,53 @@ Future<void> main() async {
   var revision = 0;
   Future<void> settingsQueue = Future.value();
 
-  /// candidate 为完整偏好；系统应用成功后才替换主实例，返回已保存快照。
-  Future<Map<String, Object>> save(AppSettings candidate) async {
+  /// 无参数；返回普通配置和凭据存在状态，绝不向设置引擎回传密钥。
+  Future<Map<String, Object>> snapshot() async => {
+    ...settings.toMap(),
+    'revision': revision,
+    'credentialIds': await bridge.credentialIds(
+      settings.services.map((e) => e.id).toList(),
+    ),
+    'error': ?settingsError,
+  };
+
+  /// candidate 为完整偏好，drafts 为凭据变更；系统成功后才替换主状态并返回快照。
+  Future<Map<String, Object>> save(
+    AppSettings candidate,
+    Map<String, Map<String, String>?> drafts,
+  ) async {
     candidate.validate();
-    await bridge.applySettings(candidate.toMap());
+    final credentials = <String, Map<String, String>?>{};
+    for (final config in candidate.services) {
+      // 空字段表示保留；合并仅发生在主引擎内，设置窗口不能读取已保存密钥。
+      final value = {
+        ...await bridge.readCredentials(config.id),
+        ...?drafts[config.id],
+      };
+      config.validateCredentials(value);
+      if (drafts[config.id] != null) credentials[config.id] = value;
+    }
+    for (final removed in settings.services.where(
+      (old) => !candidate.services.any((e) => e.id == old.id),
+    )) {
+      credentials[removed.id] = null;
+    }
+    await bridge.applySettings(candidate.toMap(), credentials: credentials);
     session.dismiss();
     session.language = candidate.direction;
+    session.provider = providerFor(candidate);
     settings = candidate;
     settingsError = null;
     revision += 1;
-    return {...settings.toMap(), 'revision': revision};
+    return snapshot();
   }
 
-  // 第二个 Flutter 引擎只展示表单，保存和翻译始终使用主引擎的同一份偏好。
+  // 第二个 Flutter 引擎只展示表单；配置和连接测试通过同一队列访问主引擎。
   bridge.handleSettings((call) {
-    // 菜单和设置窗口共享一条队列，切换开关必须基于前一次保存后的偏好。
     final operation = settingsQueue.then<Object?>((_) async {
       switch (call.method) {
         case 'getSettings':
-          return {
-            ...settings.toMap(),
-            'revision': revision,
-            'error': ?settingsError,
-          };
+          return snapshot();
         case 'saveSettings':
           final map = Map<Object?, Object?>.from(call.arguments as Map);
           if (map['revision'] != revision) {
@@ -57,25 +97,76 @@ Future<void> main() async {
               message: '设置已在其他入口更新，请重新加载后再保存。',
             );
           }
-          return save(AppSettings.fromMap(map));
+          final drafts = (map['credentials'] as Map? ?? {}).map(
+            (id, value) => MapEntry(
+              id as String,
+              value == null ? null : Map<String, String>.from(value as Map),
+            ),
+          );
+          try {
+            return await save(AppSettings.fromMap(map), drafts);
+          } on FormatException catch (error) {
+            throw PlatformException(
+              code: 'invalid_settings',
+              message: error.message,
+            );
+          }
         case 'toggleAutomatic':
           return save(
             AppSettings.fromMap({
               ...settings.toMap(),
               'automatic': !settings.automatic,
             }),
+            {},
           );
+        case 'testService':
+          final map = Map<Object?, Object?>.from(call.arguments as Map);
+          final config = ServiceConfig.fromMap(
+            Map<Object?, Object?>.from(map['config'] as Map),
+          );
+          final credentials = {
+            ...await bridge.readCredentials(config.id),
+            ...Map<String, String>.from(map['credentials'] as Map),
+          };
+          final testProvider = ApiTranslationProvider(
+            config: config,
+            credentials: () async => credentials,
+          );
+          final result = StringBuffer();
+          var completed = false;
+          // 示例文本不含真实选区；测试成功也不写入设置或 Keychain。
+          await for (final event in testProvider.translate(
+            const TranslationRequest(
+              sourceText: 'Hello world.',
+              detectedLanguage: 'en',
+              targetLanguage: 'zh-CN',
+            ),
+          )) {
+            switch (event) {
+              case TranslationUpdate(:final addition):
+                result.write(addition);
+              case TranslationCompleted():
+                completed = true;
+              case TranslationFailure(:final message):
+                throw PlatformException(code: 'test_failed', message: message);
+            }
+          }
+          if (!completed) {
+            throw PlatformException(code: 'test_failed', message: '服务未返回完整译文。');
+          }
+          return result.toString();
         default:
           throw MissingPluginException('未知设置操作：${call.method}');
       }
     });
-    // 错误仍返回当前调用方；队列继续接收后续修正，不会永久停在一次失败上。
+    // 一次保存或网络失败不阻塞后续修正。
     settingsQueue = operation.then<void>(
       (_) {},
       onError: (Object error, StackTrace stack) {},
     );
     return operation;
   });
+
   try {
     await bridge.applySettings(settings.toMap());
   } on PlatformException catch (error) {

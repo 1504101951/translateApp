@@ -1,4 +1,5 @@
 import Cocoa
+import Security
 import NaturalLanguage
 import ServiceManagement
 import UniformTypeIdentifiers
@@ -109,7 +110,34 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             settings["launchAtLogin"] = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
             result(settings)
         case "applySettings":
-            applySettings(args, result: result)
+            guard let settings = args["settings"] as? [String: Any],
+                  let credentials = args["credentials"] as? [String: Any] else {
+                result(FlutterError(code: "bad_settings", message: "设置数据不完整。", details: nil)); return
+            }
+            applySettings(settings, credentials: credentials, result: result)
+        case "readCredentials":
+            guard let id = args["id"] as? String else {
+                result(FlutterError(code: "bad_args", message: "缺少服务标识。", details: nil)); return
+            }
+            do { result(try Self.readCredentials(id: id) ?? [:]) }
+            catch { result(FlutterError(code: "keychain_failed", message: error.localizedDescription, details: nil)) }
+        case "credentialIds":
+            let ids = args["ids"] as? [String] ?? []
+            var saved: [String] = []
+            for id in ids {
+                let query: [String: Any] = [
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrService as String: "com.coolyang.translateApp.credentials",
+                    kSecAttrAccount as String: id,
+                    kSecReturnAttributes as String: true,
+                ]
+                let status = SecItemCopyMatching(query as CFDictionary, nil)
+                guard status == errSecSuccess || status == errSecItemNotFound else {
+                    result(FlutterError(code: "keychain_failed", message: "无法读取凭据状态，请检查钥匙串访问权限。", details: nil)); return
+                }
+                if status == errSecSuccess { saved.append(id) }
+            }
+            result(saved)
         case "detectLanguage":
             guard let text = args["text"] as? String else {
                 result(FlutterError(code: "bad_args", message: "缺少待识别文本", details: nil)); return
@@ -157,35 +185,96 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     }
 
     /// settings 为 Dart 校验过的完整偏好；先完成系统副作用再落盘，结果通过 result 返回。
-    private func applySettings(_ settings: [String: Any], result: @escaping FlutterResult) {
+    private func applySettings(_ settings: [String: Any], credentials: [String: Any], result: @escaping FlutterResult) {
         guard let automatic = settings["automatic"] as? Bool,
               let keyCode = settings["shortcutKeyCode"] as? UInt32,
               let modifiers = settings["shortcutModifiers"] as? UInt32,
               let excluded = settings["excludedApps"] as? [String: String],
-              let login = settings["launchAtLogin"] as? Bool else {
+              let login = settings["launchAtLogin"] as? Bool,
+              credentials.values.allSatisfy({ $0 is NSNull || $0 is [String: String] }) else {
             result(FlutterError(code: "bad_settings", message: "系统设置参数不完整。", details: nil)); return
         }
         let previousLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
+        var previousCredentials: [String: [String: String]] = [:]
+        var written: [String] = []
+        var loginChanged = false
         do {
+            // 先读取全部回滚数据；任何授权/读取失败都不会覆盖已有凭据。
+            for id in credentials.keys { previousCredentials[id] = try Self.readCredentials(id: id) }
+            for (id, value) in credentials {
+                try Self.storeCredentials(id: id, value: value as? [String: String])
+                written.append(id)
+            }
             if login != previousLogin {
                 if login { try SMAppService.mainApp.register() }
                 else { try SMAppService.mainApp.unregister() }
+                loginChanged = true
             }
-            do {
-                try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers)
-            } catch {
-                // 热键冲突不应顺带保存登录项；恢复用户点击保存前的系统状态。
-                if login != previousLogin {
-                    if previousLogin { try SMAppService.mainApp.register() }
-                    else { try SMAppService.mainApp.unregister() }
-                }
-                throw error
-            }
+            try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers)
+            // 凭据与系统副作用成功后才保存不含密钥的偏好。
             UserDefaults.standard.set(settings, forKey: "preferences")
             StatusBarController.shared.updateAutomatic(automatic)
             result(nil)
         } catch {
-            result(FlutterError(code: "settings_failed", message: error.localizedDescription, details: nil))
+            let originalError = error
+            do {
+                for id in written.reversed() {
+                    // 不存在与空字典分开表示，失败时恢复原始钥匙串状态。
+                    try Self.storeCredentials(id: id, value: previousCredentials[id])
+                }
+                if loginChanged {
+                    if previousLogin { try SMAppService.mainApp.register() }
+                    else { try SMAppService.mainApp.unregister() }
+                }
+            } catch {
+                result(FlutterError(code: "rollback_failed", message: "设置未保存，无法恢复部分系统设置或凭据，请检查钥匙串与登录项。", details: nil)); return
+            }
+            result(FlutterError(code: "settings_failed", message: originalError.localizedDescription, details: nil))
+        }
+    }
+
+    /// id 为服务账户；从当前用户钥匙串读取 JSON 凭据，未保存返回 nil。
+    static func readCredentials(id: String) throws -> [String: String]? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.coolyang.translateApp.credentials",
+            kSecAttrAccount as String: id,
+            kSecReturnData as String: true,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = item as? Data,
+              let credentials = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else {
+            throw NSError(domain: "TranslateApp.Keychain", code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "无法读取翻译服务凭据，请检查钥匙串访问权限。",
+            ])
+        }
+        return credentials
+    }
+
+    /// id 为服务账户，value 为凭据字典或 nil（删除）；只操作当前用户钥匙串，无返回值。
+    static func storeCredentials(id: String, value: [String: String]?) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.coolyang.translateApp.credentials",
+            kSecAttrAccount as String: id,
+        ]
+        var status: OSStatus
+        if let value {
+            let attributes = [kSecValueData as String: try JSONSerialization.data(withJSONObject: value)]
+            status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            if status == errSecItemNotFound {
+                status = SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
+            }
+        } else {
+            status = SecItemDelete(query as CFDictionary)
+            if status == errSecItemNotFound { return }
+        }
+        guard status == errSecSuccess else {
+            throw NSError(domain: "TranslateApp.Keychain", code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "无法保存或删除翻译服务凭据，请检查钥匙串访问权限。",
+            ])
         }
     }
 

@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:translate_app/src/settings/service_config.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/settings/app_settings.dart';
@@ -9,6 +12,54 @@ import 'selection_session_test.dart' show RecordingProvider;
 
 /// 无参数；验证设置约束和异步语言识别跨越会话边界时的业务输出。
 void main() {
+  test('服务配置只持久化非敏感字段，默认项必须存在，地址拒绝凭据与远程 HTTP', () {
+    const service = ServiceConfig(
+      id: 'baidu-personal',
+      kind: 'baidu',
+      name: '我的百度',
+      baseUrl: 'https://fanyi-api.baidu.com',
+    );
+    final settings = AppSettings(
+      primaryLanguage: 'zh-CN',
+      secondaryLanguage: 'en',
+      services: [service],
+      defaultServiceId: service.id,
+    );
+    final restored = AppSettings.fromMap(settings.toMap());
+    expect(restored.defaultServiceId, service.id);
+    expect(restored.services.single.name, '我的百度');
+    final serialized = jsonEncode(settings.toMap());
+    expect(serialized, isNot(contains('apiKey')));
+    expect(serialized, isNot(contains('appId')));
+    expect(settings.validate, returnsNormally);
+    settings.services.clear();
+    expect(settings.validate, throwsFormatException);
+    for (final address in [
+      'http://example.com',
+      'https://user:secret@example.com',
+      'https://example.com?key=secret',
+      'https://example.com#secret',
+    ]) {
+      expect(
+        () => ServiceConfig(
+          id: 'invalid',
+          kind: 'google',
+          name: 'Google',
+          baseUrl: address,
+        ).validate(),
+        throwsFormatException,
+      );
+    }
+    expect(
+      () => service.validateCredentials({'apiKey': 'dummy'}),
+      throwsFormatException,
+    );
+    expect(
+      () => service.validateCredentials({'apiKey': 'dummy', 'appId': 'app'}),
+      returnsNormally,
+    );
+  });
+
   test('主次语言方向支持多语言、繁体中文以及无法识别的文本', () {
     // nil 必须译向主要语言；BCP-47 同语言不同地区不能误切方向。
     const direction = LanguageDirection(primaryCode: 'fr', secondaryCode: 'en');

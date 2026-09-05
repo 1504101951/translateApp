@@ -16,7 +16,8 @@ class SelectionSession extends ChangeNotifier {
 
   static const selectionLimit = 50000;
 
-  final TranslationProvider provider;
+  // 保存默认服务后替换 Provider；切换前由主引擎取消旧会话。
+  TranslationProvider provider;
   LanguageDirection language;
   final Future<String?> Function(String text) detectLanguage;
 

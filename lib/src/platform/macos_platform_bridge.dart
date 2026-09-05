@@ -64,8 +64,23 @@ class MacosPlatformBridge {
       (await _methods.invokeMapMethod<Object?, Object?>('loadSettings'))!;
 
   /// settings 为经 Dart 校验的偏好字典；成功保存并应用系统能力后完成。
-  Future<void> applySettings(Map<String, Object> settings) =>
-      _methods.invokeMethod<void>('applySettings', settings);
+  Future<void> applySettings(
+    Map<String, Object> settings, {
+    Map<String, Map<String, String>?> credentials = const {},
+  }) => _methods.invokeMethod<void>('applySettings', {
+    'settings': settings,
+    'credentials': credentials,
+  });
+
+  /// id 为服务账户；返回仅在主引擎内存使用的凭据字典，不写入偏好。
+  Future<Map<String, String>> readCredentials(String id) async =>
+      (await _methods.invokeMapMethod<String, String>('readCredentials', {
+        'id': id,
+      }))!;
+
+  /// ids 为服务账户列表；返回已保存凭据的账户 ID，不返回密钥。
+  Future<List<String>> credentialIds(List<String> ids) async =>
+      (await _methods.invokeListMethod<String>('credentialIds', {'ids': ids}))!;
 
   /// handler 处理设置窗口及菜单请求；响应来自主 Dart 实例，避免双引擎状态分叉。
   void handleSettings(Future<Object?> Function(MethodCall) handler) =>

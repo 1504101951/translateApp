@@ -6,7 +6,7 @@
 
 | Flutter/Dart | Swift |
 |---|---|
-| Selection Session、翻译请求与取消、语言方向、Overlay 内容、设置状态与表单 | Accessibility、鼠标与键盘监听、Carbon 热键、窗口、设备语言识别、UserDefaults 存取、登录项 |
+| Selection Session、翻译请求与取消、语言方向、Overlay 内容、设置状态与表单 | Accessibility、鼠标与键盘监听、Carbon 热键、窗口、设备语言识别、UserDefaults、Keychain 存取、登录项 |
 
 主 Flutter 引擎持有唯一偏好与翻译会话。设置窗口按需使用第二引擎的 `settingsMain` 入口，表单通过 `translateapp/settings` 转发到主引擎。保存请求串行处理；修订号阻止旧表单覆盖菜单更新。
 
@@ -21,8 +21,8 @@ flowchart TD
     E[全局翻译快捷键] --> G{可读文本且应用未被排除?}
     G -- 是 --> F
     F --> H[Dart 决定目标语言]
-    H --> I[非官方 Google 翻译]
-    I --> J[译文卡片]
+    H --> I[默认 Translation Provider]
+    I --> J[双语译文卡片]
     K[切应用 / 选区失效 / Escape / 关闭] --> L[隐藏浮层并取消请求]
 ```
 
@@ -35,6 +35,16 @@ flowchart TD
 - 自动捕获关闭时保留 Escape、外部点击和前台变化监听，使快捷键产生的会话仍能正常关闭。
 - 全局热键使用 RegisterEventHotKey；同一组合不重复注册，新组合注册成功后才释放旧组合。
 
+## 服务与凭据
+
+- 主 Dart 引擎串行处理设置保存、菜单修改和示例连接测试；修订号阻止过期表单覆盖。
+- `ServiceConfig` 保存服务类型、名称、Base URL、模型、独立提示词及语义对照选项；凭据独立传给 Swift，按配置 ID 存入用户 Keychain。
+- Swift 在写入前读取回滚快照；凭据、登录项与快捷键配置成功后才保存普通偏好。不存在和空字典凭据分别保留其状态。
+- 默认服务支持非官方 Google、Google Cloud v2、百度通用翻译、OpenAI-compatible Chat Completions 与 Anthropic Messages。协议、百度签名、SSE 解析均由 Dart 实现。
+- 每个请求独占 HttpClient；取消关闭连接，请求不跟随重定向，失败信息不回显响应正文或密钥，也不自动切换服务。
+- 模型语义对照只改变展示：一次请求返回完整译文与候选源文/译文段落。应用验证原文顺序、完整覆盖和非空译文；通过时显示本地原文切片，配对无效时显示完整对照。损坏 JSON、流中断和长度截断不算成功。
+- 普通模型模式产生增量 Translation Update；语义模式在校验完成后一次发布译文和配对，避免向用户展示协议 JSON。
+
 ## 后续工单
 
-官方 Google（#5）、模型配置与 Keychain（#6）、分段恢复（#7）、SQLite 历史（#8）尚未实现。只在对应工单实施时新增模块，不提前建立空接口。
+长文本分段恢复（#7）、SQLite 历史（#8）尚未实现。只在对应工单实施时新增模块，不提前建立空接口。

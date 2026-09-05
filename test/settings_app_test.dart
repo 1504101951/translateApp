@@ -41,6 +41,7 @@ void main() {
       isFalse,
     );
     await tester.scrollUntilVisible(find.text('重新加载设置'), 300);
+    await tester.pumpAndSettle();
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNull,
@@ -79,5 +80,82 @@ void main() {
     await tester.tap(find.byType(OutlinedButton));
     await tester.pumpAndSettle();
     expect(find.text('⌃ ⌘ 1'), findsOneWidget);
+  });
+  testWidgets('添加服务、测试草稿、默认切换和删除通过保存形成实际状态', (tester) async {
+    const channel = MethodChannel('translateapp/settings');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var state = <String, Object?>{'revision': 0};
+    var credentialIds = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'systemStatus') return {'accessibility': true};
+      if (call.method == 'getSettings') {
+        return {...state, 'credentialIds': credentialIds};
+      }
+      if (call.method == 'testService') {
+        // 测试连接不得使主偏好提前包含新服务。
+        expect(state['services'], isNull);
+        return '你好，世界。';
+      }
+      if (call.method == 'saveSettings') {
+        final draft = Map<String, Object?>.from(call.arguments as Map);
+        final credentials = draft.remove('credentials') as Map;
+        final services = draft['services'] as List;
+        credentialIds = services
+            .map((e) => (e as Map)['id'] as String)
+            .toList();
+        if (services.isNotEmpty) {
+          expect(credentials[credentialIds.single], {
+            'apiKey': 'test-key',
+            'appId': 'test-app',
+          });
+          expect((services.single as Map).containsKey('apiKey'), false);
+        }
+        state = {...draft, 'revision': (state['revision'] as int) + 1};
+        return {...state, 'credentialIds': credentialIds};
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('添加服务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('测试连接'));
+    await tester.pumpAndSettle();
+    expect(find.text('请填写 API Key／密钥，百度翻译还需要 App ID。'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, '百度 App ID'),
+      'test-app',
+    );
+    await tester.enterText(find.widgetWithText(TextField, '百度密钥'), 'test-key');
+    await tester.tap(find.text('测试连接'));
+    await tester.pumpAndSettle();
+    expect(find.text('连接成功：你好，世界。'), findsOneWidget);
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(find.text('百度翻译'), findsWidgets);
+    final selector = find.byWidgetPredicate(
+      (w) =>
+          w is DropdownButtonFormField<String> &&
+          w.decoration.labelText == '默认翻译服务',
+    );
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('百度翻译').last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('保存设置'), 350);
+    await tester.tap(find.text('保存设置'));
+    await tester.pumpAndSettle();
+    expect(state['defaultServiceId'], credentialIds.single);
+    expect(find.text('已保存，下次翻译立即生效。'), findsOneWidget);
+    await tester.scrollUntilVisible(find.byTooltip('删除 百度翻译'), -350);
+    await tester.tap(find.byTooltip('删除 百度翻译'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('保存设置'), 350);
+    await tester.tap(find.text('保存设置'));
+    await tester.pumpAndSettle();
+    expect(state['services'], isEmpty);
+    expect(state['defaultServiceId'], 'unofficial-google');
   });
 }

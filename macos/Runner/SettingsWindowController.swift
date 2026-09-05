@@ -27,7 +27,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             switch call.method {
             case "recordShortcut":
                 self?.recordShortcut(result: result)
-            case "getSettings", "saveSettings":
+            case "getSettings", "saveSettings", "testService":
                 bridge.requestSettings(call.method, arguments: call.arguments, result: result)
             default:
                 // 系统能力复用主桥，第二引擎不注册全局选区监听或覆盖单例。

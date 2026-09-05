@@ -1,10 +1,49 @@
 import Cocoa
 import FlutterMacOS
+import ServiceManagement
 import XCTest
 
 @testable import translate_app
 
 class RunnerTests: XCTestCase {
+
+    /// 无参数；真实 Keychain 往返与失败回滚，UUID 隔离用户凭据，空字典与不存在是两个边界。
+    @MainActor
+    func testCredentialsRoundTripAndSettingsRollback() throws {
+        let id = "test-\(UUID().uuidString)"
+        defer { try? MacPlatformBridge.storeCredentials(id: id, value: nil) }
+        XCTAssertNil(try MacPlatformBridge.readCredentials(id: id))
+        try MacPlatformBridge.storeCredentials(id: id, value: ["apiKey": "first"])
+        XCTAssertEqual(try MacPlatformBridge.readCredentials(id: id), ["apiKey": "first"])
+        try MacPlatformBridge.storeCredentials(id: id, value: ["apiKey": "second", "appId": "dummy"])
+        XCTAssertEqual(try MacPlatformBridge.readCredentials(id: id), ["apiKey": "second", "appId": "dummy"])
+
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        let preferences = UserDefaults.standard.dictionary(forKey: "preferences")
+        let settings: [String: Any] = [
+            "automatic": false, "shortcutKeyCode": 128, "shortcutModifiers": 6144,
+            "excludedApps": [String: String](),
+            "launchAtLogin": [.enabled, .requiresApproval].contains(SMAppService.mainApp.status),
+        ]
+        // 无效 keyCode 在系统配置步骤失败，验证已写凭据会恢复，而非只检查方法调用。
+        for prior in [["apiKey": "original"], [:]] {
+            try MacPlatformBridge.storeCredentials(id: id, value: prior)
+            var response: Any?
+            bridge.handle(FlutterMethodCall(methodName: "applySettings", arguments: [
+                "settings": settings, "credentials": [id: ["apiKey": "replacement"]],
+            ])) { response = $0 }
+            XCTAssertNotNil(response as? FlutterError)
+            XCTAssertEqual(try MacPlatformBridge.readCredentials(id: id), prior)
+        }
+        XCTAssertEqual(UserDefaults.standard.dictionary(forKey: "preferences") as NSDictionary?, preferences as NSDictionary?)
+        try MacPlatformBridge.storeCredentials(id: id, value: nil)
+        XCTAssertNil(try MacPlatformBridge.readCredentials(id: id))
+        bridge.handle(FlutterMethodCall(methodName: "applySettings", arguments: [
+            "settings": settings, "credentials": [id: ["apiKey": "temporary"]],
+        ])) { XCTAssertNotNil($0 as? FlutterError) }
+        XCTAssertNil(try MacPlatformBridge.readCredentials(id: id))
+    }
+
 
     /// 无参数；另一进程独占 Carbon 组合时，保存必须失败且保留旧设置；普通注册不在系统可检测范围。
     @MainActor
