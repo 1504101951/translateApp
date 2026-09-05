@@ -6,7 +6,8 @@ class AppSettings {
     required this.primaryLanguage,
     required this.secondaryLanguage,
     this.automatic = true,
-    this.shortcutKey = 'T',
+    this.shortcutKeyCode = 17,
+    this.shortcutLabel = 'T',
     this.shortcutModifiers = 6144,
     this.launchAtLogin = false,
     Map<String, String>? excludedApps,
@@ -15,7 +16,8 @@ class AppSettings {
   String primaryLanguage;
   String secondaryLanguage;
   bool automatic;
-  String shortcutKey;
+  int shortcutKeyCode;
+  String shortcutLabel;
   int shortcutModifiers;
   bool launchAtLogin;
   final Map<String, String> excludedApps;
@@ -52,7 +54,8 @@ class AppSettings {
       secondaryLanguage:
           map['secondaryLanguage'] as String? ?? language.secondaryCode,
       automatic: map['automatic'] as bool? ?? true,
-      shortcutKey: map['shortcutKey'] as String? ?? 'T',
+      shortcutKeyCode: map['shortcutKeyCode'] as int? ?? 17,
+      shortcutLabel: map['shortcutLabel'] as String? ?? 'T',
       shortcutModifiers: map['shortcutModifiers'] as int? ?? 6144,
       launchAtLogin: map['launchAtLogin'] as bool? ?? false,
       excludedApps: Map<String, String>.from(map['excludedApps'] as Map? ?? {}),
@@ -68,7 +71,9 @@ class AppSettings {
       throw const FormatException('主要语言和次要语言必须不同。');
     }
     // Shift 单独搭配字母会吞掉普通输入，至少要求一个系统修饰键。
-    if (!RegExp(r'^[A-Z]$').hasMatch(shortcutKey) ||
+    if (shortcutKeyCode < 0 ||
+        shortcutKeyCode > 127 ||
+        shortcutLabel.isEmpty ||
         shortcutModifiers & 6400 == 0 ||
         shortcutModifiers & ~6912 != 0) {
       throw const FormatException('快捷键至少需要 Control、Option 或 Command。');
@@ -80,7 +85,8 @@ class AppSettings {
     'primaryLanguage': primaryLanguage,
     'secondaryLanguage': secondaryLanguage,
     'automatic': automatic,
-    'shortcutKey': shortcutKey,
+    'shortcutKeyCode': shortcutKeyCode,
+    'shortcutLabel': shortcutLabel,
     'shortcutModifiers': shortcutModifiers,
     'launchAtLogin': launchAtLogin,
     'excludedApps': excludedApps,

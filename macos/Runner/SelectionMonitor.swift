@@ -8,7 +8,7 @@ final class SelectionMonitor {
     private var excludedApps: Set<String> = []
     private var hotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
-    private var shortcutKey: String?
+    private var shortcutKeyCode: UInt32?
     private var shortcutModifiers: UInt32 = 0
     private var detector = SelectionGestureDetector()
     private var localMouseMonitor: Any?
@@ -22,16 +22,8 @@ final class SelectionMonitor {
     private var pendingKeySelection: (keyCode: UInt16, gesture: SelectionGesture)?
 
     /// 配置均来自 Dart；注册新热键成功后才替换旧配置，失败抛出系统错误。
-    func configure(automatic: Bool, excludedApps: Set<String>, key: String, modifiers: UInt32) throws {
-        let keyCodes: [String: UInt32] = [
-            "A": 0, "B": 11, "C": 8, "D": 2, "E": 14, "F": 3, "G": 5,
-            "H": 4, "I": 34, "J": 38, "K": 40, "L": 37, "M": 46, "N": 45,
-            "O": 31, "P": 35, "Q": 12, "R": 15, "S": 1, "T": 17, "U": 32,
-            "V": 9, "W": 13, "X": 7, "Y": 16, "Z": 6,
-        ]
-        guard let code = keyCodes[key], modifiers & 6400 != 0, modifiers & ~6912 == 0 else {
-            throw NSError(domain: "TranslateApp", code: 1, userInfo: [NSLocalizedDescriptionKey: "快捷键需要字母和 Control、Option 或 Command。"])
-        }
+    func configure(automatic: Bool, excludedApps: Set<String>, keyCode: UInt32, modifiers: UInt32) throws {
+        try Self.validateShortcut(keyCode: keyCode, modifiers: modifiers)
         if hotKeyHandler == nil {
             var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
             let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
@@ -41,6 +33,10 @@ final class SelectionMonitor {
                 guard identifier.signature == 0x5452414E else { return OSStatus(eventNotHandledErr) }
                 let monitor = Unmanaged<SelectionMonitor>.fromOpaque(context).takeUnretainedValue()
                 Task { @MainActor in
+                    if let recorder = MacPlatformBridge.Shared.instance?.shortcutRecorder {
+                        recorder(monitor.shortcutKeyCode!, monitor.shortcutModifiers)
+                        return
+                    }
                     // 全局热键复用选区读取和会话失效机制，不激活 TranslateApp。
                     monitor.capture(gesture: .hotkey, location: NSEvent.mouseLocation)
                 }
@@ -48,9 +44,9 @@ final class SelectionMonitor {
             }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
             guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
         }
-        if shortcutKey != key || shortcutModifiers != modifiers {
+        if shortcutKeyCode != keyCode || shortcutModifiers != modifiers {
             var replacement: EventHotKeyRef?
-            let status = RegisterEventHotKey(code, modifiers, EventHotKeyID(signature: 0x5452414E, id: 1), GetApplicationEventTarget(), 0, &replacement)
+            let status = RegisterEventHotKey(keyCode, modifiers, EventHotKeyID(signature: 0x5452414E, id: 1), GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &replacement)
             guard status == noErr else {
                 throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
                     NSLocalizedDescriptionKey: "无法注册快捷键，可能已被其他应用占用（\(status)）。请选择其他组合。",
@@ -59,7 +55,7 @@ final class SelectionMonitor {
             // 先注册后释放，冲突不会让当前有效快捷键失效。
             if let hotKey { UnregisterEventHotKey(hotKey) }
             hotKey = replacement
-            shortcutKey = key
+            shortcutKeyCode = keyCode
             shortcutModifiers = modifiers
         }
         self.automatic = automatic
@@ -69,6 +65,27 @@ final class SelectionMonitor {
         captureTask?.cancel()
         stopObservingSelection()
         MacPlatformBridge.Shared.instance?.invalidateSelection()
+    }
+
+    /// keyCode/modifiers 为待注册组合；拒绝普通输入与已启用的系统保留键，成功无返回值。
+    static func validateShortcut(keyCode: UInt32, modifiers: UInt32) throws {
+        guard keyCode <= 127, keyCode != 53, modifiers & 6400 != 0, modifiers & ~6912 == 0 else {
+            throw NSError(domain: "TranslateApp", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "快捷键至少需要 Control、Option 或 Command，并搭配一个非 Esc 按键。",
+            ])
+        }
+        var shortcuts: Unmanaged<CFArray>?
+        let status = CopySymbolicHotKeys(&shortcuts)
+        guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+        for item in shortcuts?.takeRetainedValue() as? [[String: Any]] ?? [] {
+            if item[kHISymbolicHotKeyEnabled as String] as? Bool == true,
+               item[kHISymbolicHotKeyCode as String] as? UInt32 == keyCode,
+               item[kHISymbolicHotKeyModifiers as String] as? UInt32 == modifiers {
+                throw NSError(domain: "TranslateApp", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "这个组合已用于 macOS 系统快捷键，请换一个组合。",
+                ])
+            }
+        }
     }
 
     /// 无参数；安装不吞掉原应用输入的全局监听，无返回值。

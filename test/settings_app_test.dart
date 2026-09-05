@@ -55,4 +55,29 @@ void main() {
       isTrue,
     );
   });
+
+  testWidgets('录制数字组合后显示真实快捷键，取消保留当前组合', (tester) async {
+    const channel = MethodChannel('translateapp/settings');
+    var cancel = false;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'systemStatus') return {'accessibility': true};
+      if (call.method == 'getSettings') return {'revision': 0};
+      if (call.method == 'recordShortcut') {
+        return cancel ? null : {'keyCode': 18, 'modifiers': 4352, 'label': '1'};
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(OutlinedButton));
+    await tester.pumpAndSettle();
+    expect(find.text('⌃ ⌘ 1'), findsOneWidget);
+    cancel = true;
+    await tester.tap(find.byType(OutlinedButton));
+    await tester.pumpAndSettle();
+    expect(find.text('⌃ ⌘ 1'), findsOneWidget);
+  });
 }

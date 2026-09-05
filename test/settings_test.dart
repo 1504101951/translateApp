@@ -61,14 +61,16 @@ void main() {
       primaryLanguage: 'ja',
       secondaryLanguage: 'en',
       automatic: false,
-      shortcutKey: 'R',
+      shortcutKeyCode: 15,
+      shortcutLabel: 'R',
       shortcutModifiers: 6400,
       excludedApps: {'com.apple.TextEdit': '文本编辑'},
     );
     final restored = AppSettings.fromMap(settings.toMap());
     expect(restored.automatic, isFalse);
     expect(restored.excludedApps, {'com.apple.TextEdit': '文本编辑'});
-    expect(restored.shortcutKey, 'R');
+    expect(restored.shortcutKeyCode, 15);
+    expect(restored.shortcutLabel, 'R');
     expect(restored.direction.resolve('ja').targetLanguage, 'en');
   });
 }

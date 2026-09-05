@@ -34,6 +34,7 @@ class _SettingsPageState extends State<_SettingsPage>
   Map<Object?, Object?> _status = {};
   String? _message;
   bool _saving = false;
+  bool _recording = false;
   bool _failed = false;
   bool _dirty = false;
   bool _conflicted = false;
@@ -142,6 +143,31 @@ class _SettingsPageState extends State<_SettingsPage>
     }
   }
 
+  /// 无参数；向设置窗口录制器请求一次按键，取消时保留当前组合。
+  Future<void> _recordShortcut() async {
+    setState(() => _recording = true);
+    try {
+      final key = await _channel.invokeMapMethod<Object?, Object?>(
+        'recordShortcut',
+      );
+      if (!mounted || key == null) return;
+      _edit(() {
+        _settings!.shortcutKeyCode = key['keyCode'] as int;
+        _settings!.shortcutModifiers = key['modifiers'] as int;
+        _settings!.shortcutLabel = key['label'] as String;
+      });
+    } on PlatformException catch (error) {
+      if (mounted) {
+        setState(() {
+          _message = error.message;
+          _failed = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _recording = false);
+    }
+  }
+
   /// 无参数；使用 macOS 应用选择器添加一个排除项，取消不改变表单。
   Future<void> _addExclusion() async {
     final app = await _channel.invokeMapMethod<String, String>(
@@ -247,35 +273,24 @@ class _SettingsPageState extends State<_SettingsPage>
           const Divider(height: 28),
           const Text('全局翻译快捷键', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              for (final modifier in const {
-                4096: '⌃ Control',
-                2048: '⌥ Option',
-                512: '⇧ Shift',
-                256: '⌘ Command',
-              }.entries)
-                FilterChip(
-                  label: Text(modifier.value),
-                  selected: settings.shortcutModifiers & modifier.key != 0,
-                  onSelected: (v) => _edit(() {
-                    settings.shortcutModifiers = v
-                        ? settings.shortcutModifiers | modifier.key
-                        : settings.shortcutModifiers & ~modifier.key;
-                  }),
-                ),
-              DropdownButton<String>(
-                value: settings.shortcutKey,
-                items: List.generate(26, (i) {
-                  final key = String.fromCharCode(65 + i);
-                  return DropdownMenuItem(value: key, child: Text(key));
-                }),
-                onChanged: (v) => _edit(() => settings.shortcutKey = v!),
-              ),
-            ],
+          OutlinedButton.icon(
+            onPressed: _saving || _recording ? null : _recordShortcut,
+            icon: const Icon(Icons.keyboard_outlined),
+            label: Text(
+              _recording
+                  ? '请按下组合键，Esc 取消…'
+                  : [
+                      if (settings.shortcutModifiers & 4096 != 0) '⌃',
+                      if (settings.shortcutModifiers & 2048 != 0) '⌥',
+                      if (settings.shortcutModifiers & 512 != 0) '⇧',
+                      if (settings.shortcutModifiers & 256 != 0) '⌘',
+                      settings.shortcutLabel,
+                    ].join(' '),
+            ),
+          ),
+          const Text(
+            '点击录制；保存时检查系统保留组合和可识别的全局占用。',
+            style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
           ),
           const Divider(height: 28),
           Row(
@@ -337,7 +352,7 @@ class _SettingsPageState extends State<_SettingsPage>
           ),
           const SizedBox(height: 16),
           FilledButton(
-            onPressed: _saving || _conflicted ? null : _save,
+            onPressed: _saving || _recording || _conflicted ? null : _save,
             child: Text(_saving ? '正在保存…' : '保存设置'),
           ),
           if (_conflicted)

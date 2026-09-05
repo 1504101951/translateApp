@@ -6,6 +6,39 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+    /// 无参数；另一进程独占 Carbon 组合时，保存必须失败且保留旧设置；普通注册不在系统可检测范围。
+    @MainActor
+    func testHotKeyConflictAcrossProcesses() throws {
+        let child = Process()
+        let output = Pipe()
+        let input = Pipe()
+        child.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
+        child.arguments = ["-e", """
+        import AppKit
+        import Carbon
+        let app = NSApplication.shared
+        var reference: EventHotKeyRef?
+        let status = RegisterEventHotKey(9, 6912, EventHotKeyID(signature: 0x54455354, id: 1), GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &reference)
+        print(status)
+        fflush(stdout)
+        _ = readLine()
+        if let reference { UnregisterEventHotKey(reference) }
+        """]
+        child.standardOutput = output
+        child.standardInput = input
+        try child.run()
+        defer {
+            try? input.fileHandleForWriting.write(contentsOf: Data("done\n".utf8))
+            if child.isRunning { child.terminate() }
+        }
+        let bytes = output.fileHandleForReading.availableData
+        XCTAssertEqual(String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines), "0")
+        let monitor = SelectionMonitor()
+        try monitor.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912)
+        XCTAssertThrowsError(try monitor.configure(automatic: false, excludedApps: [], keyCode: 9, modifiers: 6912))
+        XCTAssertTrue(monitor.automatic)
+    }
+
     /// 无参数；真实 Carbon 注册冲突必须保留旧热键及自动按钮状态，无返回值。
     @MainActor
     func testHotKeyConflictPreservesPreviousConfiguration() throws {
@@ -13,13 +46,13 @@ class RunnerTests: XCTestCase {
         let second = SelectionMonitor()
         let probe = SelectionMonitor()
         // 四个修饰键用于避免占用用户常用组合；同一组合是系统冲突边界。
-        try first.configure(automatic: false, excludedApps: [], key: "X", modifiers: 6912)
-        try first.configure(automatic: true, excludedApps: [], key: "X", modifiers: 6912)
+        try first.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912)
+        try first.configure(automatic: true, excludedApps: [], keyCode: 7, modifiers: 6912)
         XCTAssertTrue(first.automatic)
-        try second.configure(automatic: true, excludedApps: [], key: "Y", modifiers: 6912)
-        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], key: "X", modifiers: 6912))
+        try second.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912)
+        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912))
         XCTAssertTrue(second.automatic)
-        XCTAssertThrowsError(try probe.configure(automatic: false, excludedApps: [], key: "Y", modifiers: 6912))
+        XCTAssertThrowsError(try probe.configure(automatic: false, excludedApps: [], keyCode: 16, modifiers: 6912))
         withExtendedLifetime((first, second, probe)) {}
     }
 

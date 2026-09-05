@@ -14,6 +14,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     private let selectionMonitor: SelectionMonitor
     private var methods: FlutterMethodChannel?
     var onReady: (() -> Void)?
+    var shortcutRecorder: ((UInt32, UInt32) -> Void)?
     private var currentSessionId: String?
     private var sourceProcessIdentifier: pid_t?
     var hasSelection: Bool { currentSessionId != nil }
@@ -158,7 +159,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     /// settings 为 Dart 校验过的完整偏好；先完成系统副作用再落盘，结果通过 result 返回。
     private func applySettings(_ settings: [String: Any], result: @escaping FlutterResult) {
         guard let automatic = settings["automatic"] as? Bool,
-              let key = settings["shortcutKey"] as? String,
+              let keyCode = settings["shortcutKeyCode"] as? UInt32,
               let modifiers = settings["shortcutModifiers"] as? UInt32,
               let excluded = settings["excludedApps"] as? [String: String],
               let login = settings["launchAtLogin"] as? Bool else {
@@ -171,7 +172,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 else { try SMAppService.mainApp.unregister() }
             }
             do {
-                try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), key: key, modifiers: modifiers)
+                try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers)
             } catch {
                 // 热键冲突不应顺带保存登录项；恢复用户点击保存前的系统状态。
                 if login != previousLogin {
