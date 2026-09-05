@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 
 import '../../settings/service_config.dart';
 import '../model_result.dart';
+import '../paragraph_translation.dart';
 import '../translation_types.dart';
 
 /// 配置型翻译服务；每个请求独占连接，沿用 Selection Session 的流取消语义。
@@ -19,6 +20,16 @@ class ApiTranslationProvider implements TranslationProvider {
   /// request 为同一会话的原文与语言方向；返回增量译文及完整结束/失败事件。
   @override
   Stream<TranslationEvent> translate(TranslationRequest request) {
+    // 语义模型需要整篇上下文；其他服务按原文段落建立可验证的一一对应。
+    return translateParagraphs(
+      _translate,
+      request,
+      keepWholeSource: config.isModel && config.semanticPairs,
+    );
+  }
+
+  /// request 为一次服务请求的文本与方向；返回协议解析后的事件流，取消时关闭连接。
+  Stream<TranslationEvent> _translate(TranslationRequest request) {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
     final output = StreamController<TranslationEvent>();

@@ -1,11 +1,8 @@
 /// 根据设备识别的来源语言，选择用户配置的主要或次要语言。
 class LanguageDirection {
-  const LanguageDirection({
-    required this.primaryCode,
-    required this.secondaryCode,
-  });
+  const LanguageDirection({required this.primaryCode, this.secondaryCode});
   final String primaryCode;
-  final String secondaryCode;
+  final String? secondaryCode;
 
   /// languageCode 为 macOS 首选 BCP-47 语言；返回初始主/次语言。
   factory LanguageDirection.systemDefault({String? languageCode}) {
@@ -24,7 +21,7 @@ class LanguageDirection {
     return (
       detectedLanguage: code,
       targetLanguage: code == normalize(primaryCode)
-          ? secondaryCode
+          ? secondaryCode ?? primaryCode
           : primaryCode,
     );
   }

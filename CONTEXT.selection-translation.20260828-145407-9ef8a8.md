@@ -19,7 +19,7 @@ Topic: selection-translation
 
 **Baidu Provider**: A Translation Provider backed by the official Baidu general translation API, with App ID and secret stored in macOS Keychain.
 
-**Bilingual Pair**: A translated passage followed by its source passage in Translation Result State. Source passages use local selected text after checking ordered, complete source coverage. Invalid model pairing displays the full translation above the full source; coverage validation does not prove semantic accuracy. This display option makes one request and is separate from Segmented Translation.
+**Bilingual Pair**: One source passage and its translation displayed in the same row, with translation on the left and local source text on the right. Hovering the translation highlights only its source passage. Ordinary providers align by source paragraph boundaries; semantic models retain whole-source context and supply ordered segments validated against complete local source coverage. Preserved whitespace belongs to the pairs. Coverage validation does not prove semantic accuracy.
 
 **Automatic Translation Trigger**: User-controlled appearance of the translation button after a Selection Gesture exposes text through Accessibility. Passive detection never injects copy keystrokes; an unreadable selection does not create an automatic session. Enabled by default. Disabling ends the current Selection Session and does not disable the Global Translation Shortcut.
 
@@ -97,7 +97,7 @@ _Avoid_: Restarted Translation, Partial Translation Record
 
 _Avoid_: Fixed Target Language
 
-**Secondary Language**: The destination language used when the selected text is detected as the Primary Language. It initially uses English, or Simplified Chinese when the Primary Language is English.
+**Secondary Language**: An optional destination language for text detected as the Primary Language. It is unset by default and can be cleared and saved. When present, it must differ from the Primary Language.
 
 _Avoid_: Fallback Language
 
@@ -105,7 +105,7 @@ _Avoid_: Fallback Language
 
 _Avoid_: Provider-Detected Language
 
-**Translation Direction**: The automatically selected direction between the Primary Language and Secondary Language. Primary Language text is translated into the Secondary Language; all other text, including text without a reliable Detected Language, is translated into the Primary Language.
+**Translation Direction**: With a Secondary Language, text detected as the Primary Language targets the Secondary Language and all other or unknown languages target the Primary Language. Without a Secondary Language, every selection targets the Primary Language. Text already in the target language is returned unchanged with paragraph pairs and no external translation request.
 
 _Avoid_: Manual Source Language
 

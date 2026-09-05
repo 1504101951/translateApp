@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../translation_types.dart';
+import '../paragraph_translation.dart';
 
 /// 零配置翻译源；每个流独占 HTTP 连接，取消订阅即中止网络请求。
 class UnofficialGoogleProvider implements TranslationProvider {
@@ -18,6 +19,12 @@ class UnofficialGoogleProvider implements TranslationProvider {
   /// request 包含原文和语言方向；返回可取消的译文、完成或失败事件流。
   @override
   Stream<TranslationEvent> translate(TranslationRequest request) {
+    // 以原文段落为边界翻译，原文与译文的映射不依赖远端句子数量。
+    return translateParagraphs(_translate, request);
+  }
+
+  /// request 为一个段落的原文与方向；返回可取消的 HTTP 翻译结果。
+  Stream<TranslationEvent> _translate(TranslationRequest request) {
     late final HttpClient client;
     late final StreamController<TranslationEvent> events;
     events = StreamController<TranslationEvent>(

@@ -2,6 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/translation/language_direction.dart';
 
 void main() {
+  test('without secondary language every source targets the primary', () {
+    // 已识别主语言、其他语言、未知语言三个分支都必须有有效目标语言。
+    const direction = LanguageDirection(primaryCode: 'zh-CN');
+    for (final source in ['zh-Hans', 'en', null]) {
+      expect(direction.resolve(source).targetLanguage, 'zh-CN');
+    }
+  });
   test('english primary defaults secondary to simplified chinese', () {
     final direction = LanguageDirection.systemDefault(languageCode: 'en-US');
     expect(direction.primaryCode, 'en');

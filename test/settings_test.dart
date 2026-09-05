@@ -12,6 +12,18 @@ import 'selection_session_test.dart' show RecordingProvider;
 
 /// 无参数；验证设置约束和异步语言识别跨越会话边界时的业务输出。
 void main() {
+  test('secondary language can be cleared and remains absent after saving', () {
+    // 用户已有次要语言，再主动清空；完整偏好往返后不能悄悄恢复默认值。
+    final settings = AppSettings(
+      primaryLanguage: 'zh-CN',
+      secondaryLanguage: 'en',
+    );
+    settings.secondaryLanguage = null;
+    settings.validate();
+    final restored = AppSettings.fromMap(settings.toMap());
+    expect(restored.secondaryLanguage, isNull);
+    expect(restored.direction.resolve('zh-CN').targetLanguage, 'zh-CN');
+  });
   test('服务配置只持久化非敏感字段，默认项必须存在，地址拒绝凭据与远程 HTTP', () {
     const service = ServiceConfig(
       id: 'baidu-personal',

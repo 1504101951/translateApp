@@ -58,6 +58,8 @@ enum AccessibilitySelection {
         if isUsable(readOnce(app: app).text) { return true }
         // 只有实际读到过文字的节点才可证明清空；复制回退没有 AX 节点时保持未知。
         guard let selectionElement else { return nil }
+        // 浏览器跨节点选区由文本标记范围表示，不能用焦点容器的字符范围代替。
+        if let selection = selectedTextMarker(from: selectionElement) { return isUsable(selection.text) }
         if let text = stringAttribute(selectionElement, kAXSelectedTextAttribute as CFString) {
             return isUsable(text)
         }
@@ -73,6 +75,9 @@ enum AccessibilitySelection {
     private static func readOnce(app: AXUIElement) -> (text: String?, bounds: CGRect?, element: AXUIElement?) {
         var candidates: [AXUIElement] = []
         if let focused = focusedElement(from: app) {
+            guard !isSecure(focused), TextSelectionContext.shouldReadSelectedText(ancestorRoles: ancestorRoles(of: focused)) else {
+                return (nil, nil, nil)
+            }
             candidates.append(focused)
         }
         if let systemFocused = systemFocusedElement(),
@@ -80,6 +85,10 @@ enum AccessibilitySelection {
             candidates.append(systemFocused)
         }
 
+        // 焦点可能落在静态文字节点；窗口子树包含提供跨节点选区的 WebArea。
+        if let window = axElement(attribute(app, kAXFocusedWindowAttribute as CFString)) {
+            candidates.append(window)
+        }
         for element in candidates {
             if isSecure(element) { return (nil, nil, nil) }
             let roles = ancestorRoles(of: element)
@@ -117,6 +126,10 @@ enum AccessibilitySelection {
     }
 
     private static func selection(from element: AXUIElement) -> (text: String, bounds: CGRect?)? {
+        // 先读取浏览器的 anchor/focus 标记范围，覆盖跨多个 DOM 文本节点的全选。
+        if let selection = selectedTextMarker(from: element), isUsable(selection.text) {
+            return (selection.text, selectedBounds(of: element, marker: selection.marker))
+        }
         if let text = stringAttribute(element, kAXSelectedTextAttribute as CFString), isUsable(text) {
             return (text, selectedBounds(of: element))
         }
@@ -124,6 +137,16 @@ enum AccessibilitySelection {
             return (text, selectedBounds(of: element))
         }
         return nil
+    }
+
+    /// element 为 AX 节点；返回跨节点选区文本和对应标记范围，不支持该属性时返回 nil。
+    private static func selectedTextMarker(from element: AXUIElement) -> (text: String, marker: CFTypeRef)? {
+        guard let marker = attribute(element, kAXSelectedTextMarkerRangeAttribute as CFString),
+              CFGetTypeID(marker) == AXTextMarkerRangeGetTypeID() else { return nil }
+        var value: CFTypeRef?
+        let status = AXUIElementCopyParameterizedAttributeValue(element, kAXStringForTextMarkerRangeParameterizedAttribute as CFString, marker, &value)
+        guard status == .success, let text = value as? String else { return nil }
+        return (text, marker)
     }
 
     private static func selectedTextFromValue(_ element: AXUIElement) -> String? {
@@ -201,16 +224,17 @@ enum AccessibilitySelection {
         attribute(element, name) as? String
     }
 
-    private static func selectedBounds(of element: AXUIElement) -> CGRect? {
-        guard let rangeValue = attribute(element, kAXSelectedTextRangeAttribute as CFString) else { return nil }
+    /// element 为文字节点，marker 为可选的跨节点范围；返回 AppKit 坐标中的选区矩形。
+    private static func selectedBounds(of element: AXUIElement, marker: CFTypeRef? = nil) -> CGRect? {
+        guard let rangeValue = marker ?? attribute(element, kAXSelectedTextRangeAttribute as CFString) else { return nil }
         var boundsValue: CFTypeRef?
         let boundsStatus = AXUIElementCopyParameterizedAttributeValue(
             element,
-            kAXBoundsForRangeParameterizedAttribute as CFString,
+            (marker == nil ? kAXBoundsForRangeParameterizedAttribute : kAXBoundsForTextMarkerRangeParameterizedAttribute) as CFString,
             rangeValue,
             &boundsValue
         )
-        guard boundsStatus == .success, let boundsValue else { return nil }
+        guard boundsStatus == .success, let boundsValue, CFGetTypeID(boundsValue) == AXValueGetTypeID() else { return nil }
         var rect = CGRect.zero
         guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) else { return nil }
         // AX 原点位于菜单栏屏幕顶部，不随 key 窗口所在屏幕改变。

@@ -5,7 +5,7 @@ import '../selection/selection_session.dart';
 import '../translation/translation_types.dart';
 
 /// 当前选区的触发按钮和译文卡片；窗口位置由 macOS 管理。
-class TranslationOverlay extends StatelessWidget {
+class TranslationOverlay extends StatefulWidget {
   /// session 提供状态；三个无参回调分别翻译、关闭、拖动；构造浮层内容。
   const TranslationOverlay({
     super.key,
@@ -21,13 +21,24 @@ class TranslationOverlay extends StatelessWidget {
   final VoidCallback onDismiss;
   final VoidCallback onDrag;
 
+  /// 无参数；创建只保存当前悬停段落的界面状态。
+  @override
+  State<TranslationOverlay> createState() => _TranslationOverlayState();
+}
+
+class _TranslationOverlayState extends State<TranslationOverlay> {
+  (String?, int)? _hoveredParagraph;
+
   /// context 提供主题；返回随会话更新的单按钮或结果卡片。
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: session,
+      listenable: widget.session,
       builder: (context, _) {
-        final snap = session.snapshot;
+        final snap = widget.session.snapshot;
+        final pairs = snap.pairs.isEmpty
+            ? [TranslationPair(snap.sourceText, snap.translatedText)]
+            : snap.pairs;
         if (snap.phase == TranslationPhase.idle) {
           return const SizedBox.shrink();
         }
@@ -36,9 +47,9 @@ class TranslationOverlay extends StatelessWidget {
           return Material(
             color: Colors.transparent,
             child: GestureDetector(
-              onPanStart: (_) => onDrag(),
+              onPanStart: (_) => widget.onDrag(),
               child: FilledButton.icon(
-                onPressed: onActivate,
+                onPressed: widget.onActivate,
                 icon: const Icon(Icons.translate_rounded, size: 16),
                 label: const Text('翻译'),
                 style: FilledButton.styleFrom(
@@ -77,7 +88,7 @@ class TranslationOverlay extends StatelessWidget {
                 // 结果标题提供拖动区域，无需额外占用一条原生标题栏。
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onPanStart: (_) => onDrag(),
+                  onPanStart: (_) => widget.onDrag(),
                   child: Row(
                     children: [
                       if (busy)
@@ -99,7 +110,7 @@ class TranslationOverlay extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        onPressed: onDismiss,
+                        onPressed: widget.onDismiss,
                         tooltip: '关闭',
                         icon: const Icon(Icons.close, size: 16),
                         visualDensity: VisualDensity.compact,
@@ -107,65 +118,105 @@ class TranslationOverlay extends StatelessWidget {
                     ],
                   ),
                 ),
+                Row(
+                  children: [
+                    for (final part in [
+                      ('译文', snap.translatedText),
+                      ('原文', snap.sourceText),
+                    ])
+                      Expanded(
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                part.$1,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF687080),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '复制${part.$1}',
+                              onPressed: part.$2.isEmpty
+                                  ? null
+                                  : () => Clipboard.setData(
+                                      ClipboardData(text: part.$2),
+                                    ),
+                              icon: const Icon(Icons.copy_rounded, size: 14),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const Divider(height: 1),
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 只有已校验的模型对齐结果才拆段；其他结果始终显示完整原文和译文。
-                        for (final pair
-                            in snap.pairs.isEmpty
-                                ? [
-                                    TranslationPair(
-                                      snap.sourceText,
-                                      snap.translatedText,
-                                    ),
-                                  ]
-                                : snap.pairs)
-                          // 译文先进入首屏；每组对照结束后再分隔，便于连续阅读。
-                          for (final part in [
-                            ('译文', pair.translation),
-                            ('原文', pair.source),
-                          ]) ...[
-                            Row(
+                        // 每行共享已校验的配对边界；左右内容高度不同也不会错行。
+                        for (var index = 0; index < pairs.length; index++)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    part.$1,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Color(0xFF767D88),
+                                  child: MouseRegion(
+                                    key: ValueKey(
+                                      'translated-paragraph-$index',
+                                    ),
+                                    onEnter: (_) => setState(() {
+                                      _hoveredParagraph = (
+                                        widget.session.sessionId,
+                                        index,
+                                      );
+                                    }),
+                                    onExit: (_) => setState(() {
+                                      _hoveredParagraph = null;
+                                    }),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: SelectableText(
+                                        pairs[index].translation,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          height: 1.5,
+                                          color: Color(0xFF1C2434),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
-                                IconButton(
-                                  tooltip: '复制${part.$1}',
-                                  onPressed: part.$2.isEmpty
-                                      ? null
-                                      : () => Clipboard.setData(
-                                          ClipboardData(text: part.$2),
-                                        ),
-                                  icon: const Icon(
-                                    Icons.copy_rounded,
-                                    size: 13,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Container(
+                                    key: ValueKey('source-paragraph-$index'),
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          _hoveredParagraph ==
+                                              (widget.session.sessionId, index)
+                                          ? const Color(0xFFDFEBFF)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: SelectableText(
+                                      pairs[index].source,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        height: 1.5,
+                                        color: Color(0xFF687080),
+                                      ),
+                                    ),
                                   ),
-                                  visualDensity: VisualDensity.compact,
                                 ),
                               ],
                             ),
-                            SelectableText(
-                              part.$2.isEmpty && busy ? '正在翻译…' : part.$2,
-                              style: TextStyle(
-                                fontSize: 14,
-                                height: 1.5,
-                                color: part.$1 == '原文'
-                                    ? const Color(0xFF687080)
-                                    : const Color(0xFF1C2434),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            if (part.$1 == '原文') const Divider(height: 12),
-                          ],
+                          ),
                       ],
                     ),
                   ),

@@ -5,7 +5,7 @@ import 'service_config.dart';
 class AppSettings {
   AppSettings({
     required this.primaryLanguage,
-    required this.secondaryLanguage,
+    this.secondaryLanguage,
     this.automatic = true,
     this.shortcutKeyCode = 17,
     this.shortcutLabel = 'T',
@@ -18,7 +18,7 @@ class AppSettings {
        services = services ?? [];
 
   String primaryLanguage;
-  String secondaryLanguage;
+  String? secondaryLanguage;
   bool automatic;
   int shortcutKeyCode;
   String shortcutLabel;
@@ -57,8 +57,7 @@ class AppSettings {
     return AppSettings(
       primaryLanguage:
           map['primaryLanguage'] as String? ?? language.primaryCode,
-      secondaryLanguage:
-          map['secondaryLanguage'] as String? ?? language.secondaryCode,
+      secondaryLanguage: map['secondaryLanguage'] as String?,
       automatic: map['automatic'] as bool? ?? true,
       defaultServiceId:
           map['defaultServiceId'] as String? ?? ServiceConfig.builtinId,
@@ -86,9 +85,10 @@ class AppSettings {
       throw const FormatException('默认翻译服务不存在或配置标识重复。');
     }
     if (primaryLanguage.isEmpty ||
-        secondaryLanguage.isEmpty ||
-        LanguageDirection.normalize(primaryLanguage) ==
-            LanguageDirection.normalize(secondaryLanguage)) {
+        secondaryLanguage != null &&
+            (secondaryLanguage!.isEmpty ||
+                LanguageDirection.normalize(primaryLanguage) ==
+                    LanguageDirection.normalize(secondaryLanguage!))) {
       throw const FormatException('主要语言和次要语言必须不同。');
     }
     // Shift 单独搭配字母会吞掉普通输入，至少要求一个系统修饰键。
@@ -106,7 +106,8 @@ class AppSettings {
     'defaultServiceId': defaultServiceId,
     'services': services.map((e) => e.toMap()).toList(),
     'primaryLanguage': primaryLanguage,
-    'secondaryLanguage': secondaryLanguage,
+    // 完整偏好字典通过 UserDefaults 覆盖保存；省略未设置项，避免存储不支持的 null。
+    'secondaryLanguage': ?secondaryLanguage,
     'automatic': automatic,
     'shortcutKeyCode': shortcutKeyCode,
     'shortcutLabel': shortcutLabel,

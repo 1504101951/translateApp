@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/overlay/translation_overlay.dart';
@@ -59,14 +61,14 @@ void main() {
 
       // 点击位置仍在小按钮里；结果态使用真实结果窗口尺寸。
       await tester.tap(find.text('翻译'));
-      tester.view.physicalSize = const Size(380, 360);
+      tester.view.physicalSize = const Size(720, 420);
       await tester.pumpAndSettle();
       expect(session.snapshot.phase, TranslationPhase.completed);
       expect(find.text('你好'), findsOneWidget);
       // 首屏优先展示译文；比较真实布局坐标，避免仅验证两个文本都存在。
       expect(
-        tester.getTopLeft(find.text('你好')).dy,
-        lessThan(tester.getTopLeft(find.text('Hello')).dy),
+        tester.getTopLeft(find.text('你好')).dx,
+        lessThan(tester.getTopLeft(find.text('Hello')).dx),
       );
       expect(find.byTooltip('复制原文'), findsOneWidget);
       expect(find.byTooltip('复制译文'), findsOneWidget);
@@ -106,13 +108,37 @@ void main() {
     expect(find.text('First.'), findsOneWidget);
     expect(find.text('第二段。'), findsOneWidget);
     expect(find.text('完整译文'), findsNothing);
-    // 两组边界同时验证组内译文优先和组间原有阅读顺序。
-    final texts = ['第一段。', 'First.', '第二段。', 'Second.'];
-    for (var index = 1; index < texts.length; index++) {
-      expect(
-        tester.getTopLeft(find.text(texts[index - 1])).dy,
-        lessThan(tester.getTopLeft(find.text(texts[index])).dy),
-      );
+    // 两组边界同时验证译文在左、原文在右，悬停只高亮对应段落。
+    for (final pair in [('第一段。', 'First.'), ('第二段。', 'Second.')]) {
+      final translated = tester.getTopLeft(find.text(pair.$1));
+      final source = tester.getTopLeft(find.text(pair.$2));
+      expect(translated.dx, lessThan(source.dx));
+      expect(translated.dy, source.dy);
     }
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    for (var index = 0; index < 2; index++) {
+      await mouse.moveTo(
+        tester.getCenter(find.byKey(ValueKey('translated-paragraph-$index'))),
+      );
+      await tester.pump();
+      for (var source = 0; source < 2; source++) {
+        final container = tester.widget<Container>(
+          find.byKey(ValueKey('source-paragraph-$source')),
+        );
+        final color = (container.decoration! as BoxDecoration).color;
+        expect(
+          color,
+          source == index ? isNot(Colors.transparent) : Colors.transparent,
+        );
+      }
+    }
+    await mouse.moveTo(Offset.zero);
+    await tester.pump();
+    final source = tester.widget<Container>(
+      find.byKey(const ValueKey('source-paragraph-1')),
+    );
+    expect((source.decoration! as BoxDecoration).color, Colors.transparent);
   });
 }

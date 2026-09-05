@@ -233,11 +233,18 @@ class _SettingsPageState extends State<_SettingsPage>
     });
   }
 
-  /// label 为字段名，value 为当前语言码，onChanged 写回表单；返回语言选择控件。
-  Widget _language(String label, String value, ValueChanged<String> onChanged) {
+  /// label/value 为字段名和语言码；optional 允许空值，onChanged 写回表单；返回下拉控件。
+  Widget _language(
+    String label,
+    String value,
+    ValueChanged<String> onChanged, {
+    bool optional = false,
+  }) {
     final languages = {
+      if (optional) '': '不设置',
       ...AppSettings.languages,
-      if (!AppSettings.languages.containsKey(value)) value: value,
+      if (value.isNotEmpty && !AppSettings.languages.containsKey(value))
+        value: value,
     };
     return Expanded(
       child: DropdownButtonFormField<String>(
@@ -298,16 +305,17 @@ class _SettingsPageState extends State<_SettingsPage>
               ),
               const SizedBox(width: 12),
               _language(
-                '次要语言',
-                settings.secondaryLanguage,
-                (v) => settings.secondaryLanguage = v,
+                '次要语言（可选）',
+                settings.secondaryLanguage ?? '',
+                (v) => settings.secondaryLanguage = v.isEmpty ? null : v,
+                optional: true,
               ),
             ],
           ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 10),
             child: Text(
-              '主要语言的文本译为次要语言，其余文本译为主要语言。',
+              '设置次要语言时，主要语言文本译为次要语言；不设置时统一译为主要语言，已是主要语言的文本直接展示。',
               style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
             ),
           ),
