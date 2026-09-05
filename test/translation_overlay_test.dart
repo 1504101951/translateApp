@@ -63,6 +63,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(session.snapshot.phase, TranslationPhase.completed);
       expect(find.text('你好'), findsOneWidget);
+      // 首屏优先展示译文；比较真实布局坐标，避免仅验证两个文本都存在。
+      expect(
+        tester.getTopLeft(find.text('你好')).dy,
+        lessThan(tester.getTopLeft(find.text('Hello')).dy),
+      );
       expect(find.byTooltip('复制原文'), findsOneWidget);
       expect(find.byTooltip('复制译文'), findsOneWidget);
       await tester.tap(find.byTooltip('关闭'));
@@ -72,7 +77,7 @@ void main() {
     },
   );
 
-  testWidgets('已验证的语义段落按原文译文成对展示', (tester) async {
+  testWidgets('已验证的语义段落按译文原文成对展示', (tester) async {
     // 完整译文与分段译文不同，用最终可见文本证明使用了已校验配对。
     final session = SelectionSession(
       provider: _Provider(),
@@ -101,5 +106,13 @@ void main() {
     expect(find.text('First.'), findsOneWidget);
     expect(find.text('第二段。'), findsOneWidget);
     expect(find.text('完整译文'), findsNothing);
+    // 两组边界同时验证组内译文优先和组间原有阅读顺序。
+    final texts = ['第一段。', 'First.', '第二段。', 'Second.'];
+    for (var index = 1; index < texts.length; index++) {
+      expect(
+        tester.getTopLeft(find.text(texts[index - 1])).dy,
+        lessThan(tester.getTopLeft(find.text(texts[index])).dy),
+      );
+    }
   });
 }

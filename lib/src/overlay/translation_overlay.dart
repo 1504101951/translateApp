@@ -122,9 +122,10 @@ class TranslationOverlay extends StatelessWidget {
                                     ),
                                   ]
                                 : snap.pairs)
+                          // 译文先进入首屏；每组对照结束后再分隔，便于连续阅读。
                           for (final part in [
-                            ('原文', pair.source),
                             ('译文', pair.translation),
+                            ('原文', pair.source),
                           ]) ...[
                             Row(
                               children: [
@@ -163,7 +164,7 @@ class TranslationOverlay extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            if (part.$1 == '译文') const Divider(height: 12),
+                            if (part.$1 == '原文') const Divider(height: 12),
                           ],
                       ],
                     ),

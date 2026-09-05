@@ -19,7 +19,7 @@ Topic: selection-translation
 
 **Baidu Provider**: A Translation Provider backed by the official Baidu general translation API, with App ID and secret stored in macOS Keychain.
 
-**Bilingual Pair**: A source passage and its translated passage shown together in Translation Result State. Source passages use local selected text after checking ordered, complete source coverage. Invalid model pairing displays the full source above the full translation; coverage validation does not prove semantic accuracy. This display option makes one request and is separate from Segmented Translation.
+**Bilingual Pair**: A translated passage followed by its source passage in Translation Result State. Source passages use local selected text after checking ordered, complete source coverage. Invalid model pairing displays the full translation above the full source; coverage validation does not prove semantic accuracy. This display option makes one request and is separate from Segmented Translation.
 
 **Automatic Translation Trigger**: User-controlled appearance of the translation button after a readable Selection Gesture. Enabled by default. Disabling ends the current Selection Session and does not disable the Global Translation Shortcut.
 
