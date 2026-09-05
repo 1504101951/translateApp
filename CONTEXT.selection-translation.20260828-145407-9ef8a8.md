@@ -11,6 +11,10 @@ Topic: selection-translation
 
 ## Language
 
+**Live Region Translation Session** (planned, #24): An explicitly started session that continuously recognizes text inside a user-selected screen rectangle and translates changed text through the Default Translation Provider. It persists across source-application switches, supports pause/resume/stop, and ends when capture becomes unavailable. It is separate from a Selection Session because the tracked object is a screen region rather than an application's text selection. It does not record a video file or process audio.
+
+**Screenshot Pin** (planned, #22): An independent, movable image preview that stays above other applications until the user closes it. It is separate from the Translation Overlay and does not end when the source application loses focus.
+
 **Shortcut Only Mode**: A settings and menu switch labelled 仅使用快捷键. Enabled means Automatic Translation Trigger is disabled; the Global Translation Shortcut remains available. It is disabled by default.
 
 **Baidu Provider**: A Translation Provider backed by the official Baidu general translation API, with App ID and secret stored in macOS Keychain.

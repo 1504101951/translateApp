@@ -74,7 +74,11 @@ xcodebuild test -workspace macos/Runner.xcworkspace -scheme Runner -destination 
 | Warp 等浮动来源窗口的叠放 | 层级修复及原生回归通过；真实 Warp 验收保留在 #19 |
 | 长文本分段与失败片恢复 | 待实现，#7 |
 | SQLite 翻译历史 | 待实现，#8 |
+| 区域截屏 OCR、录屏、图片置顶、GIF、保存、复制与编辑 | 待实现，#20–#23、#25–#27 |
+| 框选区域实时文字翻译 | 待实现，#24；持续 OCR，文字变化后更新译文 |
 
 总体规格 #1 保持开启。GitHub 使用 `spec`（总体规格）、`planned`（待实现）、`needs-verification`（待指定实机验收）标签；工单类型使用 `bug` / `enhancement`。
 
 初始翻译源为非官方 Google；保存默认服务后，下次翻译立即使用该服务。各工单的最终验收状态以 Issue 中的证据为准。
+
+截图与录屏的已确认范围、工单依赖和开源工具候选功能见 [截图与实时翻译规划](docs/capture-roadmap.md)。
