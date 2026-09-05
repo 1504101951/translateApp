@@ -7,6 +7,69 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+    /// 无参数；成功读取保留段落并恢复原内容，取消或非选区文本均须保留用户的新内容。
+    @MainActor
+    func testCopyReadPreservesClipboardAfterCancellation() async {
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let selection = "First paragraph.\n\nSecond paragraph."
+        board.setString("original clipboard", forType: .string)
+        let copied = await AccessibilitySelection.readByCopyingSelection(pasteboard: board, copy: {
+            board.clearContents()
+            board.setString(selection, forType: .string)
+        }, accepts: { $0 == selection })
+        XCTAssertEqual(copied, selection)
+        XCTAssertEqual(board.string(forType: .string), "original clipboard")
+
+        let requested = expectation(description: "copy requested")
+        let pending = Task {
+            await AccessibilitySelection.readByCopyingSelection(
+                pasteboard: board, copy: { requested.fulfill() }, accepts: { $0 == selection }
+            )
+        }
+        await fulfillment(of: [requested], timeout: 1)
+        // 取消先于新剪贴板写入，确保旧任务的恢复操作不能覆盖新的用户结果。
+        pending.cancel()
+        board.clearContents()
+        board.setString("new user clipboard", forType: .string)
+        let cancelled = await pending.value
+        XCTAssertNil(cancelled)
+        XCTAssertEqual(board.string(forType: .string), "new user clipboard")
+
+        // 新复制先于取消信号到达时，不属于选区的文本也不能被恢复操作覆盖。
+        let unrelated = await AccessibilitySelection.readByCopyingSelection(pasteboard: board, copy: {
+            board.clearContents()
+            board.setString("another user copy", forType: .string)
+        }, accepts: { $0 == selection })
+        XCTAssertNil(unrelated)
+        XCTAssertEqual(board.string(forType: .string), "another user copy")
+    }
+
+    /// 无参数；瞬时 AX 无值不能关闭有效会话；明确空选区和控件实际变化是结束边界。
+    @MainActor
+    func testSelectionValidationDistinguishesUnavailableAndEmpty() {
+        let original = AXUIElementCreateApplication(100)
+        let other = AXUIElementCreateApplication(200)
+        for size in [NSSize(width: 84, height: 36), NSSize(width: 380, height: 360)] {
+            let overlay = OverlayPanelController()
+            overlay.show(at: NSPoint(x: 300, y: 500), size: size, sessionId: "validation")
+            defer { overlay.hide(sessionId: "validation") }
+            // 相同元素的重复焦点通知、短暂不可读及随后的恢复均不能导致一闪而过。
+            for readable: Bool? in [true, nil, true] {
+                if SelectionMonitor.shouldInvalidateSelection(readable: readable, previous: original, current: original) {
+                    overlay.hide(sessionId: "validation")
+                }
+                XCTAssertTrue(overlay.isPanelVisible)
+            }
+            XCTAssertFalse(SelectionMonitor.shouldInvalidateSelection(readable: nil, previous: original, current: nil))
+            XCTAssertTrue(SelectionMonitor.shouldInvalidateSelection(readable: true, previous: original, current: other))
+            if SelectionMonitor.shouldInvalidateSelection(readable: false, previous: original, current: original) {
+                overlay.hide(sessionId: "validation")
+            }
+            XCTAssertFalse(overlay.isPanelVisible)
+        }
+    }
+
     /// 无参数；来源的浮动窗口重新置前时，触发态与结果态都不能被覆盖，且不取得焦点。
     @MainActor
     func testOverlayStaysAboveReorderedFloatingSource() throws {
@@ -229,11 +292,15 @@ class RunnerTests: XCTestCase {
     func testTextSelectionContexts() {
         for roles in [["AXStaticText", "AXRow", "AXOutline"], ["AXCell", "AXTable"], ["AXBrowser"]] {
             XCTAssertFalse(TextSelectionContext.shouldReadSelectedText(ancestorRoles: roles))
-            XCTAssertFalse(TextSelectionContext.shouldCopyFallback(ancestorRoles: roles))
+            XCTAssertFalse(TextSelectionContext.shouldCopySelection(ancestorRoles: roles, hasAXText: false))
+            XCTAssertFalse(TextSelectionContext.shouldCopySelection(ancestorRoles: roles, hasAXText: true))
         }
         for roles in [["AXTextArea"], ["AXStaticText", "AXWebArea"], ["AXStaticText", "AXList"]] {
             XCTAssertTrue(TextSelectionContext.shouldReadSelectedText(ancestorRoles: roles))
-            XCTAssertTrue(TextSelectionContext.shouldCopyFallback(ancestorRoles: roles))
+            XCTAssertTrue(TextSelectionContext.shouldCopySelection(ancestorRoles: roles, hasAXText: false))
         }
+        // 网页已有 AX 文字也需保留段落；原生文本框的完整 AX 文字不额外动剪贴板。
+        XCTAssertTrue(TextSelectionContext.shouldCopySelection(ancestorRoles: ["AXStaticText", "AXWebArea"], hasAXText: true))
+        XCTAssertFalse(TextSelectionContext.shouldCopySelection(ancestorRoles: ["AXTextArea"], hasAXText: true))
     }
 }

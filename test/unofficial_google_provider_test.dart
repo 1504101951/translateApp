@@ -58,6 +58,16 @@ void main() {
     expect(UnofficialGoogleProvider.parseTranslatedText(body), '第一句。第二句。');
   });
 
+  test('preserves paragraph and line separators in translated sentences', () {
+    // 接口句段不是段落；只保留响应自带的分隔符，不能统一 join 换行或删除空行。
+    const body =
+        r'''[[["第一段。\n\n","First paragraph.\n\n"],["第二段。\n","Second paragraph.\n"],["同段换行。","Line break."]],null,"en"]''';
+    expect(
+      UnofficialGoogleProvider.parseTranslatedText(body),
+      '第一段。\n\n第二段。\n同段换行。',
+    );
+  });
+
   test('http error becomes failure without completed', () async {
     // 实际 HTTP 429 是限流边界；验证网络响应到业务失败的转换。
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

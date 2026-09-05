@@ -18,7 +18,10 @@ enum TextSelectionContext {
         return true
     }
 
-    static func shouldCopyFallback(ancestorRoles: [String]) -> Bool {
-        !ancestorRoles.contains { nonTextRoles.contains($0) }
+    /// ancestorRoles 按控件到祖先排列，hasAXText 表示已读到 AX 文字；返回是否需一次性复制读取。
+    static func shouldCopySelection(ancestorRoles: [String], hasAXText: Bool) -> Bool {
+        guard !ancestorRoles.contains(where: { nonTextRoles.contains($0) }) else { return false }
+        // 浏览器 AX 文本可能已丢段落；其他文本控件仅在 AX 无文字时才回退到复制。
+        return !hasAXText || ancestorRoles.contains("AXWebArea")
     }
 }

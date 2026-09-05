@@ -8,14 +8,18 @@ Codex-Thread: 01a06fe3-df48-7fb0-983b-443d579db93e
 
 | 功能 | 工单 | 依赖 |
 | --- | --- | --- |
-| 区域截屏、本地 OCR 与文字翻译 | [#20](https://github.com/1504101951/translateApp/issues/20) | 无 |
+| 区域截屏、本地 OCR、直接复制文字与翻译 | [#20](https://github.com/1504101951/translateApp/issues/20) | 无 |
 | 屏幕、窗口与区域录制，保存本地视频 | [#21](https://github.com/1504101951/translateApp/issues/21) | 无 |
 | 截图置顶预览，切换 App 后保留 | [#22](https://github.com/1504101951/translateApp/issues/22) | #20 的捕获能力 |
 | 录制视频导出 GIF | [#23](https://github.com/1504101951/translateApp/issues/23) | #21 |
 | 框选区域实时文字翻译 | [#24](https://github.com/1504101951/translateApp/issues/24) | #20，不依赖 #21 |
-| 截图保存至本地文件 | [#25](https://github.com/1504101951/translateApp/issues/25) | #20 |
+| 截图保存、自动命名、固定目录与复制并保存 | [#25](https://github.com/1504101951/translateApp/issues/25) | #20、#26 的位图复制能力 |
 | 截图复制到系统剪贴板 | [#26](https://github.com/1504101951/translateApp/issues/26) | #20 |
 | 裁剪、标注、隐私遮挡与撤销/重做 | [#27](https://github.com/1504101951/translateApp/issues/27) | #20、#25、#26 |
+| 滚动长截图 | [#28](https://github.com/1504101951/translateApp/issues/28) | #20；结果接入保存、复制与编辑 |
+| 本地截图历史 | [#29](https://github.com/1504101951/translateApp/issues/29) | #20、#25、#26 |
+
+选区文本、截图 OCR 和实时区域 OCR 在入口处提取文字、保留段落并形成统一的 `TranslationRequest`，复用当前翻译层。入口负责采集权限、区域和生命周期，翻译层负责语言方向、提供方协议与结果；录屏、截图保存等媒体动作不隐式调用翻译。仅在实施对应工单时接入入口，不预建空模块。
 
 ## 实时文字翻译的行为边界
 
@@ -36,14 +40,10 @@ macOS 捕获、设备 OCR 和权限经 Swift 桥接入；Flutter/Dart 负责会�
 
 | 候选 | 用途 | 参考 | 建议 |
 | --- | --- | --- | --- |
-| OCR 直接复制文字 | 从图片、视频画面提取文字，不必翻译 | NormCap、ShareX | 优先，复用 #20 |
 | 延时截屏 | 留出时间展开菜单、悬停提示 | Flameshot、ksnip | 优先 |
 | 重复截取上次区域 | 连续处理固定位置的内容 | ksnip | 优先 |
 | 指定显示器、是否包含鼠标 | 多屏截图与操作说明 | Flameshot、ksnip | 优先，完善捕获选项 |
 | 键盘微调框选区域、固定比例 | 精确控制边界和尺寸 | Flameshot | 优先，完善 #20 交互 |
-| 自动命名、固定保存目录、复制并保存 | 减少重复保存操作 | ksnip、Flameshot | 优先，完善 #25、#26 |
-| 滚动长截图 | 捕获超出一屏的网页或聊天内容 | ShareX | 后续，需验证不同 App 的滚动行为 |
-| 截图历史 | 找回与复用近期图片 | Flameshot | 后续，与 #8 文本翻译历史分开 |
 | 步骤编号、荧光笔 | 制作教程和反馈截图 | ShareX、Flameshot | 作为 #27 的可选工具 |
 | 屏幕二维码识别 | 从画面提取链接或文本 | ShareX | 按需 |
 | 图片拼接、拆分与比较 | 合并多张截图、查看差异 | ShareX | 按需 |

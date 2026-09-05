@@ -17,9 +17,17 @@ final class SelectionMonitor {
     private var activationObserver: NSObjectProtocol?
     private var selectionObserver: AXObserver?
     private var observedPID: pid_t?
+    private var observedElement: AXUIElement?
+    private var validationTask: Task<Void, Never>?
     private var captureTask: Task<Void, Never>?
     private var ignoreMouseGesture = false
     private var pendingKeySelection: (keyCode: UInt16, gesture: SelectionGesture)?
+
+    /// readable 为 AX 选区状态（nil 表示暂不可读）；焦点元素用于判断实际控件切换；返回是否结束会话。
+    static func shouldInvalidateSelection(readable: Bool?, previous: AXUIElement?, current: AXUIElement?) -> Bool {
+        if let previous, let current, !CFEqual(previous, current) { return true }
+        return readable == false
+    }
 
     /// 配置均来自 Dart；注册新热键成功后才替换旧配置，失败抛出系统错误。
     func configure(automatic: Bool, excludedApps: Set<String>, keyCode: UInt32, modifiers: UInt32) throws {
@@ -137,6 +145,7 @@ final class SelectionMonitor {
         if let hotKey { UnregisterEventHotKey(hotKey) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         captureTask?.cancel()
+        validationTask?.cancel()
         for monitor in [localMouseMonitor, globalMouseMonitor, keyboardMonitor].compactMap({ $0 }) {
             NSEvent.removeMonitor(monitor)
         }
@@ -202,9 +211,9 @@ final class SelectionMonitor {
             capture(gesture: pending.gesture, location: NSEvent.mouseLocation)
             return
         }
-        if bridge?.hasSelection == true, let pid = observedPID {
+        if bridge?.hasSelection == true, observedPID != nil {
             // 不支持 AX 通知的应用仍可在普通输入清空选区时结束会话。
-            if !AccessibilitySelection.hasReadableSelection(sourcePID: pid) { bridge?.invalidateSelection() }
+            validateSelection()
         }
     }
 
@@ -247,18 +256,16 @@ final class SelectionMonitor {
         observedPID = sourcePID
         let app = AXUIElementCreateApplication(sourcePID)
         guard let element = AccessibilitySelection.focusedElement(from: app) else { return }
+        observedElement = element
         var observer: AXObserver?
-        let status = AXObserverCreate(sourcePID, { observer, _, notification, context in
+        let status = AXObserverCreate(sourcePID, { observer, _, _, context in
             guard let context else { return }
             let monitor = Unmanaged<SelectionMonitor>.fromOpaque(context).takeUnretainedValue()
-            let name = notification as String
             Task { @MainActor in
                 guard let active = monitor.selectionObserver, CFEqual(active, observer),
-                      let pid = monitor.observedPID else { return }
-                if name == kAXFocusedUIElementChangedNotification
-                    || !AccessibilitySelection.hasReadableSelection(sourcePID: pid) {
-                    MacPlatformBridge.Shared.instance?.invalidateSelection()
-                }
+                      monitor.observedPID != nil else { return }
+                // Chrome 会重复发送焦点通知；通知名本身不能证明选区失效。
+                monitor.validateSelection()
             }
         }, &observer)
         guard status == .success, let observer else { return }
@@ -269,12 +276,36 @@ final class SelectionMonitor {
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
     }
 
+    /// 无参数；合并同次手势的 AX/键盘通知，确认空选区或实际控件切换后结束会话。
+    @MainActor
+    private func validateSelection() {
+        validationTask?.cancel()
+        guard let pid = observedPID else { return }
+        validationTask = Task { @MainActor [weak self] in
+            // AX 通知可能先于浏览器选区树更新到达；与捕获使用同一个 80ms 稳定窗口。
+            do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
+            guard let self, self.observedPID == pid else { return }
+            let current = AccessibilitySelection.focusedElement(from: AXUIElementCreateApplication(pid))
+            // 不可读保持未知状态；验证期间不复制剪贴板，也不取消仍有效的翻译。
+            if Self.shouldInvalidateSelection(
+                readable: AccessibilitySelection.hasReadableSelection(sourcePID: pid),
+                previous: self.observedElement, current: current
+            ) {
+                MacPlatformBridge.Shared.instance?.invalidateSelection()
+                self.stopObservingSelection()
+            }
+        }
+    }
+
     /// 无参数；移除旧来源的 AX 监听，防止旧应用通知关闭新会话，无返回值。
     private func stopObservingSelection() {
+        validationTask?.cancel()
+        validationTask = nil
         if let selectionObserver {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(selectionObserver), .commonModes)
         }
         selectionObserver = nil
         observedPID = nil
+        observedElement = nil
     }
 }

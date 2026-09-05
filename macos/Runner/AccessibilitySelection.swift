@@ -24,31 +24,46 @@ enum AccessibilitySelection {
         // 部分 Electron 应用只有开启手动辅助功能后才暴露文本。
         enableManualAccessibility(app)
         var result = readOnce(app: app)
-        if isUsable(result.text) { return result }
-        for delay in [80, 180] {
+        for delay in [80, 180] where !isUsable(result.text) {
             do { try await Task.sleep(for: .milliseconds(delay)) } catch { return (nil, nil) }
             // 重试期间切换应用时，不能读取或复制另一个应用的内容。
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return (nil, nil) }
             result = readOnce(app: app)
-            if isUsable(result.text) { return result }
         }
         guard !Task.isCancelled,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID,
               !isSecure(focusedElement(from: app)) else { return (nil, nil) }
         let copyRoles = focusedElement(from: app).map(ancestorRoles(of:)) ?? []
-        // 仅文本上下文可回退到复制；文件树和密码控件禁止模拟 Command-C。
-        if TextSelectionContext.shouldCopyFallback(ancestorRoles: copyRoles),
-           let copied = await readByCopyingSelection() {
+        // 网页的 AXSelectedText 会省略段落分隔；一次性复制保留浏览器生成的文本结构。
+        if TextSelectionContext.shouldCopySelection(ancestorRoles: copyRoles, hasAXText: isUsable(result.text)),
+           let copied = await readByCopyingSelection(pasteboard: .general, copy: postCopyKey, accepts: { copied in
+               guard NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return false }
+               guard let original = result.text else { return true }
+               // 只允许浏览器补回空白；其他文本可能来自用户的新复制，不能恢复旧剪贴板覆盖它。
+               return original.filter { !$0.isWhitespace } == copied.filter { !$0.isWhitespace }
+           }) {
             return (copied, result.bounds)
         }
         return result
     }
 
-    /// sourcePID 为会话来源；只用 AX 验证非空文字，不触发剪贴板回退，返回可读性。
-    static func hasReadableSelection(sourcePID: pid_t) -> Bool {
+    /// sourcePID 为会话来源；true 为有选区，false 为确认失效，nil 为 AX 暂不可读；不复制剪贴板。
+    static func hasReadableSelection(sourcePID: pid_t) -> Bool? {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return false }
-        // 失效检查不能发送 Command-C，否则普通键盘操作也会改动剪贴板。
-        return isUsable(readOnce(app: AXUIElementCreateApplication(sourcePID)).text)
+        let app = AXUIElementCreateApplication(sourcePID)
+        guard let element = focusedElement(from: app) else { return nil }
+        guard !isSecure(element), TextSelectionContext.shouldReadSelectedText(ancestorRoles: ancestorRoles(of: element)) else { return false }
+        // 首次捕获允许复制回退，因此 AX 没有值不能反向证明已有选区已清空。
+        if isUsable(readOnce(app: app).text) { return true }
+        if let text = stringAttribute(element, kAXSelectedTextAttribute as CFString) {
+            return isUsable(text)
+        }
+        if let value = attribute(element, kAXSelectedTextRangeAttribute as CFString),
+           CFGetTypeID(value) == AXValueGetTypeID() {
+            var range = CFRange()
+            if AXValueGetValue(value as! AXValue, .cfRange, &range), range.length == 0 { return false }
+        }
+        return nil
     }
 
     private static func readOnce(app: AXUIElement) -> (text: String?, bounds: CGRect?) {
@@ -199,21 +214,27 @@ enum AccessibilitySelection {
         return rect
     }
 
-    private static func readByCopyingSelection() async -> String? {
-        let pasteboard = NSPasteboard.general
+    /// pasteboard 为剪贴板，copy 发起复制，accepts 确认文本仍属于当前选区；返回文字，失败或取消为 nil。
+    static func readByCopyingSelection(
+        pasteboard: NSPasteboard, copy: () -> Void, accepts: (String) -> Bool
+    ) async -> String? {
+        guard !Task.isCancelled else { return nil }
         let snapshot = PasteboardSnapshot.capture(pasteboard)
         let changeCount = pasteboard.changeCount
-        postCopyKey()
+        copy()
         let deadline = Date().addingTimeInterval(0.25)
         while Date() < deadline {
+            // 取消后剪贴板可能已属于用户的新操作，旧任务不能再读取或恢复快照。
+            guard !Task.isCancelled else { return nil }
             if pasteboard.changeCount != changeCount {
-                let text = pasteboard.string(forType: .string)
+                let copiedChangeCount = pasteboard.changeCount
+                guard let text = pasteboard.string(forType: .string), isUsable(text), accepts(text),
+                      !Task.isCancelled, pasteboard.changeCount == copiedChangeCount else { return nil }
                 snapshot.restore(pasteboard)
-                return isUsable(text) ? text : nil
+                return text
             }
-            try? await Task.sleep(for: .milliseconds(20))
+            do { try await Task.sleep(for: .milliseconds(20)) } catch { return nil }
         }
-        snapshot.restore(pasteboard)
         return nil
     }
 
