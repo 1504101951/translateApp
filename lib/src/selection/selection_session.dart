@@ -45,22 +45,12 @@ class SelectionSession extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 无参数；翻译当前选区，Future 在请求结束或会话被取消时完成。
-  Future<void> activate() async {
+  /// readSelection 可在明确激活后补读原文；返回翻译结束或会话被取消时完成的 Future。
+  Future<void> activate({Future<String?> Function()? readSelection}) async {
     if (snapshot.phase != TranslationPhase.trigger) return;
-    if (snapshot.sourceText.characters.length > selectionLimit) {
-      snapshot = TranslationSnapshot(
-        phase: TranslationPhase.sizeLimited,
-        sourceText: snapshot.sourceText,
-        translatedText: '',
-        message: '选区超过 50,000 个字符，未发送翻译请求。',
-      );
-      notifyListeners();
-      return;
-    }
 
     final generation = _generation;
-    final source = snapshot.sourceText;
+    var source = snapshot.sourceText;
     snapshot = TranslationSnapshot(
       phase: TranslationPhase.translating,
       sourceText: source,
@@ -70,12 +60,38 @@ class SelectionSession extends ChangeNotifier {
 
     String? detected;
     try {
+      if (readSelection != null) {
+        final text = await readSelection();
+        if (generation != _generation) return;
+        if (text == null || text.trim().isEmpty) {
+          // 原生已确认读取失效，不能继续发送捕获时缓存的文字。
+          dismiss();
+          return;
+        }
+        source = text;
+        snapshot = TranslationSnapshot(
+          phase: TranslationPhase.translating,
+          sourceText: source,
+          translatedText: '',
+        );
+        notifyListeners();
+      }
+      if (source.characters.length > selectionLimit) {
+        snapshot = TranslationSnapshot(
+          phase: TranslationPhase.sizeLimited,
+          sourceText: source,
+          translatedText: '',
+          message: '选区超过 50,000 个字符，未发送翻译请求。',
+        );
+        notifyListeners();
+        return;
+      }
       detected = await detectLanguage(source);
     } catch (error) {
       if (generation != _generation) return;
       snapshot = snapshot.copyWith(
         phase: TranslationPhase.failed,
-        message: '无法识别选区语言：$error',
+        message: '无法准备选区翻译：$error',
       );
       notifyListeners();
       return;

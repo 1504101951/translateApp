@@ -21,13 +21,13 @@ Topic: selection-translation
 
 **Bilingual Pair**: A translated passage followed by its source passage in Translation Result State. Source passages use local selected text after checking ordered, complete source coverage. Invalid model pairing displays the full translation above the full source; coverage validation does not prove semantic accuracy. This display option makes one request and is separate from Segmented Translation.
 
-**Automatic Translation Trigger**: User-controlled appearance of the translation button after a readable Selection Gesture. Enabled by default. Disabling ends the current Selection Session and does not disable the Global Translation Shortcut.
+**Automatic Translation Trigger**: User-controlled appearance of the translation button after a Selection Gesture exposes text through Accessibility. Passive detection never injects copy keystrokes; an unreadable selection does not create an automatic session. Enabled by default. Disabling ends the current Selection Session and does not disable the Global Translation Shortcut.
 
 **Global Translation Shortcut**: Configurable macOS hotkey that reads the current allowed text selection and starts translation directly. It uses the same Selection Session and nonactivating Translation Overlay, including source-application invalidation.
 
 **Exclusion**: Persistent set of application bundle identifiers from which neither automatic gestures nor the Global Translation Shortcut capture text.
 
-**Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced, dismissed, becomes empty, or the user switches away from the source application.
+**Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced, dismissed, confirmed empty, or the user switches away from the source application. Validation follows the Accessibility node that supplied the selected text; a changed focus container or temporarily unavailable selection alone does not end the session. Clipboard-only sessions without a readable Accessibility node cannot confirm keyboard deselection and end through outside clicks, Escape, or source-application changes.
 
 **Selection Gesture**: A mouse drag, double-click, triple-click, Select All Gesture, or Shift combined with arrow, Home, End, or Page keys that selects readable text and begins a Selection Session. Command and Option may refine a Shift selection by line or word.
 

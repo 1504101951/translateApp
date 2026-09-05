@@ -18,6 +18,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     var shortcutRecorder: ((UInt32, UInt32) -> Void)?
     private var currentSessionId: String?
     private var sourceProcessIdentifier: pid_t?
+    private var selectionReadTask: Task<Void, Never>?
     var hasSelection: Bool { currentSessionId != nil }
 
     /// overlay 为浮层，selectionMonitor 为系统输入监听；创建不含翻译业务状态的平台桥。
@@ -77,6 +78,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 return
             }
             guard currentSessionId == sessionId else { result(nil); return }
+            selectionReadTask?.cancel()
+            selectionReadTask = nil
             currentSessionId = nil
             sourceProcessIdentifier = nil
             overlay.hide(sessionId: sessionId)
@@ -104,6 +107,18 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             // Flutter 区分拖动与点击，AppKit 负责实际移动且不激活应用。
             overlay.drag(sessionId: sessionId)
             result(nil)
+        case "readSelectionForTranslation":
+            guard let sessionId = args["sessionId"] as? String else {
+                result(FlutterError(code: "bad_args", message: "读取选区需要 sessionId", details: nil)); return
+            }
+            guard currentSessionId == sessionId, let pid = sourceProcessIdentifier else { result(nil); return }
+            selectionReadTask?.cancel()
+            // 明确点击翻译后才允许复制读取段落，自动检测阶段不注入按键。
+            selectionReadTask = Task { @MainActor [weak self] in
+                let selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid, allowCopy: true)
+                guard let self, !Task.isCancelled, self.currentSessionId == sessionId else { result(nil); return }
+                result(selection.text)
+            }
         case "loadSettings":
             var settings = UserDefaults.standard.dictionary(forKey: "preferences") ?? [:]
             settings["systemLanguage"] = Locale.preferredLanguages.first ?? "en"
@@ -322,6 +337,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
 
     /// eventType 为失效或 Escape 事件类型；同步隐藏并通知 Dart 丢弃旧结果，无返回值。
     func invalidateSelection(eventType: String = "selectionInvalidated") {
+        selectionReadTask?.cancel()
+        selectionReadTask = nil
         guard let sessionId = currentSessionId else { return }
         currentSessionId = nil
         sourceProcessIdentifier = nil

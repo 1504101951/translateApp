@@ -230,7 +230,7 @@ class _TranslateAppState extends State<TranslateApp> {
         widget.session.begin(sessionId: sessionId, text: text);
         if (widget.session.snapshot.phase == TranslationPhase.trigger) {
           final size = gesture == 'hotkey' ? _resultSize : _triggerSize;
-          if (gesture == 'hotkey') unawaited(_activate());
+          if (gesture == 'hotkey') unawaited(_activate(readSelection: false));
           widget.bridge.showOverlay(
             sessionId: sessionId,
             x: x,
@@ -274,10 +274,16 @@ class _TranslateAppState extends State<TranslateApp> {
     );
   }
 
-  /// 无参数；启动当前选区翻译，返回完成或取消时结束的 Future。
-  Future<void> _activate() async {
-    // 长度校验、语言方向和请求取消统一由 SelectionSession 管理。
-    await widget.session.activate();
+  /// readSelection 表示点击后补读格式；快捷键已完成读取；返回翻译结束或取消的 Future。
+  Future<void> _activate({bool readSelection = true}) async {
+    final id = widget.session.sessionId;
+    if (id == null) return;
+    // 读取与翻译共用会话取消边界，迟到的原文不能覆盖用户的新选区。
+    await widget.session.activate(
+      readSelection: readSelection
+          ? () => widget.bridge.readSelectionForTranslation(sessionId: id)
+          : null,
+    );
   }
 
   /// 无参数；关闭当前会话及其原生窗口，无返回值。

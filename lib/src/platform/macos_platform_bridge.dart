@@ -54,6 +54,13 @@ class MacosPlatformBridge {
     return _methods.invokeMethod<void>('dragOverlay', {'sessionId': sessionId});
   }
 
+  /// sessionId 绑定当前选区；明确点击翻译后补读格式，返回原文，失效时返回 null。
+  Future<String?> readSelectionForTranslation({required String sessionId}) {
+    return _methods.invokeMethod<String>('readSelectionForTranslation', {
+      'sessionId': sessionId,
+    });
+  }
+
   /// 让 Swift 上报一条探测用选区事件，验证通道而不是实现 #2。
   Future<void> probeEmitSelection() {
     return _methods.invokeMethod<void>('probeEmitSelection');

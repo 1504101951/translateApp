@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/selection/selection_session.dart';
 import 'package:translate_app/src/translation/language_direction.dart';
@@ -24,6 +26,71 @@ class RecordingProvider implements TranslationProvider {
 
 void main() {
   final language = LanguageDirection(primaryCode: 'zh-CN', secondaryCode: 'en');
+
+  test(
+    'explicit activation preserves prepared paragraphs in request and card',
+    () async {
+      // 捕获只显示按钮；明确激活后的格式补读结果才进入翻译请求和双语原文。
+      final provider = RecordingProvider();
+      final session = SelectionSession(
+        provider: provider,
+        detectLanguage: (_) async => 'en',
+      );
+      final read = Completer<String?>();
+      session.begin(sessionId: 'formatted', text: 'First.Second.');
+      final pending = session.activate(readSelection: () => read.future);
+      expect(session.snapshot.phase, TranslationPhase.translating);
+      expect(provider.requests, isEmpty);
+      read.complete('First.\n\nSecond.');
+      await pending;
+      expect(provider.requests.single.sourceText, 'First.\n\nSecond.');
+      expect(session.snapshot.sourceText, 'First.\n\nSecond.');
+      expect(session.snapshot.phase, TranslationPhase.completed);
+    },
+  );
+
+  test(
+    'late source read cannot translate or replace a newer selection',
+    () async {
+      // 原文读取也是异步边界；新选区到达后，旧读取结果不能发请求或覆盖新卡片。
+      final provider = RecordingProvider();
+      final session = SelectionSession(
+        provider: provider,
+        detectLanguage: (_) async => 'en',
+      );
+      final read = Completer<String?>();
+      session.begin(sessionId: 'old', text: 'Old');
+      final pending = session.activate(readSelection: () => read.future);
+      session.begin(sessionId: 'new', text: 'New');
+      read.complete('Old formatted');
+      await pending;
+      expect(session.sessionId, 'new');
+      expect(session.snapshot.sourceText, 'New');
+      expect(session.snapshot.phase, TranslationPhase.trigger);
+      expect(provider.requests, isEmpty);
+    },
+  );
+
+  test(
+    'missing or oversized prepared text never reaches the provider',
+    () async {
+      // null 是原生会话失效边界；补读后超过 50,000 字符也必须在请求前拦截。
+      for (final text in [null, 'x' * (SelectionSession.selectionLimit + 1)]) {
+        final provider = RecordingProvider();
+        final session = SelectionSession(
+          provider: provider,
+          detectLanguage: (_) async => 'en',
+        );
+        session.begin(sessionId: 'source', text: 'Captured');
+        await session.activate(readSelection: () async => text);
+        expect(
+          session.snapshot.phase,
+          text == null ? TranslationPhase.idle : TranslationPhase.sizeLimited,
+        );
+        expect(provider.requests, isEmpty);
+      }
+    },
+  );
 
   test('gesture with text shows trigger without calling provider', () {
     final provider = RecordingProvider();

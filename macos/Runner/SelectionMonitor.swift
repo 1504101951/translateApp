@@ -17,17 +17,11 @@ final class SelectionMonitor {
     private var activationObserver: NSObjectProtocol?
     private var selectionObserver: AXObserver?
     private var observedPID: pid_t?
-    private var observedElement: AXUIElement?
+    private var selectionElement: AXUIElement?
     private var validationTask: Task<Void, Never>?
     private var captureTask: Task<Void, Never>?
     private var ignoreMouseGesture = false
     private var pendingKeySelection: (keyCode: UInt16, gesture: SelectionGesture)?
-
-    /// readable 为 AX 选区状态（nil 表示暂不可读）；焦点元素用于判断实际控件切换；返回是否结束会话。
-    static func shouldInvalidateSelection(readable: Bool?, previous: AXUIElement?, current: AXUIElement?) -> Bool {
-        if let previous, let current, !CFEqual(previous, current) { return true }
-        return readable == false
-    }
 
     /// 配置均来自 Dart；注册新热键成功后才替换旧配置，失败抛出系统错误。
     func configure(automatic: Bool, excludedApps: Set<String>, keyCode: UInt32, modifiers: UInt32) throws {
@@ -228,7 +222,7 @@ final class SelectionMonitor {
         captureTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
             // 读取绑定手势来源，切换应用或新手势会取消本次读取。
-            let selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid)
+            let selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid, allowCopy: gesture == .hotkey)
             guard !Task.isCancelled, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
             guard let text = selection.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 MacPlatformBridge.Shared.instance?.invalidateSelection()
@@ -245,18 +239,18 @@ final class SelectionMonitor {
                 text: text, gesture: gesture.rawValue, x: anchor.x, y: anchor.y, sourcePID: pid
             )
             // 选区通知覆盖程序清空与控件焦点变化，不需要轮询剪贴板。
-            self?.watchSelection(sourcePID: pid)
+            self?.watchSelection(sourcePID: pid, selectionElement: selection.element)
         }
     }
 
-    /// sourcePID 为会话来源；注册焦点和选区变化通知，无返回值。
+    /// sourcePID 为来源，selectionElement 为实际文字节点；注册焦点和选区通知，无返回值。
     @MainActor
-    private func watchSelection(sourcePID: pid_t) {
+    private func watchSelection(sourcePID: pid_t, selectionElement: AXUIElement?) {
         stopObservingSelection()
         observedPID = sourcePID
+        self.selectionElement = selectionElement
         let app = AXUIElementCreateApplication(sourcePID)
         guard let element = AccessibilitySelection.focusedElement(from: app) else { return }
-        observedElement = element
         var observer: AXObserver?
         let status = AXObserverCreate(sourcePID, { observer, _, _, context in
             guard let context else { return }
@@ -272,11 +266,11 @@ final class SelectionMonitor {
         selectionObserver = observer
         let context = Unmanaged.passUnretained(self).toOpaque()
         AXObserverAddNotification(observer, app, kAXFocusedUIElementChangedNotification as CFString, context)
-        AXObserverAddNotification(observer, element, kAXSelectedTextChangedNotification as CFString, context)
+        AXObserverAddNotification(observer, selectionElement ?? element, kAXSelectedTextChangedNotification as CFString, context)
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
     }
 
-    /// 无参数；合并同次手势的 AX/键盘通知，确认空选区或实际控件切换后结束会话。
+    /// 无参数；合并 AX/键盘通知，以实际文字节点确认清空；焦点容器变化本身不结束会话。
     @MainActor
     private func validateSelection() {
         validationTask?.cancel()
@@ -285,12 +279,8 @@ final class SelectionMonitor {
             // AX 通知可能先于浏览器选区树更新到达；与捕获使用同一个 80ms 稳定窗口。
             do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
             guard let self, self.observedPID == pid else { return }
-            let current = AccessibilitySelection.focusedElement(from: AXUIElementCreateApplication(pid))
-            // 不可读保持未知状态；验证期间不复制剪贴板，也不取消仍有效的翻译。
-            if Self.shouldInvalidateSelection(
-                readable: AccessibilitySelection.hasReadableSelection(sourcePID: pid),
-                previous: self.observedElement, current: current
-            ) {
+            // 焦点可能在同一浏览器文本树内迁移；不可读保持未知，不能由节点身份变化推断清空。
+            if AccessibilitySelection.hasReadableSelection(sourcePID: pid, selectionElement: self.selectionElement) == false {
                 MacPlatformBridge.Shared.instance?.invalidateSelection()
                 self.stopObservingSelection()
             }
@@ -306,6 +296,6 @@ final class SelectionMonitor {
         }
         selectionObserver = nil
         observedPID = nil
-        observedElement = nil
+        selectionElement = nil
     }
 }
