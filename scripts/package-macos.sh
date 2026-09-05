@@ -12,9 +12,10 @@ mkdir -p dist
 stage="$(mktemp -d dist/package.XXXXXX)"
 trap 'rm -rf "$stage"' EXIT
 ditto build/macos/Build/Products/Release/translate_app.app "$stage/TranslateApp.app"
-sign_flags=(--force --sign "$identity" --options runtime)
+sign_flags=(--force --sign "$identity")
 if [[ "$identity" != "-" ]]; then
-  sign_flags+=(--timestamp)
+  # 稳定证书统一嵌套代码身份；本机 ad-hoc 没有 Team ID，沿用 Flutter 的普通签名选项。
+  sign_flags+=(--options runtime --timestamp)
   for framework in "$stage/TranslateApp.app/Contents/Frameworks/"*.framework; do
     codesign "${sign_flags[@]}" "$framework"
   done
