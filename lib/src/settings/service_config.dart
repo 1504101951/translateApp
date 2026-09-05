@@ -15,12 +15,14 @@ class ServiceConfig {
     'baidu': '百度翻译',
     'google': 'Google Cloud',
     'openai': 'OpenAI-compatible',
+    'deepseek': 'DeepSeek',
     'anthropic': 'Anthropic',
   };
   static const endpoints = {
     'baidu': 'https://fanyi-api.baidu.com',
     'google': 'https://translation.googleapis.com',
     'openai': 'https://api.openai.com/v1',
+    'deepseek': 'https://api.deepseek.com',
     'anthropic': 'https://api.anthropic.com/v1',
   };
   static const defaultPrompt =
@@ -36,7 +38,8 @@ class ServiceConfig {
   final String prompt;
   final bool semanticPairs;
   final int maxOutputTokens;
-  bool get isModel => kind == 'openai' || kind == 'anthropic';
+  bool get isModel =>
+      kind == 'openai' || kind == 'deepseek' || kind == 'anthropic';
 
   /// map 为无凭据的设置字典；返回一个翻译服务配置。
   factory ServiceConfig.fromMap(Map<Object?, Object?> map) => ServiceConfig(
@@ -95,4 +98,39 @@ class ServiceConfig {
       throw const FormatException('请填写 API Key／密钥，百度翻译还需要 App ID。');
     }
   }
+}
+
+/// previous/current 为保存前后服务，drafts 为凭据变更；仅补读必要账户，返回原生事务所需的新增、修改和删除项。
+Future<Map<String, Map<String, String>?>> prepareCredentialChanges({
+  required List<ServiceConfig> previous,
+  required List<ServiceConfig> current,
+  required Map<String, Map<String, String>?> drafts,
+  required Future<Map<String, String>> Function(String id) readCredentials,
+}) async {
+  final old = {for (final config in previous) config.id: config};
+  final changes = <String, Map<String, String>?>{};
+  for (final config in current) {
+    final draft = drafts[config.id];
+    final saved = old[config.id];
+    // 不允许复用另一种服务的密钥；更换协议时应创建独立配置。
+    if (saved != null && saved.kind != config.kind) {
+      throw const FormatException('更换服务类型请新增配置。');
+    }
+    // 普通偏好或端点/模型修改不需要解锁密钥；凭据校验留在实际变更与翻译请求时。
+    if ((draft == null || draft.isEmpty) && saved != null) {
+      continue;
+    }
+    final value = {
+      if (saved != null) ...await readCredentials(config.id),
+      ...?draft,
+    };
+    config.validateCredentials(value);
+    if (draft?.isNotEmpty == true) changes[config.id] = value;
+  }
+  for (final removed in previous) {
+    if (!current.any((config) => config.id == removed.id)) {
+      changes[removed.id] = null;
+    }
+  }
+  return changes;
 }

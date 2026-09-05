@@ -241,64 +241,79 @@ void main() {
     expect(events, isEmpty);
   });
 
-  test('模型对照仅接受顺序完整覆盖，保留本地原文及完整译文', () {
-    const source = '  Hello.\n\n世界🌍!  ';
-    const full = '你好。\n世界！';
+  test('模型段落编号必须完整有序，原文及分隔空白只取本地内容', () {
+    // 多段、空行、缩进及尾部空白必须原样保留；缺段不能降为整篇高亮。
+    const source = ' Hello.\r\n\r\n世界🌍! \n';
     final parsed = parseModelResult(
       jsonEncode({
-        'translation': full,
         'segments': [
-          {'source': 'Hello.', 'translation': '你好。'},
-          {'source': '世界🌍!', 'translation': '世界！'},
+          {'id': 0, 'translation': '你好。'},
+          {'id': 1, 'translation': '世界！'},
         ],
       }),
       source,
     );
-    expect(parsed.translation, full);
+    expect(parsed.translation, ' 你好。\r\n\r\n世界！ \n');
     expect(parsed.pairs.map((e) => e.source).join(), source);
     expect(parsed.pairs, hasLength(2));
-    // 漏段、乱序、虚构原文、空译文均只能降为完整对照，不能展示错误配对。
     for (final segments in [
       [
-        {'source': 'Hello.', 'translation': '你好'},
+        {'id': 0, 'translation': '整篇'},
       ],
       [
-        {'source': '世界🌍!', 'translation': '世界'},
-        {'source': 'Hello.', 'translation': '你好'},
+        {'id': 1, 'translation': '世界'},
+        {'id': 0, 'translation': '你好'},
       ],
       [
-        {'source': '$source invented', 'translation': '错误'},
+        {'id': 0, 'translation': '你好'},
+        {'id': 0, 'translation': '世界'},
       ],
       [
-        {'source': source, 'translation': ''},
+        {'id': 0, 'translation': '你好'},
+        {'id': '1', 'translation': '世界'},
+      ],
+      [
+        {'id': 0, 'translation': '你好'},
+        {'id': 1, 'translation': ' '},
       ],
     ]) {
-      final fallback = parseModelResult(
-        jsonEncode({'translation': full, 'segments': segments}),
-        source,
+      expect(
+        () => parseModelResult(jsonEncode({'segments': segments}), source),
+        throwsFormatException,
       );
-      expect(fallback.translation, full);
-      expect(fallback.pairs, isEmpty);
     }
-    expect(parseModelResult('普通译文', source).translation, '普通译文');
+    expect(() => parseModelResult('普通译文', source), throwsFormatException);
     expect(
-      () => parseModelResult('{"translation":"截断', source),
+      () => parseModelResult('{"segments":[', source),
       throwsFormatException,
     );
   });
 
-  test('语义模式不流出 JSON，完成后一次发布校验过的段落', () async {
+  test('DeepSeek 禁用思考并按输入编号返回完整对照，不显示协议 JSON', () async {
+    // 本地真实 HTTP 同时验证协议输入和两段译文输出，无需账户或付费调用。
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
+    const source = 'First.\n\nSecond.';
     final serving = () async {
       final incoming = await server.first;
-      await incoming.drain<void>();
+      final body = jsonDecode(await utf8.decoder.bind(incoming).join()) as Map;
+      expect(incoming.uri.path, '/chat/completions');
+      expect(body['thinking'], {'type': 'disabled'});
+      expect(body['response_format'], {'type': 'json_object'});
+      final input = jsonDecode(body['messages'][1]['content'] as String) as Map;
+      expect(input['paragraphs'], [
+        {'id': 0, 'text': 'First.'},
+        {'id': 1, 'text': '\n\nSecond.'},
+      ]);
       final content = jsonEncode({
-        'translation': '你好',
         'segments': [
-          {'source': request.sourceText, 'translation': '你好'},
+          {'id': 0, 'translation': '第一段。'},
+          {'id': 1, 'translation': '第二段。'},
         ],
       });
+      incoming.response.write(
+        'data: {"choices":[{"index":0,"delta":{"reasoning_content":"internal"},"finish_reason":null}]}\n\n',
+      );
       incoming.response.write(
         'data: ${jsonEncode({
           'choices': [
@@ -308,20 +323,26 @@ void main() {
               'finish_reason': 'stop',
             },
           ],
-        })}\n\n',
+        })}\n\ndata: [DONE]\n\n',
       );
       await incoming.response.close();
     }();
-    final events = await provider(
-      'openai',
-      server,
-      semantic: true,
-    ).translate(request).toList();
-    expect(events.whereType<TranslationUpdate>().single.addition, '你好');
+    final events = await provider('deepseek', server, semantic: true)
+        .translate(
+          const TranslationRequest(
+            sourceText: source,
+            detectedLanguage: 'en',
+            targetLanguage: 'zh-CN',
+          ),
+        )
+        .toList();
     expect(
-      (events.last as TranslationCompleted).pairs.single.source,
-      request.sourceText,
+      events.whereType<TranslationUpdate>().single.addition,
+      '第一段。\n\n第二段。',
     );
+    final pairs = (events.last as TranslationCompleted).pairs;
+    expect(pairs.map((pair) => pair.source).join(), source);
+    expect(pairs.map((pair) => pair.translation), ['第一段。', '\n\n第二段。']);
     await serving;
   });
 }

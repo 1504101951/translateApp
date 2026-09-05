@@ -58,21 +58,12 @@ Future<void> main() async {
     Map<String, Map<String, String>?> drafts,
   ) async {
     candidate.validate();
-    final credentials = <String, Map<String, String>?>{};
-    for (final config in candidate.services) {
-      // 空字段表示保留；合并仅发生在主引擎内，设置窗口不能读取已保存密钥。
-      final value = {
-        ...await bridge.readCredentials(config.id),
-        ...?drafts[config.id],
-      };
-      config.validateCredentials(value);
-      if (drafts[config.id] != null) credentials[config.id] = value;
-    }
-    for (final removed in settings.services.where(
-      (old) => !candidate.services.any((e) => e.id == old.id),
-    )) {
-      credentials[removed.id] = null;
-    }
+    final credentials = await prepareCredentialChanges(
+      previous: settings.services,
+      current: candidate.services,
+      drafts: drafts,
+      readCredentials: bridge.readCredentials,
+    );
     await bridge.applySettings(candidate.toMap(), credentials: credentials);
     session.dismiss();
     session.language = candidate.direction;
@@ -226,8 +217,12 @@ class _TranslateAppState extends State<TranslateApp> {
         :final x,
         :final y,
       ):
-        // 开始新会话会取消旧翻译，触发态只接受可读的非空选区。
-        widget.session.begin(sessionId: sessionId, text: text);
+        // 键盘选择可先显示候选按钮；文字只在用户点击后补读，不被动模拟复制。
+        widget.session.begin(
+          sessionId: sessionId,
+          text: text,
+          awaitSelection: gesture == 'selectAll' || gesture == 'keyboard',
+        );
         if (widget.session.snapshot.phase == TranslationPhase.trigger) {
           final size = gesture == 'hotkey' ? _resultSize : _triggerSize;
           if (gesture == 'hotkey') unawaited(_activate(readSelection: false));

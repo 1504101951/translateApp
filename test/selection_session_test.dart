@@ -26,6 +26,26 @@ class RecordingProvider implements TranslationProvider {
 
 void main() {
   final language = LanguageDirection(primaryCode: 'zh-CN', secondaryCode: 'en');
+  test('键盘无 AX 文本时可显示按钮，只有显式补读的有效文字会被翻译', () async {
+    // 空文本只代表待确认键盘选区；自动捕获和缺少补读的激活不能发送空请求。
+    final provider = RecordingProvider();
+    final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
+      provider: provider,
+      language: language,
+    );
+    addTearDown(session.dispose);
+    session.begin(sessionId: 'keyboard', text: '', awaitSelection: true);
+    expect(session.snapshot.phase, TranslationPhase.trigger);
+    expect(provider.requests, isEmpty);
+    await session.activate(readSelection: () async => 'First.\n\nSecond.');
+    expect(provider.requests.single.sourceText, 'First.\n\nSecond.');
+    expect(session.snapshot.phase, TranslationPhase.completed);
+    session.begin(sessionId: 'empty', text: '', awaitSelection: true);
+    await session.activate();
+    expect(session.snapshot.phase, TranslationPhase.idle);
+    expect(provider.requests, hasLength(1));
+  });
 
   test(
     'explicit activation preserves prepared paragraphs in request and card',

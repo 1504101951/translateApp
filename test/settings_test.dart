@@ -12,6 +12,69 @@ import 'selection_session_test.dart' show RecordingProvider;
 
 /// 无参数；验证设置约束和异步语言识别跨越会话边界时的业务输出。
 void main() {
+  test('普通设置不读取密钥，凭据修改只合并对应服务，删除保留删除标记', () async {
+    // 已有服务仅修改普通偏好时 reader 不可访问；只有用户提交密钥才触及钥匙串。
+    const saved = ServiceConfig(
+      id: 'saved',
+      kind: 'baidu',
+      name: '百度',
+      baseUrl: 'https://fanyi-api.baidu.com',
+    );
+    final untouched = await prepareCredentialChanges(
+      previous: [saved],
+      current: [saved],
+      drafts: {'saved': {}},
+      readCredentials: (_) async => throw StateError('普通设置不应读取密钥'),
+    );
+    expect(untouched, isEmpty);
+    // 同一 ID 不可更换协议并沿用旧密钥，拒绝前也不应触发钥匙串读取。
+    await expectLater(
+      prepareCredentialChanges(
+        previous: [saved],
+        current: [
+          const ServiceConfig(
+            id: 'saved',
+            kind: 'deepseek',
+            name: 'DeepSeek',
+            baseUrl: 'https://api.deepseek.com',
+            model: 'test',
+          ),
+        ],
+        drafts: {},
+        readCredentials: (_) async => throw StateError('跨协议不应读取旧密钥'),
+      ),
+      throwsFormatException,
+    );
+    final changed = await prepareCredentialChanges(
+      previous: [saved],
+      current: [saved],
+      drafts: {
+        'saved': {'apiKey': 'new'},
+      },
+      readCredentials: (_) async => {'appId': 'app', 'apiKey': 'old'},
+    );
+    expect(changed, {
+      'saved': {'appId': 'app', 'apiKey': 'new'},
+    });
+    final removed = await prepareCredentialChanges(
+      previous: [saved],
+      current: [],
+      drafts: {},
+      readCredentials: (_) async => throw StateError('删除不应在 Dart 读取密钥'),
+    );
+    expect(removed, {'saved': null});
+    // 新服务无任何密钥必须失败，不能绕过协议必填项检查。
+    await expectLater(
+      prepareCredentialChanges(
+        previous: [],
+        current: [saved],
+        drafts: {},
+        readCredentials: (_) async => throw StateError('新服务没有旧密钥'),
+      ),
+      throwsFormatException,
+    );
+  });
+
   test('secondary language can be cleared and remains absent after saving', () {
     // 用户已有次要语言，再主动清空；完整偏好往返后不能悄悄恢复默认值。
     final settings = AppSettings(

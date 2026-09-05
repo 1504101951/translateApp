@@ -224,7 +224,10 @@ final class SelectionMonitor {
             // 读取绑定手势来源，切换应用或新手势会取消本次读取。
             let selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid, allowCopy: gesture == .hotkey)
             guard !Task.isCancelled, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
-            guard let text = selection.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let text = selection.text ?? ""
+            let keyboardCandidate = (gesture == .selectAll || gesture == .keyboard)
+                && AccessibilitySelection.permitsKeyboardTrigger(sourcePID: pid)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || keyboardCandidate else {
                 MacPlatformBridge.Shared.instance?.invalidateSelection()
                 return
             }

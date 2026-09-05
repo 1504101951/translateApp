@@ -27,19 +27,23 @@ class SelectionSession extends ChangeNotifier {
   StreamSubscription<TranslationEvent>? _translation;
   Completer<void>? _completion;
 
-  /// sessionId 标识选区，text 为原文；进入触发态或空闲态，无返回值。
-  void begin({required String sessionId, required String? text}) {
+  /// sessionId 标识选区，text 为已读原文；awaitSelection 允许键盘手势先显示按钮，点击后补读。
+  void begin({
+    required String sessionId,
+    required String? text,
+    bool awaitSelection = false,
+  }) {
     this.sessionId = sessionId;
     // 新选区结束旧请求，避免后台继续消耗连接。
     _cancelTranslation();
-    if (text == null || text.trim().isEmpty) {
+    if (!awaitSelection && (text == null || text.trim().isEmpty)) {
       snapshot = TranslationSnapshot.idle;
       notifyListeners();
       return;
     }
     snapshot = TranslationSnapshot(
       phase: TranslationPhase.trigger,
-      sourceText: text,
+      sourceText: text ?? '',
       translatedText: '',
     );
     notifyListeners();
@@ -75,6 +79,11 @@ class SelectionSession extends ChangeNotifier {
           translatedText: '',
         );
         notifyListeners();
+      }
+      // 候选按钮尚未取得文字时不能产生空文本请求。
+      if (source.trim().isEmpty) {
+        dismiss();
+        return;
       }
       if (source.characters.length > selectionLimit) {
         snapshot = TranslationSnapshot(

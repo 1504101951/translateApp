@@ -71,6 +71,15 @@ enum AccessibilitySelection {
         return nil
     }
 
+    /// sourcePID 为键盘手势来源；允许可疑文本选区先显示按钮，明确的文件/安全控件返回 false。
+    static func permitsKeyboardTrigger(sourcePID: pid_t) -> Bool {
+        guard AXIsProcessTrusted(), NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return false }
+        let app = AXUIElementCreateApplication(sourcePID)
+        // 未发布焦点节点不等于没有文字；候选按钮仅在用户点击后才执行实际读取。
+        guard let focused = focusedElement(from: app) else { return true }
+        return !isSecure(focused) && TextSelectionContext.shouldReadSelectedText(ancestorRoles: ancestorRoles(of: focused))
+    }
+
     /// app 为来源应用；返回可读文字、矩形与持有选区的节点，缺失时均为空。
     private static func readOnce(app: AXUIElement) -> (text: String?, bounds: CGRect?, element: AXUIElement?) {
         var candidates: [AXUIElement] = []

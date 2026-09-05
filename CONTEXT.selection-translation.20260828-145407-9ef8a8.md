@@ -19,9 +19,9 @@ Topic: selection-translation
 
 **Baidu Provider**: A Translation Provider backed by the official Baidu general translation API, with App ID and secret stored in macOS Keychain.
 
-**Bilingual Pair**: One source passage and its translation displayed in the same row, with translation on the left and local source text on the right. Hovering the translation highlights only its source passage. Ordinary providers align by source paragraph boundaries; semantic models retain whole-source context and supply ordered segments validated against complete local source coverage. Preserved whitespace belongs to the pairs. Coverage validation does not prove semantic accuracy.
+**Bilingual Pair**: One local source paragraph and its translation displayed in the same row, with translation on the left and source on the right. Hovering a translated paragraph highlights its paired source paragraph. Ordinary providers translate source paragraphs sequentially. Model paragraph mode receives the complete source as numbered paragraphs and returns ordered `{id, translation}` segments; IDs must cover every paragraph exactly once. Source text and separator whitespace come from local input. Paragraphs follow nonempty source lines; character selections and semantic subdivisions within an unbroken paragraph are not alignment boundaries. ID validation does not prove translation accuracy.
 
-**Automatic Translation Trigger**: User-controlled appearance of the translation button after a Selection Gesture exposes text through Accessibility. Passive detection never injects copy keystrokes; an unreadable selection does not create an automatic session. Enabled by default. Disabling ends the current Selection Session and does not disable the Global Translation Shortcut.
+**Automatic Translation Trigger**: User-controlled appearance of the translation button after a Selection Gesture. Mouse gestures require readable Accessibility text. Keyboard selection gestures may create a pending-text trigger after source, permission, and text-context checks; actual text is read only when the user clicks. Empty explicit reads end the session without a translation request. Passive detection never injects copy keystrokes. Enabled by default. Disabling ends the current Selection Session.
 
 **Global Translation Shortcut**: Configurable macOS hotkey that reads the current allowed text selection and starts translation directly. It uses the same Selection Session and nonactivating Translation Overlay, including source-application invalidation.
 
@@ -29,9 +29,9 @@ Topic: selection-translation
 
 **Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced, dismissed, confirmed empty, or the user switches away from the source application. Validation follows the Accessibility node that supplied the selected text; a changed focus container or temporarily unavailable selection alone does not end the session. Clipboard-only sessions without a readable Accessibility node cannot confirm keyboard deselection and end through outside clicks, Escape, or source-application changes.
 
-**Selection Gesture**: A mouse drag, double-click, triple-click, Select All Gesture, or Shift combined with arrow, Home, End, or Page keys that selects readable text and begins a Selection Session. Command and Option may refine a Shift selection by line or word.
+**Selection Gesture**: Mouse drag, double-click, triple-click, Select All Gesture, or Shift combined with arrow, Home, End, or Page keys. Mouse gestures require readable selected text; keyboard gestures can enter a pending-text Translation Trigger State. Command or Option may refine Shift selection by line or word.
 
-**Select All Gesture**: Command-A when it produces readable selected text. It is a Selection Gesture.
+**Select All Gesture**: Command-A in an allowed text context. It creates a Selection Session with readable text or a pending-text trigger that requires explicit activation before reading.
 
 **Text Selection Context**: A focused control that presents document or field text, such as a text area, text field, web area, or a chat message list. File trees and tables are not a Text Selection Context.
 
@@ -137,7 +137,7 @@ _Avoid_: Provider Failover
 
 **Unofficial Google Provider**: The Translation Provider backed by Google Translate's consumer endpoint, whose availability is not guaranteed.
 
-**OpenAI-Compatible Provider**: A model-backed Translation Provider configured for an OpenAI-compatible endpoint and model.
+**OpenAI-Compatible Provider**: A model-backed Translation Provider configured for an OpenAI-compatible endpoint and model. Configurations using the official `api.deepseek.com` host disable thinking through the protocol.
 
 _Avoid_: OpenAI Provider
 

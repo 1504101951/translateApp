@@ -16,7 +16,7 @@ open ~/Applications/TranslateApp.app
 
 ## 使用
 
-- 在其他应用拖选、双击、三击，或用 ⌘A、Shift 配合方向/Home/End/Page 键选中文字，会出现 84×36pt 的「翻译」按钮。
+- 在其他应用拖选、双击、三击，或用 ⌘A、Shift 配合方向/Home/End/Page 键选中文字，会出现 84×36pt 的「翻译」按钮。键盘选区暂不能通过 Accessibility 读取时可先显示待确认按钮，点击后才读取文字；明确的文件和安全控件不显示按钮。
 - 点击按钮展开左右双栏卡片，左侧译文、右侧原文，可分别复制全文；两列按段落同行对齐，悬停译文时高亮对应原文。默认全局快捷键 **⌃⌥T** 直接翻译当前选区。
 - 「仅使用快捷键」默认关闭；开启后不再自动显示选区按钮，只能通过全局快捷键唤醒翻译。
 - 浮层使用 status-bar 窗口层级，位于普通及 floating 应用窗口之上，且不取得 key/main 窗口身份。拖动按钮或卡片标题可移动浮层；切应用、清空选区、Escape、关闭或新选区会结束会话并取消当前请求。
@@ -43,17 +43,20 @@ open ~/Applications/TranslateApp.app
 | 百度通用翻译 | App ID、密钥 | `https://fanyi-api.baidu.com` |
 | Google Cloud Translation Basic v2 | 已启用 Translation API 的项目 API Key | `https://translation.googleapis.com` |
 | OpenAI-compatible | API Key、模型 ID | `https://api.openai.com/v1` |
+| DeepSeek | API Key、模型 ID，固定关闭思考 | `https://api.deepseek.com` |
 | Anthropic 原生 Messages | API Key、模型 ID | `https://api.anthropic.com/v1` |
 
 服务商账户、网络和额度决定实际可用性；消费端 App 的登录会员不等同于 API 凭据。Base URL 不包含具体接口路径或密钥；远程服务需要 HTTPS，本机 `localhost` / `127.0.0.1` / `::1` 可用 HTTP。
 
-API Key 和百度 App ID 仅保存于 macOS Keychain。编辑配置时不显示已保存密钥，留空保留；删除服务并保存会删除对应凭据。端点、模型、独立提示词等普通配置存入 UserDefaults。保存失败时恢复凭据和系统配置；翻译失败不会自动发送到其他服务。
+API Key 和百度 App ID 仅保存于 macOS Keychain。编辑配置时不显示已保存密钥，留空保留；删除服务并保存会删除对应凭据。打开设置、保存语言和开关等普通偏好不读取密钥或弹出钥匙串授权；翻译、测试连接和实际凭据修改才访问密钥。端点、模型、独立提示词等普通配置存入 UserDefaults。保存失败时恢复凭据和系统配置；翻译失败不会自动发送到其他服务。
 
-新建模型配置使用中文默认提示词，每个配置可独立编辑。启用「按语义分段双语对照」后，模型接收整篇上下文，并按中文 JSON 约束生成完整译文与配对段落；应用验证源段落按顺序覆盖全部原文，界面使用本地原文。无效分段退回完整原文/译文；截断或损坏的结构报告失败。覆盖校验不能证明模型的语义对应完全准确。
+新建模型配置使用中文默认提示词，每个配置可独立编辑。启用「按段落双语对照」后，模型接收带连续编号的全部原文段落，结合全文语义返回 `segments: [{id, translation}]`。应用要求编号完整、有序且每段译文非空，按编号配对本地原文并保留分隔空白；缺段、乱序和损坏结构均报告失败。段落边界采用原文非空行，不按鼠标选择的字符范围对齐，也不把单个未换行长段自动细分。编号校验不能证明译文的语义完全准确。
 
 Google、百度及未开启语义对照的模型按原文段落顺序翻译并建立配对，不根据译文句数推断对应关系。原始换行、空行和末尾空白保留在两列及全文复制内容中。关闭会话会取消当前请求，某段失败后不继续请求后续段落。
 
-接口参考：[百度通用翻译](https://fanyi-api.baidu.com/doc/21)、[Google Cloud v2](https://cloud.google.com/translate/docs/reference/rest/v2/translate)、[OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[Anthropic Messages](https://platform.claude.com/docs/en/api/messages)。
+DeepSeek 类型及域名为 `api.deepseek.com` 的 OpenAI-compatible 配置发送 `thinking: {type: "disabled"}`，段落模式同时启用 JSON 输出。关闭思考使用协议参数，提示词中的 `no_think` 不承担这一控制；其他兼容接口不接收 DeepSeek 专属参数。段落模式在整份结果校验完成后显示，实际耗时仍取决于模型、文本长度和网络。
+
+接口参考：[百度通用翻译](https://fanyi-api.baidu.com/doc/21)、[Google Cloud v2](https://cloud.google.com/translate/docs/reference/rest/v2/translate)、[OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode)、[Anthropic Messages](https://platform.claude.com/docs/en/api/messages)。
 
 ## 开发与验证
 
@@ -74,6 +77,10 @@ xcodebuild test -workspace macos/Runner.xcworkspace -scheme Runner -destination 
 | 语言、仅使用快捷键与按键录制 | 已完成，#4、#14、#15 |
 | 官方 Google、百度、模型配置、Keychain 与双语对照 | 已完成，#5、#6、#17、#18 |
 | 独立 App、固定安装与签名脚本 | 已完成，#16 |
+| Chrome 键盘自动按钮 | 已实现，实机验收保留在 #31 |
+| 左右段落编号对照与悬停高亮 | 已实现，实机验收保留在 #33 |
+| 次要语言可选 | 已实现并获用户确认，#34 |
+| DeepSeek 关闭思考与普通设置免密钥读取 | 已实现，实机验收保留在 #35、#36 |
 | 排除应用、登录启动、拖动与文本控件过滤 | 已实现，指定实机验收保留在 #3、#12 |
 | Warp 等浮动来源窗口的叠放 | 层级修复及原生回归通过；真实 Warp 验收保留在 #19 |
 | 长文本分段与失败片恢复 | 待实现，#7 |

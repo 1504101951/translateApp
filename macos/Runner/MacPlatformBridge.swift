@@ -1,5 +1,6 @@
 import Cocoa
 import Security
+import LocalAuthentication
 import NaturalLanguage
 import ServiceManagement
 import UniformTypeIdentifiers
@@ -139,18 +140,22 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         case "credentialIds":
             let ids = args["ids"] as? [String] ?? []
             var saved: [String] = []
+            let context = LAContext()
+            context.interactionNotAllowed = true
             for id in ids {
                 let query: [String: Any] = [
                     kSecClass as String: kSecClassGenericPassword,
                     kSecAttrService as String: "com.coolyang.translateApp.credentials",
                     kSecAttrAccount as String: id,
                     kSecReturnAttributes as String: true,
+                    // 常规设置只查询存在状态；授权留给用户主动读取或修改凭据时处理。
+                    kSecUseAuthenticationContext as String: context,
                 ]
                 let status = SecItemCopyMatching(query as CFDictionary, nil)
-                guard status == errSecSuccess || status == errSecItemNotFound else {
+                guard status == errSecSuccess || status == errSecItemNotFound || status == errSecInteractionNotAllowed else {
                     result(FlutterError(code: "keychain_failed", message: "无法读取凭据状态，请检查钥匙串访问权限。", details: nil)); return
                 }
-                if status == errSecSuccess { saved.append(id) }
+                if status == errSecSuccess || status == errSecInteractionNotAllowed { saved.append(id) }
             }
             result(saved)
         case "detectLanguage":

@@ -128,7 +128,8 @@ class _ServiceEditorState extends State<ServiceEditor> {
   /// context 为对话框上下文；返回服务字段和可验证的连接测试入口。
   @override
   Widget build(BuildContext context) {
-    final isModel = _kind == 'openai' || _kind == 'anthropic';
+    final isModel =
+        _kind == 'openai' || _kind == 'deepseek' || _kind == 'anthropic';
     return PopScope(
       canPop: !_testing,
       child: AlertDialog(
@@ -222,8 +223,8 @@ class _ServiceEditorState extends State<ServiceEditor> {
                   ),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('按语义分段双语对照'),
-                    subtitle: const Text('生成完成后显示；分段校验不通过时展示完整原文与译文。'),
+                    title: const Text('按段落双语对照'),
+                    subtitle: const Text('结合全文逐段翻译；段落缺失或乱序时提示重试。'),
                     value: _semantic,
                     onChanged: _testing
                         ? null

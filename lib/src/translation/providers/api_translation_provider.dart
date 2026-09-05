@@ -50,7 +50,7 @@ class ApiTranslationProvider implements TranslationProvider {
       final path = switch (config.kind) {
         'baidu' => '/api/trans/vip/translate',
         'google' => '/language/translate/v2',
-        'openai' => '/chat/completions',
+        'openai' || 'deepseek' => '/chat/completions',
         'anthropic' => '/messages',
         _ => throw const _ApiFailure('不支持的翻译服务。'),
       };
@@ -112,23 +112,38 @@ class ApiTranslationProvider implements TranslationProvider {
           final system =
               config.prompt +
               (config.semanticPairs
-                  ? '\n本次启用语义双语对照，以下格式要求优先于“只输出译文”：'
-                        '只输出一个合法 JSON 对象，包含 translation（完整、自然且保留段落的译文）'
-                        '和 segments（按原文顺序排列的数组，每项为 {"source":"原文片段","translation":"该片段的译文"}）。'
-                        '按语义句群或段落配对，不要逐词拆分。source 必须逐字取自连续的本次原文，'
-                        '按顺序完整覆盖所有非空白原文，不能改写、遗漏或重排；每个译文片段不能为空。'
-                        '不要输出 Markdown 代码围栏或解释。'
+                  ? '\n本次启用双语段落对照，以下格式要求优先于“只输出译文”：'
+                        '输入 paragraphs 按原文段落编号，结合全文语义逐段完整翻译，不概括、不合并、不遗漏。'
+                        '只输出一个合法 JSON 对象：{"segments":[{"id":0,"translation":"该段完整译文"}]}。'
+                        '每个输入编号必须按原顺序出现且仅出现一次，译文不能为空；保留段内格式。'
+                        '原文由应用按编号显示，不必重复输出原文或整篇译文。不要输出思考过程、Markdown 围栏或解释。'
                   : '\n只输出完整译文，不附加解释。');
           final input = jsonEncode({
             'source_language': request.detectedLanguage,
             'target_language': request.targetLanguage,
-            'text': request.sourceText,
+            if (config.semanticPairs)
+              'paragraphs': [
+                for (final (index, text) in modelSourceParagraphs(
+                  request.sourceText,
+                ).indexed)
+                  {'id': index, 'text': text},
+              ]
+            else
+              'text': request.sourceText,
           });
-          if (config.kind == 'openai') {
+          if (config.kind != 'anthropic') {
             http.headers.set('Authorization', 'Bearer ${secret['apiKey']}');
             body = {
               'model': config.model,
               'stream': true,
+              // DeepSeek 用协议参数关闭思考；提示词中的 no_think 不能替代接口约束。
+              if (config.kind == 'deepseek' ||
+                  Uri.parse(base).host == 'api.deepseek.com')
+                'thinking': {'type': 'disabled'},
+              if (config.semanticPairs &&
+                  (config.kind == 'deepseek' ||
+                      Uri.parse(base).host == 'api.deepseek.com'))
+                'response_format': {'type': 'json_object'},
               'messages': [
                 {'role': 'system', 'content': system},
                 {'role': 'user', 'content': input},
@@ -226,7 +241,7 @@ class ApiTranslationProvider implements TranslationProvider {
           throw const _ApiFailure('模型服务在生成过程中返回错误。');
         }
         var addition = '';
-        if (config.kind == 'openai') {
+        if (config.kind != 'anthropic') {
           for (final choice in chunk['choices'] as List? ?? []) {
             if (choice['index'] != 0) continue;
             final delta = choice['delta'] as Map? ?? {};
