@@ -1,8 +1,15 @@
 import AppKit
+import Carbon
 import ApplicationServices
 
 /// 将鼠标、键盘和来源应用变化映射为选区事件；不处理翻译业务。
 final class SelectionMonitor {
+    private(set) var automatic = false
+    private var excludedApps: Set<String> = []
+    private var hotKey: EventHotKeyRef?
+    private var hotKeyHandler: EventHandlerRef?
+    private var shortcutKey: String?
+    private var shortcutModifiers: UInt32 = 0
     private var detector = SelectionGestureDetector()
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
@@ -13,6 +20,56 @@ final class SelectionMonitor {
     private var captureTask: Task<Void, Never>?
     private var ignoreMouseGesture = false
     private var pendingKeySelection: (keyCode: UInt16, gesture: SelectionGesture)?
+
+    /// 配置均来自 Dart；注册新热键成功后才替换旧配置，失败抛出系统错误。
+    func configure(automatic: Bool, excludedApps: Set<String>, key: String, modifiers: UInt32) throws {
+        let keyCodes: [String: UInt32] = [
+            "A": 0, "B": 11, "C": 8, "D": 2, "E": 14, "F": 3, "G": 5,
+            "H": 4, "I": 34, "J": 38, "K": 40, "L": 37, "M": 46, "N": 45,
+            "O": 31, "P": 35, "Q": 12, "R": 15, "S": 1, "T": 17, "U": 32,
+            "V": 9, "W": 13, "X": 7, "Y": 16, "Z": 6,
+        ]
+        guard let code = keyCodes[key], modifiers & 6400 != 0, modifiers & ~6912 == 0 else {
+            throw NSError(domain: "TranslateApp", code: 1, userInfo: [NSLocalizedDescriptionKey: "快捷键需要字母和 Control、Option 或 Command。"])
+        }
+        if hotKeyHandler == nil {
+            var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+            let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+                guard let event, let context else { return OSStatus(eventNotHandledErr) }
+                var identifier = EventHotKeyID()
+                GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &identifier)
+                guard identifier.signature == 0x5452414E else { return OSStatus(eventNotHandledErr) }
+                let monitor = Unmanaged<SelectionMonitor>.fromOpaque(context).takeUnretainedValue()
+                Task { @MainActor in
+                    // 全局热键复用选区读取和会话失效机制，不激活 TranslateApp。
+                    monitor.capture(gesture: .hotkey, location: NSEvent.mouseLocation)
+                }
+                return noErr
+            }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
+            guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+        }
+        if shortcutKey != key || shortcutModifiers != modifiers {
+            var replacement: EventHotKeyRef?
+            let status = RegisterEventHotKey(code, modifiers, EventHotKeyID(signature: 0x5452414E, id: 1), GetApplicationEventTarget(), 0, &replacement)
+            guard status == noErr else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
+                    NSLocalizedDescriptionKey: "无法注册快捷键，可能已被其他应用占用（\(status)）。请选择其他组合。",
+                ])
+            }
+            // 先注册后释放，冲突不会让当前有效快捷键失效。
+            if let hotKey { UnregisterEventHotKey(hotKey) }
+            hotKey = replacement
+            shortcutKey = key
+            shortcutModifiers = modifiers
+        }
+        self.automatic = automatic
+        self.excludedApps = excludedApps
+        detector = SelectionGestureDetector()
+        pendingKeySelection = nil
+        captureTask?.cancel()
+        stopObservingSelection()
+        MacPlatformBridge.Shared.instance?.invalidateSelection()
+    }
 
     /// 无参数；安装不吞掉原应用输入的全局监听，无返回值。
     func start() {
@@ -60,6 +117,8 @@ final class SelectionMonitor {
 
     /// 无参数；释放事件监听和待完成读取，防止残留回调。
     deinit {
+        if let hotKey { UnregisterEventHotKey(hotKey) }
+        if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         captureTask?.cancel()
         for monitor in [localMouseMonitor, globalMouseMonitor, keyboardMonitor].compactMap({ $0 }) {
             NSEvent.removeMonitor(monitor)
@@ -94,6 +153,7 @@ final class SelectionMonitor {
         case .leftMouseUp: kind = .up
         default: return
         }
+        guard automatic else { return }
         let pointer = MousePointerEvent(kind: kind, clickCount: clickCount, x: location.x, y: location.y)
         // 检测器仅在拖选、双击或三击完成时产出手势。
         guard let gesture = detector.handle(pointer) else { return }
@@ -111,7 +171,7 @@ final class SelectionMonitor {
             bridge?.invalidateSelection(eventType: "escapePressed")
             return
         }
-        if type == .keyDown {
+        if automatic, type == .keyDown {
             // 修饰键可能先于方向键释放，因此在按下时记住手势，不保存输入字符。
             if let gesture = SelectionGesture.keyboardGesture(keyCode: keyCode, modifiers: modifiers) {
                 pendingKeySelection = (keyCode, gesture)
@@ -135,7 +195,10 @@ final class SelectionMonitor {
     @MainActor
     private func capture(gesture: SelectionGesture, location: NSPoint) {
         captureTask?.cancel()
-        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier, pid != getpid() else { return }
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != getpid(),
+              !excludedApps.contains(app.bundleIdentifier ?? "") else { return }
+        let pid = app.processIdentifier
         captureTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
             // 读取绑定手势来源，切换应用或新手势会取消本次读取。

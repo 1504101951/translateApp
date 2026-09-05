@@ -8,13 +8,17 @@ import '../translation/translation_types.dart';
 
 /// Dart 侧 Selection Session。激活前不请求 Provider。
 class SelectionSession extends ChangeNotifier {
-  SelectionSession({required this.provider, LanguageDirection? language})
-    : language = language ?? LanguageDirection.systemDefault();
+  SelectionSession({
+    required this.provider,
+    required this.detectLanguage,
+    LanguageDirection? language,
+  }) : language = language ?? LanguageDirection.systemDefault();
 
   static const selectionLimit = 50000;
 
   final TranslationProvider provider;
-  final LanguageDirection language;
+  LanguageDirection language;
+  final Future<String?> Function(String text) detectLanguage;
 
   TranslationSnapshot snapshot = TranslationSnapshot.idle;
   String? sessionId;
@@ -63,7 +67,21 @@ class SelectionSession extends ChangeNotifier {
     );
     notifyListeners();
 
-    final direction = language.resolve(source);
+    String? detected;
+    try {
+      detected = await detectLanguage(source);
+    } catch (error) {
+      if (generation != _generation) return;
+      snapshot = snapshot.copyWith(
+        phase: TranslationPhase.failed,
+        message: '无法识别选区语言：$error',
+      );
+      notifyListeners();
+      return;
+    }
+    // 设备识别是异步桥调用；等待期间换选区或关闭不能发出旧请求。
+    if (generation != _generation) return;
+    final direction = language.resolve(detected);
     final request = TranslationRequest(
       sourceText: source,
       detectedLanguage: direction.detectedLanguage,

@@ -31,6 +31,7 @@ void main() {
       await server.close();
     });
     final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
       provider: UnofficialGoogleProvider(
         endpoint: 'http://127.0.0.1:${server.port}/translate',
       ),

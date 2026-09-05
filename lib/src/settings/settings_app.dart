@@ -1,0 +1,367 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'app_settings.dart';
+
+/// 独立可激活窗口的设置 UI；所有偏好读写由主 Dart 引擎处理。
+class SettingsApp extends StatelessWidget {
+  const SettingsApp({super.key});
+
+  /// context 为设置引擎的构建上下文；返回完整设置应用。
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    debugShowCheckedModeBanner: false,
+    title: 'TranslateApp 设置',
+    theme: ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF246BFD)),
+      scaffoldBackgroundColor: const Color(0xFFF5F5F7),
+      useMaterial3: true,
+    ),
+    home: const _SettingsPage(),
+  );
+}
+
+class _SettingsPage extends StatefulWidget {
+  const _SettingsPage();
+  @override
+  State<_SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<_SettingsPage>
+    with WidgetsBindingObserver {
+  static const _channel = MethodChannel('translateapp/settings');
+  AppSettings? _settings;
+  Map<Object?, Object?> _status = {};
+  String? _message;
+  bool _saving = false;
+  bool _failed = false;
+  bool _dirty = false;
+  bool _conflicted = false;
+  int _revision = 0;
+
+  /// 无参数；加载主引擎偏好，并监听菜单引起的偏好变化，无返回值。
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'refreshSettings') await _load();
+    });
+    _load();
+  }
+
+  /// 无参数；解除引擎内的回调和生命周期监听，无返回值。
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _channel.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  /// state 为窗口活动状态；从系统设置返回时刷新权限，不覆盖未保存表单。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshStatus();
+  }
+
+  /// 无参数；读取系统真实权限和登录项状态，完成后刷新界面。
+  Future<void> _refreshStatus() async {
+    final status = await _channel.invokeMapMethod<Object?, Object?>(
+      'systemStatus',
+    );
+    if (mounted) setState(() => _status = status!);
+  }
+
+  /// 无参数；读取主引擎偏好与系统状态，错误显示在窗口中。
+  Future<void> _load() async {
+    try {
+      final map = (await _channel.invokeMapMethod<Object?, Object?>(
+        'getSettings',
+      ))!;
+      await _refreshStatus();
+      if (!mounted) return;
+      if (_dirty) {
+        if (map['revision'] != _revision) {
+          setState(() {
+            _conflicted = true;
+            _failed = true;
+            _message = '设置已在菜单中更新。重新加载将放弃当前未保存的编辑。';
+          });
+        }
+        return;
+      }
+      setState(() {
+        _revision = map['revision'] as int;
+        _conflicted = false;
+        _settings = AppSettings.fromMap(map);
+        _message = map['error'] as String?;
+        _failed = _message != null;
+      });
+    } on PlatformException catch (error) {
+      if (mounted) {
+        setState(() {
+          _message = error.message;
+          _failed = true;
+        });
+      }
+    }
+  }
+
+  /// 无参数；提交完整表单，系统配置成功后才展示已保存结果。
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      _settings!.validate();
+      final saved = (await _channel.invokeMapMethod<Object?, Object?>(
+        'saveSettings',
+        {..._settings!.toMap(), 'revision': _revision},
+      ))!;
+      await _refreshStatus();
+      if (!mounted) return;
+      setState(() {
+        _settings = AppSettings.fromMap(saved);
+        _revision = saved['revision'] as int;
+        _dirty = false;
+        _conflicted = false;
+        _message = '已保存，下次翻译立即生效。';
+        _failed = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        if (error is PlatformException && error.code == 'settings_conflict') {
+          _conflicted = true;
+        }
+        _message = error is PlatformException
+            ? error.message
+            : error.toString();
+        _failed = true;
+      });
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// 无参数；使用 macOS 应用选择器添加一个排除项，取消不改变表单。
+  Future<void> _addExclusion() async {
+    final app = await _channel.invokeMapMethod<String, String>(
+      'chooseExcludedApp',
+    );
+    if (app == null || !mounted) return;
+    _edit(() => _settings!.excludedApps[app['id']!] = app['name']!);
+  }
+
+  /// change 写入一次用户编辑；保留草稿，避免菜单刷新直接覆盖未保存内容。
+  void _edit(VoidCallback change) {
+    setState(() {
+      change();
+      _dirty = true;
+    });
+  }
+
+  /// label 为字段名，value 为当前语言码，onChanged 写回表单；返回语言选择控件。
+  Widget _language(String label, String value, ValueChanged<String> onChanged) {
+    final languages = {
+      ...AppSettings.languages,
+      if (!AppSettings.languages.containsKey(value)) value: value,
+    };
+    return Expanded(
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('$label:$value'),
+        initialValue: value,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+        ),
+        items: languages.entries
+            .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+            .toList(),
+        onChanged: (v) => _edit(() => onChanged(v!)),
+      ),
+    );
+  }
+
+  /// context 为窗口上下文；返回可滚动表单与保存反馈。
+  @override
+  Widget build(BuildContext context) {
+    final settings = _settings;
+    if (settings == null) {
+      return Scaffold(
+        body: Center(
+          child: _message == null
+              ? const CircularProgressIndicator()
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_message!),
+                    TextButton(onPressed: _load, child: const Text('重新加载')),
+                  ],
+                ),
+        ),
+      );
+    }
+    return Scaffold(
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text(
+            'TranslateApp',
+            style: Theme.of(context).textTheme.headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          const Text('选中文字，随手翻译。', style: TextStyle(color: Color(0xFF72747B))),
+          const SizedBox(height: 24),
+          const Text('翻译语言', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _language(
+                '主要语言',
+                settings.primaryLanguage,
+                (v) => settings.primaryLanguage = v,
+              ),
+              const SizedBox(width: 12),
+              _language(
+                '次要语言',
+                settings.secondaryLanguage,
+                (v) => settings.secondaryLanguage = v,
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Text(
+              '主要语言的文本译为次要语言，其余文本译为主要语言。',
+              style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
+            ),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('自动显示翻译按钮'),
+            subtitle: const Text('关闭后，仍可用全局快捷键翻译选区。'),
+            value: settings.automatic,
+            onChanged: (v) => _edit(() => settings.automatic = v),
+          ),
+          const Divider(height: 28),
+          const Text('全局翻译快捷键', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final modifier in const {
+                4096: '⌃ Control',
+                2048: '⌥ Option',
+                512: '⇧ Shift',
+                256: '⌘ Command',
+              }.entries)
+                FilterChip(
+                  label: Text(modifier.value),
+                  selected: settings.shortcutModifiers & modifier.key != 0,
+                  onSelected: (v) => _edit(() {
+                    settings.shortcutModifiers = v
+                        ? settings.shortcutModifiers | modifier.key
+                        : settings.shortcutModifiers & ~modifier.key;
+                  }),
+                ),
+              DropdownButton<String>(
+                value: settings.shortcutKey,
+                items: List.generate(26, (i) {
+                  final key = String.fromCharCode(65 + i);
+                  return DropdownMenuItem(value: key, child: Text(key));
+                }),
+                onChanged: (v) => _edit(() => settings.shortcutKey = v!),
+              ),
+            ],
+          ),
+          const Divider(height: 28),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '排除应用',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _addExclusion,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('添加应用'),
+              ),
+            ],
+          ),
+          if (settings.excludedApps.isEmpty)
+            const Text(
+              '所有支持读取选区的应用均可翻译。',
+              style: TextStyle(color: Color(0xFF72747B)),
+            ),
+          for (final app in settings.excludedApps.entries)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(app.value),
+              subtitle: Text(app.key),
+              trailing: IconButton(
+                tooltip: '移除排除项',
+                icon: const Icon(Icons.remove_circle_outline),
+                onPressed: () =>
+                    _edit(() => settings.excludedApps.remove(app.key)),
+              ),
+            ),
+          const Divider(height: 28),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('登录时启动'),
+            value: settings.launchAtLogin,
+            onChanged: (v) => _edit(() => settings.launchAtLogin = v),
+          ),
+          if (_status['loginNeedsApproval'] == true)
+            TextButton(
+              onPressed: () => _channel.invokeMethod<void>('openLoginItems'),
+              child: const Text('在系统设置中允许登录项'),
+            ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('辅助功能权限'),
+            subtitle: Text(
+              _status['accessibility'] == true
+                  ? '已授权，可以读取其他应用的选区。'
+                  : '未授权，请在系统设置中开启。',
+            ),
+            trailing: TextButton(
+              onPressed: () => _channel.invokeMethod<void>('openAccessibility'),
+              child: const Text('打开设置'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _saving || _conflicted ? null : _save,
+            child: Text(_saving ? '正在保存…' : '保存设置'),
+          ),
+          if (_conflicted)
+            TextButton(
+              onPressed: () {
+                _dirty = false;
+                _load();
+              },
+              child: const Text('重新加载设置'),
+            ),
+          if (_message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                _message!,
+                style: TextStyle(
+                  color: _failed
+                      ? Theme.of(context).colorScheme.error
+                      : const Color(0xFF34834B),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

@@ -7,6 +7,7 @@ enum SelectionGesture: String {
     case tripleClick
     case selectAll
     case keyboard
+    case hotkey
 
     /// keyCode 为硬件键码，modifiers 为修饰键；返回创建文本选区的手势或 nil。
     static func keyboardGesture(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> SelectionGesture? {

@@ -5,6 +5,34 @@ import XCTest
 @testable import translate_app
 
 class RunnerTests: XCTestCase {
+
+    /// 无参数；真实 Carbon 注册冲突必须保留旧热键及自动按钮状态，无返回值。
+    @MainActor
+    func testHotKeyConflictPreservesPreviousConfiguration() throws {
+        let first = SelectionMonitor()
+        let second = SelectionMonitor()
+        let probe = SelectionMonitor()
+        // 四个修饰键用于避免占用用户常用组合；同一组合是系统冲突边界。
+        try first.configure(automatic: false, excludedApps: [], key: "X", modifiers: 6912)
+        try first.configure(automatic: true, excludedApps: [], key: "X", modifiers: 6912)
+        XCTAssertTrue(first.automatic)
+        try second.configure(automatic: true, excludedApps: [], key: "Y", modifiers: 6912)
+        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], key: "X", modifiers: 6912))
+        XCTAssertTrue(second.automatic)
+        XCTAssertThrowsError(try probe.configure(automatic: false, excludedApps: [], key: "Y", modifiers: 6912))
+        withExtendedLifetime((first, second, probe)) {}
+    }
+
+    /// 无参数；使用真实设备语言识别，确保法语不会被当成英语，无返回值。
+    @MainActor
+    func testDeviceLanguageDetection() {
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        bridge.handle(FlutterMethodCall(methodName: "detectLanguage", arguments: [
+            "text": "Bonjour, cette application permet de traduire le texte sélectionné dans une autre langue sans interrompre votre travail.",
+        ])) { value in
+            XCTAssertEqual(value as? String, "fr")
+        }
+    }
     /// 无参数；验证非激活面板不能成为 key/main，避免点击浮层抢走键盘焦点。
     @MainActor
     func testOverlayPanelDoesNotBecomeKeyOrMain() {
@@ -45,7 +73,7 @@ class RunnerTests: XCTestCase {
     func testSourceSwitchInvalidatesTriggerAndResultAndDropsLateShow() {
         for size in [NSSize(width: 84, height: 36), NSSize(width: 320, height: 220)] {
             let overlay = OverlayPanelController()
-            let bridge = MacPlatformBridge(overlay: overlay)
+            let bridge = MacPlatformBridge(overlay: overlay, selectionMonitor: SelectionMonitor())
             var events: [[String: Any]] = []
             _ = bridge.onListen(withArguments: nil) { events.append($0 as! [String: Any]) }
             bridge.emitSelectionCaptured(text: "Hello", gesture: "drag", x: 300, y: 500, sourcePID: 100)
@@ -70,7 +98,7 @@ class RunnerTests: XCTestCase {
     @MainActor
     func testReplacementAndEscapeKeepSessionIdentity() {
         let overlay = OverlayPanelController()
-        let bridge = MacPlatformBridge(overlay: overlay)
+        let bridge = MacPlatformBridge(overlay: overlay, selectionMonitor: SelectionMonitor())
         var events: [[String: Any]] = []
         _ = bridge.onListen(withArguments: nil) { events.append($0 as! [String: Any]) }
         bridge.emitSelectionCaptured(text: "first", gesture: "drag", x: 300, y: 500, sourcePID: 100)

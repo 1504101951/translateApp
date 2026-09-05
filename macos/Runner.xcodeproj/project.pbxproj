@@ -35,6 +35,7 @@
 		A13A0000000000000000000C /* OverlayAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A0000000000000000000B /* OverlayAnchor.swift */; };
 		A13A0000000000000000000E /* SelectionGestureDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A0000000000000000000D /* SelectionGestureDetector.swift */; };
 		A13A00000000000000000010 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A0000000000000000000F /* StatusBarController.swift */; };
+		A13A00000000000000000012 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000011 /* SettingsWindowController.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 /* End PBXBuildFile section */
 
@@ -87,6 +88,7 @@
 		A13A0000000000000000000B /* OverlayAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayAnchor.swift; sourceTree = "<group>"; };
 		A13A0000000000000000000D /* SelectionGestureDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionGestureDetector.swift; sourceTree = "<group>"; };
 		A13A0000000000000000000F /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
+		A13A00000000000000000011 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		33CEB47222A05771004F2AC0 /* Flutter-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Debug.xcconfig"; sourceTree = "<group>"; };
 		33CEB47422A05771004F2AC0 /* Flutter-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Release.xcconfig"; sourceTree = "<group>"; };
 		33CEB47722A0578A004F2AC0 /* Flutter-Generated.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = "Flutter-Generated.xcconfig"; path = "ephemeral/Flutter-Generated.xcconfig"; sourceTree = "<group>"; };
@@ -192,6 +194,7 @@
 				A13A0000000000000000000B /* OverlayAnchor.swift */,
 				A13A0000000000000000000D /* SelectionGestureDetector.swift */,
 				A13A0000000000000000000F /* StatusBarController.swift */,
+				A13A00000000000000000011 /* SettingsWindowController.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
 				33CC11242044D66E0003C045 /* Resources */,
@@ -388,6 +391,7 @@
 				A13A0000000000000000000C /* OverlayAnchor.swift in Sources */,
 				A13A0000000000000000000E /* SelectionGestureDetector.swift in Sources */,
 				A13A00000000000000000010 /* StatusBarController.swift in Sources */,
+				A13A00000000000000000012 /* SettingsWindowController.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

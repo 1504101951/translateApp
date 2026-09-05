@@ -58,4 +58,23 @@ class MacosPlatformBridge {
   Future<void> probeEmitSelection() {
     return _methods.invokeMethod<void>('probeEmitSelection');
   }
+
+  /// 无参数；返回 UserDefaults 偏好及 macOS 首选语言。
+  Future<Map<Object?, Object?>> loadSettings() async =>
+      (await _methods.invokeMapMethod<Object?, Object?>('loadSettings'))!;
+
+  /// settings 为经 Dart 校验的偏好字典；成功保存并应用系统能力后完成。
+  Future<void> applySettings(Map<String, Object> settings) =>
+      _methods.invokeMethod<void>('applySettings', settings);
+
+  /// handler 处理设置窗口及菜单请求；响应来自主 Dart 实例，避免双引擎状态分叉。
+  void handleSettings(Future<Object?> Function(MethodCall) handler) =>
+      _methods.setMethodCallHandler(handler);
+
+  /// text 为待翻译原文；返回设备识别的 BCP-47 语言或 null，不联网。
+  Future<String?> detectLanguage(String text) =>
+      _methods.invokeMethod<String>('detectLanguage', {'text': text});
+
+  /// 无参数；通知原生首次启动界面可用，Future 在窗口调度后完成。
+  Future<void> appReady() => _methods.invokeMethod<void>('appReady');
 }

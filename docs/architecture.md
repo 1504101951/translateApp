@@ -1,82 +1,40 @@
-# Flutter macOS 重构架构
+# Flutter macOS 架构
 
-当前只交付 macOS 14+。Flutter/Dart 是应用与业务主体，Swift 是 macOS 启动壳和系统桥接。
+当前只交付 macOS 14+。Flutter/Dart 是应用与业务主体，Swift 负责 macOS 启动壳和系统能力。
 
-## 架构图
+## 职责
 
-```mermaid
-flowchart LR
-    Apps[macOS 源应用] --> Bridge[Swift macOS 桥]
-    Bridge --> Session[Dart Selection Session]
-    Session --> Engine[Dart Translation Engine]
-    Engine --> Providers[Google / OpenAI / Anthropic]
-    Session --> UI[Flutter Overlay / 设置 / 历史]
-    UI --> Panel[Swift 非激活 NSPanel]
-    Engine --> Store[Dart SQLite / Settings]
-```
+| Flutter/Dart | Swift |
+|---|---|
+| Selection Session、翻译请求与取消、语言方向、Overlay 内容、设置状态与表单 | Accessibility、鼠标与键盘监听、Carbon 热键、窗口、设备语言识别、UserDefaults 存取、登录项 |
 
-## 翻译流程
+主 Flutter 引擎持有唯一偏好与翻译会话。设置窗口按需使用第二引擎的 `settingsMain` 入口，表单通过 `translateapp/settings` 转发到主引擎。保存请求串行处理；修订号阻止旧表单覆盖菜单更新。
+
+## 当前翻译流程
 
 ```mermaid
 flowchart TD
-    A[鼠标选区 / Command-A / Shift 扩选] --> B{合法文本上下文?}
-    B -- 否 --> C[忽略]
-    B -- 是 --> D[显示 Trigger Overlay]
-    D --> E{点击翻译或会话失效?}
-    E -- 失效 / Escape --> F[取消并隐藏]
-    E -- 点击 --> G[长度校验、语言方向、分片]
-    G --> H[Provider 串行翻译并流式更新]
-    H --> I{全部完成?}
-    I -- 否 --> J[保留完成片并从失败片重试]
-    J --> H
-    I -- 是 --> K[显示结果并写入一条历史记录]
+    A[鼠标或键盘选区] --> B{自动按钮开启?}
+    B -- 是 --> C{可读文本且应用未被排除?}
+    C -- 是 --> D[单一翻译按钮]
+    D -- 点击 --> F[长度校验与设备语言识别]
+    E[全局翻译快捷键] --> G{可读文本且应用未被排除?}
+    G -- 是 --> F
+    F --> H[Dart 决定目标语言]
+    H --> I[非官方 Google 翻译]
+    I --> J[译文卡片]
+    K[切应用 / 选区失效 / Escape / 关闭] --> L[隐藏浮层并取消请求]
 ```
 
-## 职责边界
+## 窗口与会话
 
-| Flutter/Dart | Swift macOS 桥 |
-|---|---|
-| Session、Provider、分片、流式状态、Overlay 内容、设置、SQLite | Accessibility、全局鼠标/按键、Text Selection Context、非激活 NSPanel、Keychain、登录项 |
+- 翻译窗口是不能成为 key/main 的非激活 NSPanel；触发态为 84×36pt 单按钮，结果态为 320×220pt 卡片。
+- Flutter 区分点击和拖动，Swift 使用原生鼠标事件执行拖动。同一 Session 保留位置，新 Session 重新锚定。
+- Swift 保存当前来源 PID 和 sessionId，仅用于系统生命周期。失效时同步隐藏，再通知 Dart 取消 Provider 流；HTTP client 随取消关闭。
+- 选区、失效事件和窗口命令携带 sessionId。系统设置命令不属于选区会话，使用独立方法和设置修订号。
+- 自动捕获关闭时保留 Escape、外部点击和前台变化监听，使快捷键产生的会话仍能正常关闭。
+- 全局热键使用 RegisterEventHotKey；同一组合不重复注册，新组合注册成功后才释放旧组合。
 
-Dart 是业务状态的唯一事实源。Swift 不保存翻译状态，不实现 Provider，不写翻译业务。
+## 后续工单
 
-## 目录结构
-
-```text
-translateApp/
-├── pubspec.yaml
-├── lib/
-│   ├── main.dart
-│   └── src/
-│       ├── platform/macos_platform_bridge.dart
-│       ├── selection/
-│       ├── translation/providers/
-│       ├── overlay/
-│       ├── settings/
-│       └── history/
-├── macos/Runner/
-│   ├── MacPlatformBridge.swift
-│   ├── AccessibilitySelection.swift
-│   ├── SelectionMonitor.swift
-│   └── OverlayPanel.swift
-└── test/
-```
-
-只在对应 Issue 开始时创建目录和文件，不提前搭建空模块。
-
-## 平台通道
-
-- Swift → Dart：`selectionCaptured`、`selectionInvalidated`、权限变化、Escape。
-- Dart → Swift：显示/隐藏 Overlay、权限设置、应用排除、Keychain、登录项。
-- Swift `NSPanel` 原生处理拖动；同一 `sessionId` 保留位置，新 Session 重置到新选区锚点。
-- 所有事件和命令携带 `sessionId`，过期 Session 的结果直接丢弃。
-- Trigger Overlay 为 84×36pt 的单一翻译按钮；Result Overlay 展示译文与关闭入口。Flutter 区分点击和拖动手势，Swift 使用当前鼠标事件执行非激活窗口拖动。
-- Swift 绑定来源 PID 读取选区，观察前台应用与 AX 选区变化；失效时同步隐藏窗口并发送 `selectionInvalidated`。Dart 取消 Provider 流订阅，Google Provider 随之关闭当前 HTTP 连接。
-
-## 实施顺序
-
-```text
-#13 → #2 → (#9、#11、#12) → #10 → #3 → (#4、#5、#6) → #7 → #8
-```
-
-#13 必须先验证 Flutter 内容可在非激活 `NSPanel` 中交互，且不会抢占源应用焦点。旧 Swift Package 原型已删除，不维护兼容层。
+官方 Google（#5）、模型配置与 Keychain（#6）、分段恢复（#7）、SQLite 历史（#8）尚未实现。只在对应工单实施时新增模块，不提前建立空接口。

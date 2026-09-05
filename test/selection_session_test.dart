@@ -27,7 +27,11 @@ void main() {
 
   test('gesture with text shows trigger without calling provider', () {
     final provider = RecordingProvider();
-    final session = SelectionSession(provider: provider, language: language);
+    final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
+      provider: provider,
+      language: language,
+    );
     session.begin(sessionId: 's1', text: 'Hello');
     expect(session.snapshot.phase, TranslationPhase.trigger);
     expect(session.snapshot.sourceText, 'Hello');
@@ -36,6 +40,7 @@ void main() {
 
   test('blank text stays idle', () {
     final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
       provider: RecordingProvider(),
       language: language,
     );
@@ -48,6 +53,7 @@ void main() {
     () async {
       // 在首个异步结果到达前结束 s1 并创建 s2；旧更新和完成事件都不能污染新选区。
       final session = SelectionSession(
+        detectLanguage: (_) async => 'en',
         provider: RecordingProvider(),
         language: language,
       );
@@ -71,7 +77,11 @@ void main() {
         TranslationCompleted(),
       ],
     );
-    final session = SelectionSession(provider: provider, language: language);
+    final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
+      provider: provider,
+      language: language,
+    );
     session.begin(sessionId: 's1', text: 'Hello');
     await session.activate();
     expect(session.snapshot.phase, TranslationPhase.completed);
@@ -81,7 +91,11 @@ void main() {
 
   test('oversize selection stays local', () async {
     final provider = RecordingProvider();
-    final session = SelectionSession(provider: provider, language: language);
+    final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
+      provider: provider,
+      language: language,
+    );
     session.begin(
       sessionId: 's1',
       text: 'a' * (SelectionSession.selectionLimit + 1),
@@ -93,7 +107,11 @@ void main() {
 
   test('limit inclusive still translates', () async {
     final provider = RecordingProvider();
-    final session = SelectionSession(provider: provider, language: language);
+    final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
+      provider: provider,
+      language: language,
+    );
     session.begin(sessionId: 's1', text: 'a' * SelectionSession.selectionLimit);
     await session.activate();
     expect(session.snapshot.phase, TranslationPhase.completed);

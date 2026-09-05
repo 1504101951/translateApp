@@ -27,7 +27,10 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      final session = SelectionSession(provider: _Provider());
+      final session = SelectionSession(
+        detectLanguage: (_) async => 'en',
+        provider: _Provider(),
+      );
       addTearDown(session.dispose);
       session.begin(sessionId: 's1', text: 'Hello');
       await tester.pumpWidget(

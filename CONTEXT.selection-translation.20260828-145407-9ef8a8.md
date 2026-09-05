@@ -11,6 +11,12 @@ Topic: selection-translation
 
 ## Language
 
+**Automatic Translation Trigger**: User-controlled appearance of the translation button after a readable Selection Gesture. Enabled by default. Disabling ends the current Selection Session and does not disable the Global Translation Shortcut.
+
+**Global Translation Shortcut**: Configurable macOS hotkey that reads the current allowed text selection and starts translation directly. It uses the same Selection Session and nonactivating Translation Overlay, including source-application invalidation.
+
+**Exclusion**: Persistent set of application bundle identifiers from which neither automatic gestures nor the Global Translation Shortcut capture text.
+
 **Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced, dismissed, becomes empty, or the user switches away from the source application.
 
 **Selection Gesture**: A mouse drag, double-click, triple-click, Select All Gesture, or Shift combined with arrow, Home, End, or Page keys that selects readable text and begins a Selection Session. Command and Option may refine a Shift selection by line or word.

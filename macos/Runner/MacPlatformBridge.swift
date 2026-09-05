@@ -1,4 +1,7 @@
 import Cocoa
+import NaturalLanguage
+import ServiceManagement
+import UniformTypeIdentifiers
 import FlutterMacOS
 
 /// Dart ↔ Swift 平台通道。不保存翻译状态，不实现 Provider。
@@ -8,26 +11,33 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
 
     private var eventSink: FlutterEventSink?
     private let overlay: OverlayPanelController
+    private let selectionMonitor: SelectionMonitor
+    private var methods: FlutterMethodChannel?
+    var onReady: (() -> Void)?
     private var currentSessionId: String?
     private var sourceProcessIdentifier: pid_t?
     var hasSelection: Bool { currentSessionId != nil }
 
-    /// overlay 为实际承载窗口；创建平台桥，不包含翻译业务状态。
-    init(overlay: OverlayPanelController) {
+    /// overlay 为浮层，selectionMonitor 为系统输入监听；创建不含翻译业务状态的平台桥。
+    init(overlay: OverlayPanelController, selectionMonitor: SelectionMonitor) {
         self.overlay = overlay
+        self.selectionMonitor = selectionMonitor
         super.init()
     }
 
-    /// messenger 为 Flutter 通道，overlay 为窗口；注册命令及事件桥，无返回值。
-    static func register(with messenger: FlutterBinaryMessenger, overlay: OverlayPanelController) {
-        let instance = MacPlatformBridge(overlay: overlay)
+    /// messenger 为主引擎通道，overlay 为浮层，selectionMonitor 为输入监听；返回已注册的平台桥。
+    @discardableResult
+    static func register(with messenger: FlutterBinaryMessenger, overlay: OverlayPanelController, selectionMonitor: SelectionMonitor) -> MacPlatformBridge {
+        let instance = MacPlatformBridge(overlay: overlay, selectionMonitor: selectionMonitor)
         let methods = FlutterMethodChannel(name: methodChannelName, binaryMessenger: messenger)
+        instance.methods = methods
         methods.setMethodCallHandler { call, result in
             instance.handle(call, result: result)
         }
         let events = FlutterEventChannel(name: eventChannelName, binaryMessenger: messenger)
         events.setStreamHandler(instance)
         Shared.instance = instance
+        return instance
     }
 
     enum Shared {
@@ -92,6 +102,49 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             // Flutter 区分拖动与点击，AppKit 负责实际移动且不激活应用。
             overlay.drag(sessionId: sessionId)
             result(nil)
+        case "loadSettings":
+            var settings = UserDefaults.standard.dictionary(forKey: "preferences") ?? [:]
+            settings["systemLanguage"] = Locale.preferredLanguages.first ?? "en"
+            settings["launchAtLogin"] = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
+            result(settings)
+        case "applySettings":
+            applySettings(args, result: result)
+        case "detectLanguage":
+            guard let text = args["text"] as? String else {
+                result(FlutterError(code: "bad_args", message: "缺少待识别文本", details: nil)); return
+            }
+            let recognizer = NLLanguageRecognizer()
+            recognizer.processString(text)
+            let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first
+            result(hypothesis.flatMap { $0.value >= 0.5 ? $0.key.rawValue : nil })
+        case "systemStatus":
+            result([
+                "accessibility": AccessibilitySelection.isTrusted(prompt: false),
+                "loginNeedsApproval": SMAppService.mainApp.status == .requiresApproval,
+            ])
+        case "openAccessibility":
+            _ = AccessibilitySelection.isTrusted(prompt: true)
+            AccessibilitySelection.openSettings()
+            result(nil)
+        case "openLoginItems":
+            SMAppService.openSystemSettingsLoginItems()
+            result(nil)
+        case "chooseExcludedApp":
+            let picker = NSOpenPanel()
+            picker.allowedContentTypes = [.applicationBundle]
+            picker.directoryURL = URL(fileURLWithPath: "/Applications")
+            picker.allowsMultipleSelection = false
+            picker.prompt = "排除此应用"
+            picker.begin { response in
+                guard response == .OK, let url = picker.url else { result(nil); return }
+                guard let id = Bundle(url: url)?.bundleIdentifier else {
+                    result(FlutterError(code: "bad_app", message: "该应用没有 Bundle ID。", details: nil)); return
+                }
+                result(["id": id, "name": (FileManager.default.displayName(atPath: url.path) as NSString).deletingPathExtension])
+            }
+        case "appReady":
+            onReady?()
+            result(nil)
         case "probeEmitSelection":
             emitProbeSelection()
             result(nil)
@@ -100,6 +153,44 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    /// settings 为 Dart 校验过的完整偏好；先完成系统副作用再落盘，结果通过 result 返回。
+    private func applySettings(_ settings: [String: Any], result: @escaping FlutterResult) {
+        guard let automatic = settings["automatic"] as? Bool,
+              let key = settings["shortcutKey"] as? String,
+              let modifiers = settings["shortcutModifiers"] as? UInt32,
+              let excluded = settings["excludedApps"] as? [String: String],
+              let login = settings["launchAtLogin"] as? Bool else {
+            result(FlutterError(code: "bad_settings", message: "系统设置参数不完整。", details: nil)); return
+        }
+        let previousLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
+        do {
+            if login != previousLogin {
+                if login { try SMAppService.mainApp.register() }
+                else { try SMAppService.mainApp.unregister() }
+            }
+            do {
+                try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), key: key, modifiers: modifiers)
+            } catch {
+                // 热键冲突不应顺带保存登录项；恢复用户点击保存前的系统状态。
+                if login != previousLogin {
+                    if previousLogin { try SMAppService.mainApp.register() }
+                    else { try SMAppService.mainApp.unregister() }
+                }
+                throw error
+            }
+            UserDefaults.standard.set(settings, forKey: "preferences")
+            StatusBarController.shared.updateAutomatic(automatic)
+            result(nil)
+        } catch {
+            result(FlutterError(code: "settings_failed", message: error.localizedDescription, details: nil))
+        }
+    }
+
+    /// method/arguments 为设置请求；转到主 Dart 引擎，由 result 返回唯一偏好快照。
+    func requestSettings(_ method: String, arguments: Any? = nil, result: @escaping FlutterResult) {
+        methods!.invokeMethod(method, arguments: arguments, result: result)
     }
 
     /// point 为屏幕坐标；返回它是否位于当前可见浮层内。

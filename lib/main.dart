@@ -1,27 +1,96 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'src/overlay/translation_overlay.dart';
 import 'src/platform/macos_bridge_event.dart';
 import 'src/platform/macos_platform_bridge.dart';
 import 'src/selection/selection_session.dart';
-import 'src/translation/language_direction.dart';
+import 'src/settings/app_settings.dart';
+import 'src/settings/settings_app.dart';
 import 'src/translation/providers/unofficial_google_provider.dart';
 import 'src/translation/translation_types.dart';
 
-/// 无参数；初始化平台桥与翻译会话并启动应用，无返回值。
-void main() {
+/// 无参数；初始化主 Dart 偏好、系统桥和翻译会话，无返回值。
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final locale = WidgetsBinding.instance.platformDispatcher.locale;
+  final bridge = MacosPlatformBridge();
+  var settings = AppSettings.fromMap(await bridge.loadSettings());
   final session = SelectionSession(
     provider: UnofficialGoogleProvider(),
-    language: LanguageDirection.systemDefault(
-      languageCode: locale.languageCode,
-    ),
+    detectLanguage: bridge.detectLanguage,
+    language: settings.direction,
   );
-  final bridge = MacosPlatformBridge();
+  String? settingsError;
+  var revision = 0;
+  Future<void> settingsQueue = Future.value();
+
+  /// candidate 为完整偏好；系统应用成功后才替换主实例，返回已保存快照。
+  Future<Map<String, Object>> save(AppSettings candidate) async {
+    candidate.validate();
+    await bridge.applySettings(candidate.toMap());
+    session.dismiss();
+    session.language = candidate.direction;
+    settings = candidate;
+    settingsError = null;
+    revision += 1;
+    return {...settings.toMap(), 'revision': revision};
+  }
+
+  // 第二个 Flutter 引擎只展示表单，保存和翻译始终使用主引擎的同一份偏好。
+  bridge.handleSettings((call) {
+    // 菜单和设置窗口共享一条队列，切换开关必须基于前一次保存后的偏好。
+    final operation = settingsQueue.then<Object?>((_) async {
+      switch (call.method) {
+        case 'getSettings':
+          return {
+            ...settings.toMap(),
+            'revision': revision,
+            'error': ?settingsError,
+          };
+        case 'saveSettings':
+          final map = Map<Object?, Object?>.from(call.arguments as Map);
+          if (map['revision'] != revision) {
+            throw PlatformException(
+              code: 'settings_conflict',
+              message: '设置已在其他入口更新，请重新加载后再保存。',
+            );
+          }
+          return save(AppSettings.fromMap(map));
+        case 'toggleAutomatic':
+          return save(
+            AppSettings.fromMap({
+              ...settings.toMap(),
+              'automatic': !settings.automatic,
+            }),
+          );
+        default:
+          throw MissingPluginException('未知设置操作：${call.method}');
+      }
+    });
+    // 错误仍返回当前调用方；队列继续接收后续修正，不会永久停在一次失败上。
+    settingsQueue = operation.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    return operation;
+  });
+  try {
+    await bridge.applySettings(settings.toMap());
+  } on PlatformException catch (error) {
+    // 快捷键被其他应用占用时仍提供设置入口，让用户能修正已保存配置。
+    settingsError = error.message;
+  }
   runApp(TranslateApp(bridge: bridge, session: session));
+  await bridge.appReady();
+}
+
+/// 无参数；设置引擎入口只创建表单，不创建监听器或翻译会话。
+@pragma('vm:entry-point')
+void settingsMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const SettingsApp());
 }
 
 class TranslateApp extends StatefulWidget {
@@ -59,16 +128,24 @@ class _TranslateAppState extends State<TranslateApp> {
   /// event 为携带 sessionId 的选区或失效事件；同步界面与原生窗口，无返回值。
   void _onBridgeEvent(MacosBridgeEvent event) {
     switch (event) {
-      case SelectionCaptured(:final sessionId, :final text, :final x, :final y):
+      case SelectionCaptured(
+        :final sessionId,
+        :final text,
+        :final gesture,
+        :final x,
+        :final y,
+      ):
         // 开始新会话会取消旧翻译，触发态只接受可读的非空选区。
         widget.session.begin(sessionId: sessionId, text: text);
         if (widget.session.snapshot.phase == TranslationPhase.trigger) {
+          final size = gesture == 'hotkey' ? _resultSize : _triggerSize;
+          if (gesture == 'hotkey') unawaited(_activate());
           widget.bridge.showOverlay(
             sessionId: sessionId,
             x: x,
             y: y,
-            width: _triggerSize.width,
-            height: _triggerSize.height,
+            width: size.width,
+            height: size.height,
           );
         } else {
           widget.bridge.hideOverlay(sessionId: sessionId);
