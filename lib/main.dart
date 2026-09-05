@@ -105,7 +105,7 @@ class TranslateApp extends StatefulWidget {
 
 class _TranslateAppState extends State<TranslateApp> {
   static const _triggerSize = TranslationOverlay.triggerSize;
-  static const _resultSize = Size(320, 220);
+  static const _resultSize = Size(380, 360);
   late final StreamSubscription<MacosBridgeEvent> _bridgeSubscription;
 
   /// 无参数；订阅原生事件与会话状态，无返回值。

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../selection/selection_session.dart';
 import '../translation/translation_types.dart';
@@ -64,7 +65,7 @@ class TranslationOverlay extends StatelessWidget {
           TranslationPhase.translating => '翻译中…',
           TranslationPhase.failed => snap.message ?? '翻译失败',
           TranslationPhase.sizeLimited => snap.message ?? '选区过长',
-          _ => '译文',
+          _ => '双语对照',
         };
         return Material(
           color: const Color(0xFFFAFBFE),
@@ -108,9 +109,63 @@ class TranslationOverlay extends StatelessWidget {
                 ),
                 Expanded(
                   child: SingleChildScrollView(
-                    child: SelectableText(
-                      snap.translatedText,
-                      style: const TextStyle(fontSize: 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 只有已校验的模型对齐结果才拆段；其他结果始终显示完整原文和译文。
+                        for (final pair
+                            in snap.pairs.isEmpty
+                                ? [
+                                    TranslationPair(
+                                      snap.sourceText,
+                                      snap.translatedText,
+                                    ),
+                                  ]
+                                : snap.pairs)
+                          for (final part in [
+                            ('原文', pair.source),
+                            ('译文', pair.translation),
+                          ]) ...[
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    part.$1,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFF767D88),
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '复制${part.$1}',
+                                  onPressed: part.$2.isEmpty
+                                      ? null
+                                      : () => Clipboard.setData(
+                                          ClipboardData(text: part.$2),
+                                        ),
+                                  icon: const Icon(
+                                    Icons.copy_rounded,
+                                    size: 13,
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ],
+                            ),
+                            SelectableText(
+                              part.$2.isEmpty && busy ? '正在翻译…' : part.$2,
+                              style: TextStyle(
+                                fontSize: 14,
+                                height: 1.5,
+                                color: part.$1 == '原文'
+                                    ? const Color(0xFF687080)
+                                    : const Color(0xFF1C2434),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (part.$1 == '译文') const Divider(height: 12),
+                          ],
+                      ],
                     ),
                   ),
                 ),

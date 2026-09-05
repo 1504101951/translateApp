@@ -59,14 +59,47 @@ void main() {
 
       // 点击位置仍在小按钮里；结果态使用真实结果窗口尺寸。
       await tester.tap(find.text('翻译'));
-      tester.view.physicalSize = const Size(320, 220);
+      tester.view.physicalSize = const Size(380, 360);
       await tester.pumpAndSettle();
       expect(session.snapshot.phase, TranslationPhase.completed);
       expect(find.text('你好'), findsOneWidget);
+      expect(find.byTooltip('复制原文'), findsOneWidget);
+      expect(find.byTooltip('复制译文'), findsOneWidget);
       await tester.tap(find.byTooltip('关闭'));
       await tester.pumpAndSettle();
       expect(session.snapshot.phase, TranslationPhase.idle);
       expect(find.text('你好'), findsNothing);
     },
   );
+
+  testWidgets('已验证的语义段落按原文译文成对展示', (tester) async {
+    // 完整译文与分段译文不同，用最终可见文本证明使用了已校验配对。
+    final session = SelectionSession(
+      provider: _Provider(),
+      detectLanguage: (_) async => 'en',
+    );
+    addTearDown(session.dispose);
+    session.snapshot = const TranslationSnapshot(
+      phase: TranslationPhase.completed,
+      sourceText: 'First. Second.',
+      translatedText: '完整译文',
+      pairs: [
+        TranslationPair('First.', '第一段。'),
+        TranslationPair('Second.', '第二段。'),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TranslationOverlay(
+          session: session,
+          onActivate: () {},
+          onDismiss: () {},
+          onDrag: () {},
+        ),
+      ),
+    );
+    expect(find.text('First.'), findsOneWidget);
+    expect(find.text('第二段。'), findsOneWidget);
+    expect(find.text('完整译文'), findsNothing);
+  });
 }

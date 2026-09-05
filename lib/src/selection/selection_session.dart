@@ -103,9 +103,10 @@ class SelectionSession extends ChangeNotifier {
                   translatedText: snapshot.translatedText + addition,
                   message: null,
                 );
-              case TranslationCompleted():
+              case TranslationCompleted(:final pairs):
                 snapshot = snapshot.copyWith(
                   phase: TranslationPhase.completed,
+                  pairs: pairs,
                   message: null,
                 );
               case TranslationFailure(:final message):

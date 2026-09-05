@@ -1,4 +1,11 @@
-enum TranslationPhase { idle, trigger, translating, completed, failed, sizeLimited }
+enum TranslationPhase {
+  idle,
+  trigger,
+  translating,
+  completed,
+  failed,
+  sizeLimited,
+}
 
 class TranslationSnapshot {
   const TranslationSnapshot({
@@ -6,6 +13,7 @@ class TranslationSnapshot {
     required this.sourceText,
     required this.translatedText,
     this.message,
+    this.pairs = const [],
   });
 
   static const idle = TranslationSnapshot(
@@ -18,20 +26,30 @@ class TranslationSnapshot {
   final String sourceText;
   final String translatedText;
   final String? message;
+  final List<TranslationPair> pairs;
 
   TranslationSnapshot copyWith({
     TranslationPhase? phase,
     String? sourceText,
     String? translatedText,
     String? message,
+    List<TranslationPair>? pairs,
   }) {
     return TranslationSnapshot(
       phase: phase ?? this.phase,
       sourceText: sourceText ?? this.sourceText,
       translatedText: translatedText ?? this.translatedText,
       message: message,
+      pairs: pairs ?? this.pairs,
     );
   }
+}
+
+/// 一组已校验原文范围的双语段落；不保存模型未经核验的源文副本。
+class TranslationPair {
+  const TranslationPair(this.source, this.translation);
+  final String source;
+  final String translation;
 }
 
 class TranslationRequest {
@@ -56,7 +74,8 @@ final class TranslationUpdate extends TranslationEvent {
 }
 
 final class TranslationCompleted extends TranslationEvent {
-  const TranslationCompleted();
+  const TranslationCompleted({this.pairs = const []});
+  final List<TranslationPair> pairs;
 }
 
 final class TranslationFailure extends TranslationEvent {
