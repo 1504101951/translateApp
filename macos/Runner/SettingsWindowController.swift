@@ -71,7 +71,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         finishRecording(nil)
         recordingResult = result
         MacPlatformBridge.Shared.instance?.shortcutRecorder = { [weak self] keyCode, modifiers in
-            let label = UserDefaults.standard.dictionary(forKey: "preferences")?["shortcutLabel"] as? String ?? "T"
+            let preferences = UserDefaults.standard.dictionary(forKey: "preferences") ?? [:]
+            let screenshot = preferences["screenshotShortcutKeyCode"] as? UInt32 == keyCode && preferences["screenshotShortcutModifiers"] as? UInt32 == modifiers
+            let label = preferences[screenshot ? "screenshotShortcutLabel" : "shortcutLabel"] as? String ?? ""
             self?.finishRecording(["keyCode": keyCode, "modifiers": modifiers, "label": label])
         }
         recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

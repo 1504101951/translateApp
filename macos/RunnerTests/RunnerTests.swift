@@ -86,6 +86,7 @@ class RunnerTests: XCTestCase {
         let preferences = UserDefaults.standard.dictionary(forKey: "preferences")
         let settings: [String: Any] = [
             "automatic": false, "shortcutKeyCode": 128, "shortcutModifiers": 6144,
+            "screenshotShortcutKeyCode": 1, "screenshotShortcutModifiers": 6144,
             "excludedApps": [String: String](),
             "launchAtLogin": [.enabled, .requiresApproval].contains(SMAppService.mainApp.status),
         ]
@@ -137,8 +138,8 @@ class RunnerTests: XCTestCase {
         let bytes = output.fileHandleForReading.availableData
         XCTAssertEqual(String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines), "0")
         let monitor = SelectionMonitor()
-        try monitor.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912)
-        XCTAssertThrowsError(try monitor.configure(automatic: false, excludedApps: [], keyCode: 9, modifiers: 6912))
+        try monitor.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912)
+        XCTAssertThrowsError(try monitor.configure(automatic: false, excludedApps: [], keyCode: 9, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912))
         XCTAssertTrue(monitor.automatic)
     }
 
@@ -149,13 +150,15 @@ class RunnerTests: XCTestCase {
         let second = SelectionMonitor()
         let probe = SelectionMonitor()
         // 四个修饰键用于避免占用用户常用组合；同一组合是系统冲突边界。
-        try first.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912)
-        try first.configure(automatic: true, excludedApps: [], keyCode: 7, modifiers: 6912)
+        try first.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912)
+        try first.configure(automatic: true, excludedApps: [], keyCode: 7, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912)
         XCTAssertTrue(first.automatic)
-        try second.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912)
-        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912))
+        // 两种用途互换不是系统冲突，已有注册应被复用且返回成功。
+        try first.configure(automatic: true, excludedApps: [], keyCode: 3, modifiers: 6912, screenshotCode: 7, screenshotFlags: 6912)
+        try second.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912, screenshotCode: 4, screenshotFlags: 6912)
+        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912, screenshotCode: 4, screenshotFlags: 6912))
         XCTAssertTrue(second.automatic)
-        XCTAssertThrowsError(try probe.configure(automatic: false, excludedApps: [], keyCode: 16, modifiers: 6912))
+        XCTAssertThrowsError(try probe.configure(automatic: false, excludedApps: [], keyCode: 16, modifiers: 6912, screenshotCode: 5, screenshotFlags: 6912))
         withExtendedLifetime((first, second, probe)) {}
     }
 
@@ -192,6 +195,13 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(overlay.frame.size, NSSize(width: 84, height: 36))
         XCTAssertTrue(overlay.isPanelVisible)
         XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, sourcePID)
+
+        // 框选期间迟到的显示请求也必须保持隐藏，结束后恢复仍有效的会话。
+        overlay.setCaptureHidden(true)
+        overlay.show(at: anchor, size: NSSize(width: 84, height: 36), sessionId: "s1")
+        XCTAssertFalse(overlay.isPanelVisible)
+        overlay.setCaptureHidden(false)
+        XCTAssertTrue(overlay.isPanelVisible)
         let top = overlay.frame.maxY
         overlay.resize(sessionId: "s1", size: NSSize(width: 320, height: 220))
         XCTAssertEqual(overlay.frame.maxY, top)

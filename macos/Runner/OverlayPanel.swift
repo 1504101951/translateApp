@@ -10,6 +10,8 @@ final class OverlayPanelController {
     private var currentSessionId: String?
     private var mouseMonitor: Any?
     private var dragStartEvent: NSEvent?
+    private var capturedSessionId: String?
+    private var captureHidden = false
 
     /// 无参数；创建不能成为 key/main 的透明浮层。
     init() {
@@ -66,7 +68,7 @@ final class OverlayPanelController {
         panel.setFrame(frame, display: true)
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
         // 显示和交互都不调用 activate / makeKey，键盘继续留在来源应用。
-        panel.orderFrontRegardless()
+        if captureHidden { capturedSessionId = sessionId } else { panel.orderFrontRegardless() }
     }
 
     /// sessionId 标识要关闭的会话；过期指令不影响当前窗口，无返回值。
@@ -90,6 +92,18 @@ final class OverlayPanelController {
             frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - size.height)
         }
         panel.setFrame(frame, display: true)
+    }
+
+    /// hidden 表示系统正在框选；临时排除翻译浮层，完成后只恢复仍有效的会话，无返回值。
+    func setCaptureHidden(_ hidden: Bool) {
+        captureHidden = hidden
+        if hidden {
+            capturedSessionId = panel.isVisible ? currentSessionId : nil
+            panel.orderOut(nil)
+        } else {
+            if let capturedSessionId, capturedSessionId == currentSessionId { panel.orderFrontRegardless() }
+            capturedSessionId = nil
+        }
     }
 
     /// sessionId 标识会话；将该窗口原始按下事件交给系统拖动，无返回值。

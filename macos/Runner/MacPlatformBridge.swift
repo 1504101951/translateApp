@@ -14,6 +14,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     private var eventSink: FlutterEventSink?
     private let overlay: OverlayPanelController
     private let selectionMonitor: SelectionMonitor
+    let screenshot = ScreenshotWindowController()
     private var methods: FlutterMethodChannel?
     var onReady: (() -> Void)?
     var shortcutRecorder: ((UInt32, UInt32) -> Void)?
@@ -28,6 +29,10 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         self.overlay = overlay
         self.selectionMonitor = selectionMonitor
         super.init()
+        screenshot.onCapturingChanged = { [weak self] active in
+            self?.selectionMonitor.isCapturingScreenshot = active
+            self?.overlay.setCaptureHidden(active)
+        }
     }
 
     /// messenger 为主引擎通道，overlay 为浮层，selectionMonitor 为输入监听；返回已注册的平台桥。
@@ -218,6 +223,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         guard let automatic = settings["automatic"] as? Bool,
               let keyCode = settings["shortcutKeyCode"] as? UInt32,
               let modifiers = settings["shortcutModifiers"] as? UInt32,
+              let screenshotCode = settings["screenshotShortcutKeyCode"] as? UInt32,
+              let screenshotFlags = settings["screenshotShortcutModifiers"] as? UInt32,
               let excluded = settings["excludedApps"] as? [String: String],
               let login = settings["launchAtLogin"] as? Bool,
               credentials.values.allSatisfy({ $0 is NSNull || $0 is [String: String] }) else {
@@ -239,7 +246,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 else { try SMAppService.mainApp.unregister() }
                 loginChanged = true
             }
-            try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers)
+            try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers, screenshotCode: screenshotCode, screenshotFlags: screenshotFlags)
             // 凭据与系统副作用成功后才保存不含密钥的偏好。
             UserDefaults.standard.set(settings, forKey: "preferences")
             StatusBarController.shared.updateAutomatic(automatic)

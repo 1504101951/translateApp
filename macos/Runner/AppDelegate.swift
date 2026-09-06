@@ -44,6 +44,11 @@ class AppDelegate: FlutterAppDelegate {
         // 选区监听起不来，浮层窗口也合成不到屏幕上。
     }
 
+    /// notification 为 App 退出通知；不遗留系统框选进程或临时 PNG，无返回值。
+    override func applicationWillTerminate(_ notification: Notification) {
+        MacPlatformBridge.Shared.instance?.screenshot.shutdown()
+    }
+
     /// sender 为当前应用，flag 为窗口可见性；Finder 再次打开时展示设置并返回 false。
     override func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         settingsWindow.show()

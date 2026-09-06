@@ -7,6 +7,7 @@ import 'src/overlay/translation_overlay.dart';
 import 'src/platform/macos_bridge_event.dart';
 import 'src/platform/macos_platform_bridge.dart';
 import 'src/selection/selection_session.dart';
+import 'src/screenshot/screenshot_app.dart';
 import 'src/settings/app_settings.dart';
 import 'src/settings/settings_app.dart';
 import 'src/settings/service_config.dart';
@@ -173,6 +174,13 @@ Future<void> main() async {
 void settingsMain() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const SettingsApp());
+}
+
+/// 无参数；截图引擎只创建图片预览，不初始化翻译或全局监听。
+@pragma('vm:entry-point')
+void screenshotMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const ScreenshotApp());
 }
 
 class TranslateApp extends StatefulWidget {

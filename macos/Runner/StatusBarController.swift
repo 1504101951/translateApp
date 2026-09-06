@@ -41,6 +41,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let settings = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+
+        let screenshot = NSMenuItem(title: "区域截图…", action: #selector(captureScreenshot), keyEquivalent: "")
+        screenshot.target = self
+        menu.addItem(screenshot)
         let automatic = NSMenuItem(title: "仅使用快捷键", action: #selector(toggleAutomatic), keyEquivalent: "")
         automatic.target = self
         automaticItem = automatic
@@ -77,6 +81,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     /// 无参数；打开普通设置窗口，无返回值。
     @objc private func openSettings() { showSettings?() }
+
+    /// 无参数；菜单关闭后进入系统区域框选，不触发翻译，无返回值。
+    @objc private func captureScreenshot() {
+        DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture() }
+    }
 
     /// 无参数；经主 Dart 修改全局开关，成功后刷新设置窗口，无返回值。
     @objc private func toggleAutomatic() {

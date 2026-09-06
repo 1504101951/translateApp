@@ -11,6 +11,11 @@ Topic: selection-translation
 
 ## Language
 
+**Screenshot Draft**: A locally captured PNG held in an independent, ordinary preview window. It has a capture ID, pixel dimensions and timestamp; it supports copying the image, explicit saving, and replacement by another capture. Closing the preview ends the draft without undoing exported files or clipboard content. It is separate from Selection Session and Screenshot Pin. No OCR or translation is implicit.
+
+**Screenshot Shortcut**: An independently configurable global hotkey, default Control-Option-S, that starts system region selection. Translation and screenshot combinations are validated and committed together; swapping their existing combinations reuses system registrations.
+
+
 **Live Region Translation Session** (planned, #24): An explicitly started session that continuously recognizes text inside a user-selected screen rectangle and translates changed text through the Default Translation Provider. It persists across source-application switches, supports pause/resume/stop, and ends when capture becomes unavailable. It is separate from a Selection Session because the tracked object is a screen region rather than an application's text selection. It does not record a video file or process audio.
 
 **Screenshot Pin** (planned, #22): An independent, movable image preview that stays above other applications until the user closes it. It is separate from the Translation Overlay and does not end when the source application loses focus.

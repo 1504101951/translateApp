@@ -73,11 +73,11 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const SettingsApp());
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(OutlinedButton));
+    await tester.tap(find.byKey(const ValueKey('全局翻译快捷键')));
     await tester.pumpAndSettle();
     expect(find.text('⌃ ⌘ 1'), findsOneWidget);
     cancel = true;
-    await tester.tap(find.byType(OutlinedButton));
+    await tester.tap(find.byKey(const ValueKey('全局翻译快捷键')));
     await tester.pumpAndSettle();
     expect(find.text('⌃ ⌘ 1'), findsOneWidget);
   });
@@ -148,6 +148,9 @@ void main() {
     await tester.tap(find.text('仅使用快捷键'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('保存设置'), 350);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('保存设置'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('保存设置'));
     await tester.pumpAndSettle();
     expect(state['defaultServiceId'], credentialIds.single);
@@ -157,6 +160,9 @@ void main() {
     await tester.tap(find.byTooltip('删除 百度翻译'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('保存设置'), 350);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('保存设置'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('保存设置'));
     await tester.pumpAndSettle();
     expect(state['services'], isEmpty);

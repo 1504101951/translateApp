@@ -28,6 +28,8 @@
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		A13A00000000000000000002 /* OverlayPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000001 /* OverlayPanel.swift */; };
+		A14C00000000000000000004 /* ScreenshotWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C00000000000000000003 /* ScreenshotWindowController.swift */; };
+		A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C00000000000000000001 /* ScreenshotStorage.swift */; };
 		A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000003 /* MacPlatformBridge.swift */; };
 		A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000005 /* AccessibilitySelection.swift */; };
 		A13A00000000000000000008 /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000007 /* SelectionMonitor.swift */; };
@@ -80,6 +82,8 @@
 		33CC10F72044A3C60003C045 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Runner/Info.plist; sourceTree = "<group>"; };
 		33CC11122044BFA00003C045 /* MainFlutterWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainFlutterWindow.swift; sourceTree = "<group>"; };
 		A13A00000000000000000001 /* OverlayPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayPanel.swift; sourceTree = "<group>"; };
+		A14C00000000000000000003 /* ScreenshotWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotWindowController.swift; sourceTree = "<group>"; };
+		A14C00000000000000000001 /* ScreenshotStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotStorage.swift; sourceTree = "<group>"; };
 		A13A00000000000000000003 /* MacPlatformBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPlatformBridge.swift; sourceTree = "<group>"; };
 		A13A00000000000000000005 /* AccessibilitySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilitySelection.swift; sourceTree = "<group>"; };
 		A13A00000000000000000007 /* SelectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionMonitor.swift; sourceTree = "<group>"; };
@@ -185,6 +189,8 @@
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				A13A00000000000000000001 /* OverlayPanel.swift */,
+				A14C00000000000000000003 /* ScreenshotWindowController.swift */,
+				A14C00000000000000000001 /* ScreenshotStorage.swift */,
 				A13A00000000000000000003 /* MacPlatformBridge.swift */,
 				A13A00000000000000000005 /* AccessibilitySelection.swift */,
 				A13A00000000000000000007 /* SelectionMonitor.swift */,
@@ -381,6 +387,8 @@
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				A13A00000000000000000002 /* OverlayPanel.swift in Sources */,
+				A14C00000000000000000004 /* ScreenshotWindowController.swift in Sources */,
+				A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */,
 				A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */,
 				A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */,
 				A13A00000000000000000008 /* SelectionMonitor.swift in Sources */,

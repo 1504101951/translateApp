@@ -10,6 +10,9 @@ class AppSettings {
     this.shortcutKeyCode = 17,
     this.shortcutLabel = 'T',
     this.shortcutModifiers = 6144,
+    this.screenshotShortcutKeyCode = 1,
+    this.screenshotShortcutLabel = 'S',
+    this.screenshotShortcutModifiers = 6144,
     this.launchAtLogin = false,
     Map<String, String>? excludedApps,
     this.defaultServiceId = ServiceConfig.builtinId,
@@ -23,6 +26,9 @@ class AppSettings {
   int shortcutKeyCode;
   String shortcutLabel;
   int shortcutModifiers;
+  int screenshotShortcutKeyCode;
+  String screenshotShortcutLabel;
+  int screenshotShortcutModifiers;
   bool launchAtLogin;
   final Map<String, String> excludedApps;
   String defaultServiceId;
@@ -69,6 +75,10 @@ class AppSettings {
       shortcutKeyCode: map['shortcutKeyCode'] as int? ?? 17,
       shortcutLabel: map['shortcutLabel'] as String? ?? 'T',
       shortcutModifiers: map['shortcutModifiers'] as int? ?? 6144,
+      screenshotShortcutKeyCode: map['screenshotShortcutKeyCode'] as int? ?? 1,
+      screenshotShortcutLabel: map['screenshotShortcutLabel'] as String? ?? 'S',
+      screenshotShortcutModifiers:
+          map['screenshotShortcutModifiers'] as int? ?? 6144,
       launchAtLogin: map['launchAtLogin'] as bool? ?? false,
       excludedApps: Map<String, String>.from(map['excludedApps'] as Map? ?? {}),
     );
@@ -92,12 +102,28 @@ class AppSettings {
       throw const FormatException('主要语言和次要语言必须不同。');
     }
     // Shift 单独搭配字母会吞掉普通输入，至少要求一个系统修饰键。
-    if (shortcutKeyCode < 0 ||
-        shortcutKeyCode > 127 ||
-        shortcutLabel.isEmpty ||
-        shortcutModifiers & 6400 == 0 ||
-        shortcutModifiers & ~6912 != 0) {
-      throw const FormatException('快捷键至少需要 Control、Option 或 Command。');
+    for (final (code, label, modifiers) in [
+      (shortcutKeyCode, shortcutLabel, shortcutModifiers),
+      (
+        screenshotShortcutKeyCode,
+        screenshotShortcutLabel,
+        screenshotShortcutModifiers,
+      ),
+    ]) {
+      if (code < 0 ||
+          code > 127 ||
+          code == 53 ||
+          label.isEmpty ||
+          modifiers & 6400 == 0 ||
+          modifiers & ~6912 != 0) {
+        throw const FormatException(
+          '快捷键至少需要 Control、Option 或 Command，且不能使用 Esc。',
+        );
+      }
+    }
+    if (shortcutKeyCode == screenshotShortcutKeyCode &&
+        shortcutModifiers == screenshotShortcutModifiers) {
+      throw const FormatException('翻译与截图快捷键不能相同。');
     }
   }
 
@@ -112,6 +138,9 @@ class AppSettings {
     'shortcutKeyCode': shortcutKeyCode,
     'shortcutLabel': shortcutLabel,
     'shortcutModifiers': shortcutModifiers,
+    'screenshotShortcutKeyCode': screenshotShortcutKeyCode,
+    'screenshotShortcutLabel': screenshotShortcutLabel,
+    'screenshotShortcutModifiers': screenshotShortcutModifiers,
     'launchAtLogin': launchAtLogin,
     'excludedApps': excludedApps,
   };

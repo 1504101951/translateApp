@@ -159,8 +159,8 @@ class _SettingsPageState extends State<_SettingsPage>
     }
   }
 
-  /// 无参数；向设置窗口录制器请求一次按键，取消时保留当前组合。
-  Future<void> _recordShortcut() async {
+  /// screenshot 区分截图/翻译快捷键；录制一次按键，取消保留当前组合，无返回值。
+  Future<void> _recordShortcut({bool screenshot = false}) async {
     setState(() => _recording = true);
     try {
       final key = await _channel.invokeMapMethod<Object?, Object?>(
@@ -168,9 +168,15 @@ class _SettingsPageState extends State<_SettingsPage>
       );
       if (!mounted || key == null) return;
       _edit(() {
-        _settings!.shortcutKeyCode = key['keyCode'] as int;
-        _settings!.shortcutModifiers = key['modifiers'] as int;
-        _settings!.shortcutLabel = key['label'] as String;
+        if (screenshot) {
+          _settings!.screenshotShortcutKeyCode = key['keyCode'] as int;
+          _settings!.screenshotShortcutModifiers = key['modifiers'] as int;
+          _settings!.screenshotShortcutLabel = key['label'] as String;
+        } else {
+          _settings!.shortcutKeyCode = key['keyCode'] as int;
+          _settings!.shortcutModifiers = key['modifiers'] as int;
+          _settings!.shortcutLabel = key['label'] as String;
+        }
       });
     } on PlatformException catch (error) {
       if (mounted) {
@@ -403,23 +409,42 @@ class _SettingsPageState extends State<_SettingsPage>
             onChanged: (v) => _edit(() => settings.automatic = !v),
           ),
           const Divider(height: 28),
-          const Text('全局翻译快捷键', style: TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _saving || _recording ? null : _recordShortcut,
-            icon: const Icon(Icons.keyboard_outlined),
-            label: Text(
-              _recording
-                  ? '请按下组合键，Esc 取消…'
-                  : [
-                      if (settings.shortcutModifiers & 4096 != 0) '⌃',
-                      if (settings.shortcutModifiers & 2048 != 0) '⌥',
-                      if (settings.shortcutModifiers & 512 != 0) '⇧',
-                      if (settings.shortcutModifiers & 256 != 0) '⌘',
-                      settings.shortcutLabel,
-                    ].join(' '),
+          for (final (title, code, label, screenshot) in [
+            (
+              '全局翻译快捷键',
+              settings.shortcutModifiers,
+              settings.shortcutLabel,
+              false,
             ),
-          ),
+            (
+              '区域截图快捷键',
+              settings.screenshotShortcutModifiers,
+              settings.screenshotShortcutLabel,
+              true,
+            ),
+          ]) ...[
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: ValueKey(title),
+              onPressed: _saving || _recording
+                  ? null
+                  : () => _recordShortcut(screenshot: screenshot),
+              icon: const Icon(Icons.keyboard_outlined),
+              label: Text(
+                _recording
+                    ? '请按下组合键，Esc 取消…'
+                    : [
+                        if (code & 4096 != 0) '⌃',
+                        if (code & 2048 != 0) '⌥',
+                        if (code & 512 != 0) '⇧',
+                        if (code & 256 != 0) '⌘',
+                        label,
+                      ].join(' '),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           const Text(
             '点击录制；保存时检查系统保留组合和可识别的全局占用。',
             style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
