@@ -214,6 +214,8 @@ final class SelectionMonitor {
     /// gesture 为选区手势，location 为鼠标锚点；去抖读取并上报当前前台应用的文本，无返回值。
     @MainActor
     private func capture(gesture: SelectionGesture, location: NSPoint) {
+        // 保留的译文框不消费新的被动选区；全局热键仍可明确发起下一次翻译。
+        guard gesture == .hotkey || MacPlatformBridge.Shared.instance?.retainsResult != true else { return }
         captureTask?.cancel()
         guard let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != getpid(),
@@ -223,7 +225,8 @@ final class SelectionMonitor {
             do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
             // 读取绑定手势来源，切换应用或新手势会取消本次读取。
             let selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid, allowCopy: gesture == .hotkey)
-            guard !Task.isCancelled, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+            guard !Task.isCancelled, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+                  gesture == .hotkey || MacPlatformBridge.Shared.instance?.retainsResult != true else { return }
             let text = selection.text ?? ""
             let keyboardCandidate = (gesture == .selectAll || gesture == .keyboard)
                 && AccessibilitySelection.permitsKeyboardTrigger(sourcePID: pid)

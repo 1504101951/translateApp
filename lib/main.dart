@@ -65,7 +65,7 @@ Future<void> main() async {
       readCredentials: bridge.readCredentials,
     );
     await bridge.applySettings(candidate.toMap(), credentials: credentials);
-    session.dismiss();
+    if (!session.isExpanded) session.dismiss();
     session.language = candidate.direction;
     session.provider = providerFor(candidate);
     settings = candidate;
@@ -217,6 +217,8 @@ class _TranslateAppState extends State<TranslateApp> {
         :final x,
         :final y,
       ):
+        // 被动捕获只更新小按钮，不能替换用户正在阅读的结果。
+        if (widget.session.isExpanded && gesture != 'hotkey') return;
         // 键盘选择可先显示候选按钮；文字只在用户点击后补读，不被动模拟复制。
         widget.session.begin(
           sessionId: sessionId,
@@ -236,8 +238,13 @@ class _TranslateAppState extends State<TranslateApp> {
         } else {
           widget.bridge.hideOverlay(sessionId: sessionId);
         }
-      case EscapePressed(:final sessionId) ||
-          SelectionInvalidated(:final sessionId):
+      case SelectionInvalidated(:final sessionId):
+        if (widget.session.isExpanded ||
+            widget.session.sessionId != sessionId) {
+          return;
+        }
+        _dismiss();
+      case EscapePressed(:final sessionId):
         if (widget.session.sessionId != sessionId) return;
         _dismiss();
       case UnknownBridgeEvent():
@@ -273,6 +280,9 @@ class _TranslateAppState extends State<TranslateApp> {
   Future<void> _activate({bool readSelection = true}) async {
     final id = widget.session.sessionId;
     if (id == null) return;
+    // 先保留窗口，再开始异步补读；期间切 App 不会关闭加载或失败卡片。
+    await widget.bridge.retainOverlay(sessionId: id);
+    if (widget.session.sessionId != id) return;
     // 读取与翻译共用会话取消边界，迟到的原文不能覆盖用户的新选区。
     await widget.session.activate(
       readSelection: readSelection

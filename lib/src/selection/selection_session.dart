@@ -16,13 +16,18 @@ class SelectionSession extends ChangeNotifier {
 
   static const selectionLimit = 50000;
 
-  // 保存默认服务后替换 Provider；切换前由主引擎取消旧会话。
+  // 设置更新供下一次翻译使用；已激活的请求保留自己的服务与语言方向。
   TranslationProvider provider;
   LanguageDirection language;
   final Future<String?> Function(String text) detectLanguage;
 
   TranslationSnapshot snapshot = TranslationSnapshot.idle;
   String? sessionId;
+
+  /// 无参数；返回当前是否为需要显式关闭的展开卡片。
+  bool get isExpanded =>
+      snapshot.phase != TranslationPhase.idle &&
+      snapshot.phase != TranslationPhase.trigger;
   int _generation = 0;
   StreamSubscription<TranslationEvent>? _translation;
   Completer<void>? _completion;
@@ -54,6 +59,8 @@ class SelectionSession extends ChangeNotifier {
     if (snapshot.phase != TranslationPhase.trigger) return;
 
     final generation = _generation;
+    final activeProvider = provider;
+    final activeLanguage = language;
     var source = snapshot.sourceText;
     snapshot = TranslationSnapshot(
       phase: TranslationPhase.translating,
@@ -67,12 +74,8 @@ class SelectionSession extends ChangeNotifier {
       if (readSelection != null) {
         final text = await readSelection();
         if (generation != _generation) return;
-        if (text == null || text.trim().isEmpty) {
-          // 原生已确认读取失效，不能继续发送捕获时缓存的文字。
-          dismiss();
-          return;
-        }
-        source = text;
+        // 不发送失效选区的缓存；空读取由下方失败卡片统一说明。
+        source = text ?? '';
         snapshot = TranslationSnapshot(
           phase: TranslationPhase.translating,
           sourceText: source,
@@ -82,7 +85,11 @@ class SelectionSession extends ChangeNotifier {
       }
       // 候选按钮尚未取得文字时不能产生空文本请求。
       if (source.trim().isEmpty) {
-        dismiss();
+        snapshot = snapshot.copyWith(
+          phase: TranslationPhase.failed,
+          message: '未读取到选中文字，请重新选择后使用翻译快捷键。',
+        );
+        notifyListeners();
         return;
       }
       if (source.characters.length > selectionLimit) {
@@ -107,7 +114,7 @@ class SelectionSession extends ChangeNotifier {
     }
     // 设备识别是异步桥调用；等待期间换选区或关闭不能发出旧请求。
     if (generation != _generation) return;
-    final direction = language.resolve(detected);
+    final direction = activeLanguage.resolve(detected);
     final request = TranslationRequest(
       sourceText: source,
       detectedLanguage: direction.detectedLanguage,
@@ -117,7 +124,7 @@ class SelectionSession extends ChangeNotifier {
     final completion = Completer<void>();
     _completion = completion;
     // 保存真实流订阅，使关闭会话能即时取消 Provider 的网络连接。
-    _translation = provider
+    _translation = activeProvider
         .translate(request)
         .listen(
           (event) {

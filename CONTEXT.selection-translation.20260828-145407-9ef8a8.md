@@ -21,13 +21,13 @@ Topic: selection-translation
 
 **Bilingual Pair**: One local source paragraph and its translation displayed in the same row, with translation on the left and source on the right. Hovering a translated paragraph highlights its paired source paragraph. Ordinary providers translate source paragraphs sequentially. Model paragraph mode receives the complete source as numbered paragraphs and returns ordered `{id, translation}` segments; IDs must cover every paragraph exactly once. Source text and separator whitespace come from local input. Paragraphs follow nonempty source lines; character selections and semantic subdivisions within an unbroken paragraph are not alignment boundaries. ID validation does not prove translation accuracy.
 
-**Automatic Translation Trigger**: User-controlled appearance of the translation button after a Selection Gesture. Mouse gestures require readable Accessibility text. Keyboard selection gestures may create a pending-text trigger after source, permission, and text-context checks; actual text is read only when the user clicks. Empty explicit reads end the session without a translation request. Passive detection never injects copy keystrokes. Enabled by default. Disabling ends the current Selection Session.
+**Automatic Translation Trigger**: User-controlled appearance of the translation button after a Selection Gesture. Mouse gestures require readable Accessibility text. Keyboard selection gestures may create a pending-text trigger after source, permission, and text-context checks. Passive detection never injects copy keystrokes. Automatic gestures are ignored while a result is retained. Disabling automatic capture ends only an unexpanded trigger.
 
-**Global Translation Shortcut**: Configurable macOS hotkey that reads the current allowed text selection and starts translation directly. It uses the same Selection Session and nonactivating Translation Overlay, including source-application invalidation.
+**Global Translation Shortcut**: A configurable macOS hotkey that reads the current allowed text selection and starts translation directly. It explicitly replaces a retained result with a new Selection Session in the same nonactivating Translation Overlay.
 
 **Exclusion**: Persistent set of application bundle identifiers from which neither automatic gestures nor the Global Translation Shortcut capture text.
 
-**Selection Session**: The temporary interaction that begins when the user completes a new text selection and ends when that selection is replaced, dismissed, confirmed empty, or the user switches away from the source application. Validation follows the Accessibility node that supplied the selected text; a changed focus container or temporarily unavailable selection alone does not end the session. Clipboard-only sessions without a readable Accessibility node cannot confirm keyboard deselection and end through outside clicks, Escape, or source-application changes.
+**Selection Session**: An interaction identified by a session ID, beginning with an accepted text selection. Its automatic Translation Trigger State ends when the selection is replaced, confirmed empty, dismissed, or the user leaves the source application. Explicit activation retains the Translation Result State through passive selection and source-application changes. Escape and the close button end it; the Global Translation Shortcut may explicitly replace it. Active translation retains the provider and language direction selected at activation.
 
 **Selection Gesture**: Mouse drag, double-click, triple-click, Select All Gesture, or Shift combined with arrow, Home, End, or Page keys. Mouse gestures require readable selected text; keyboard gestures can enter a pending-text Translation Trigger State. Command or Option may refine Shift selection by line or word.
 
@@ -45,7 +45,7 @@ _Avoid_: Unlimited Selection, Silent Rejection
 
 _Avoid_: Global Pause, Editable-Field Exclusion
 
-**Translation Overlay**: The draggable interface anchored beside the current selection. It retains its dragged position throughout the current Selection Session and returns beside the new selection when another Selection Session begins.
+**Translation Overlay**: A nonactivating draggable interface initially anchored beside the accepted selection. The whole trigger button and the result card’s 56-point title area support dragging; the close button and selectable body text are independent interaction regions. It preserves its position for the current session. Explicit replacement by a new translation reanchors it.
 
 _Avoid_: Floating Window, Popup
 
@@ -53,9 +53,9 @@ _Avoid_: Floating Window, Popup
 
 _Avoid_: Translation Button
 
-**Translation Result State**: The expanded state of the Translation Overlay that presents translation progress and the resulting text. It ends when dismissed, when the user presses Escape, when a new Selection Session begins, when the selection becomes empty, or when the user switches away from the source application.
+**Translation Result State**: The retained, expanded Translation Overlay showing progress, translation, an error, or the selection limit. It remains visible through source-application switches, outside clicks, selection clearing, new passive selections, and settings changes. Escape or the close button dismisses it. The Global Translation Shortcut can explicitly replace it with a new translation.
 
-_Avoid_: Result Window, Persistent Result Across Apps
+_Avoid_: Result Window
 
 **Translation History**: The persistent chronological collection of successfully completed translation results available outside their original Selection Sessions. Cancelled, failed, and incomplete attempts are absent.
 

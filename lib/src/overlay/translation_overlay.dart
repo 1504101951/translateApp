@@ -85,27 +85,50 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 结果标题提供拖动区域，无需额外占用一条原生标题栏。
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onPanStart: (_) => widget.onDrag(),
+                // 整块 56pt 标题区可拖动，关闭按钮与正文保留各自的点击/选字手势。
+                SizedBox(
+                  height: 56,
                   child: Row(
                     children: [
-                      if (busy)
-                        const Padding(
-                          padding: EdgeInsets.only(right: 8),
-                          child: SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ),
                       Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.black54,
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.move,
+                          child: GestureDetector(
+                            key: const ValueKey('result-drag-area'),
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: (_) => widget.onDrag(),
+                            child: SizedBox.expand(
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.drag_indicator,
+                                    size: 18,
+                                    color: Colors.black38,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (busy)
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 8),
+                                      child: SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),

@@ -8,6 +8,8 @@ final class OverlayPanelController {
     private let panel: TranslationPanel
     private let host = OverlayHostViewController()
     private var currentSessionId: String?
+    private var mouseMonitor: Any?
+    private var dragStartEvent: NSEvent?
 
     /// 无参数；创建不能成为 key/main 的透明浮层。
     init() {
@@ -27,6 +29,17 @@ final class OverlayPanelController {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
         panel.contentViewController = host
+        // AppKit 要求最初的 mouseDown；跨 Flutter 通道后 currentEvent 已不可靠。
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            guard let self else { return event }
+            self.dragStartEvent = event.type == .leftMouseDown && event.window === self.panel ? event : nil
+            return event
+        }
+    }
+
+    /// 无参数、无返回值；释放窗口鼠标监听，避免旧控制器残留。
+    deinit {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
     }
 
     /// point 为 AppKit 屏幕坐标；返回它是否位于可见浮层中。
@@ -43,6 +56,7 @@ final class OverlayPanelController {
     /// point 为选区锚点，size 为完整内容尺寸，sessionId 为会话；显示窗口，无返回值。
     func show(at point: NSPoint, size: NSSize, sessionId: String) {
         currentSessionId = sessionId
+        dragStartEvent = nil
         var frame = NSRect(x: point.x + 8, y: point.y - size.height - 8, width: size.width, height: size.height)
         if let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main {
             let visible = screen.visibleFrame.insetBy(dx: 8, dy: 8)
@@ -59,6 +73,7 @@ final class OverlayPanelController {
     func hide(sessionId: String) {
         guard currentSessionId == sessionId else { return }
         currentSessionId = nil
+        dragStartEvent = nil
         panel.orderOut(nil)
     }
 
@@ -76,10 +91,11 @@ final class OverlayPanelController {
         panel.setFrame(frame, display: true)
     }
 
-    /// sessionId 标识会话；使用当前鼠标拖拽事件移动窗口，无返回值。
+    /// sessionId 标识会话；将该窗口原始按下事件交给系统拖动，无返回值。
     func drag(sessionId: String) {
-        guard currentSessionId == sessionId, let event = NSApp.currentEvent,
-              event.type == .leftMouseDragged else { return }
+        guard currentSessionId == sessionId, let event = dragStartEvent,
+              NSEvent.pressedMouseButtons & 1 != 0 else { return }
+        dragStartEvent = nil
         panel.performDrag(with: event)
     }
 }

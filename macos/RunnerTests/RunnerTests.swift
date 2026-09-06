@@ -204,10 +204,10 @@ class RunnerTests: XCTestCase {
         XCTAssertFalse(overlay.isPanelVisible)
     }
 
-    /// 无参数；分别验证触发/结果态切源应用关闭，同 PID 保留，迟到 show 不复活。
+    /// 无参数；被动失效仅关闭按钮，展开结果保持会话/位置，Escape 后迟到命令不能复活。
     @MainActor
-    func testSourceSwitchInvalidatesTriggerAndResultAndDropsLateShow() {
-        for size in [NSSize(width: 84, height: 36), NSSize(width: 320, height: 220)] {
+    func testPassiveInvalidationOnlyClosesTriggerAndEscapeClosesResult() {
+        for retained in [false, true] {
             let overlay = OverlayPanelController()
             let bridge = MacPlatformBridge(overlay: overlay, selectionMonitor: SelectionMonitor())
             var events: [[String: Any]] = []
@@ -215,18 +215,29 @@ class RunnerTests: XCTestCase {
             bridge.emitSelectionCaptured(text: "Hello", gesture: "drag", x: 300, y: 500, sourcePID: 100)
             let sessionId = events.last!["sessionId"] as! String
             let show = FlutterMethodCall(methodName: "showOverlay", arguments: [
-                "sessionId": sessionId, "x": 300.0, "y": 500.0, "width": Double(size.width), "height": Double(size.height),
+                "sessionId": sessionId, "x": 300.0, "y": 500.0, "width": 720.0, "height": 420.0,
             ])
             bridge.handle(show) { _ in }
-            bridge.sourceApplicationChanged(to: 100)
-            XCTAssertTrue(overlay.isPanelVisible)
+            if retained {
+                bridge.handle(FlutterMethodCall(methodName: "retainOverlay", arguments: ["sessionId": sessionId])) { _ in }
+            }
+            let frame = overlay.frame
             bridge.sourceApplicationChanged(to: 200)
+            bridge.invalidateSelection()
+            if retained {
+                bridge.emitSelectionCaptured(text: "Ignored", gesture: "selectAll", x: 500, y: 600, sourcePID: 200)
+                XCTAssertTrue(overlay.isPanelVisible)
+                XCTAssertEqual(overlay.frame, frame)
+                XCTAssertTrue(bridge.hasSelection)
+                XCTAssertTrue(bridge.retainsResult)
+                bridge.invalidateSelection(eventType: "escapePressed")
+            }
             XCTAssertFalse(overlay.isPanelVisible)
-            XCTAssertEqual(events.last?["type"] as? String, "selectionInvalidated")
+            XCTAssertFalse(bridge.hasSelection)
+            XCTAssertFalse(bridge.retainsResult)
             XCTAssertEqual(events.last?["sessionId"] as? String, sessionId)
             bridge.handle(show) { _ in }
             XCTAssertFalse(overlay.isPanelVisible)
-            XCTAssertFalse(bridge.hasSelection)
         }
     }
 
@@ -239,7 +250,8 @@ class RunnerTests: XCTestCase {
         _ = bridge.onListen(withArguments: nil) { events.append($0 as! [String: Any]) }
         bridge.emitSelectionCaptured(text: "first", gesture: "drag", x: 300, y: 500, sourcePID: 100)
         let oldId = events.last!["sessionId"] as! String
-        bridge.emitSelectionCaptured(text: "second", gesture: "keyboard", x: 300, y: 500, sourcePID: 100)
+        bridge.handle(FlutterMethodCall(methodName: "retainOverlay", arguments: ["sessionId": oldId])) { _ in }
+        bridge.emitSelectionCaptured(text: "second", gesture: "hotkey", x: 300, y: 500, sourcePID: 100)
         let newId = events.last!["sessionId"] as! String
         bridge.handle(FlutterMethodCall(methodName: "showOverlay", arguments: [
             "sessionId": newId, "x": 300.0, "y": 500.0, "width": 84.0, "height": 36.0,

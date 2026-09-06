@@ -37,6 +37,13 @@ class MacosPlatformBridge {
     return _methods.invokeMethod<void>('hideOverlay', {'sessionId': sessionId});
   }
 
+  /// sessionId 为即将展开的会话；保留原生窗口至显式关闭，返回命令完成的 Future。
+  Future<void> retainOverlay({required String sessionId}) {
+    return _methods.invokeMethod<void>('retainOverlay', {
+      'sessionId': sessionId,
+    });
+  }
+
   Future<void> setOverlaySize({
     required String sessionId,
     required double width,

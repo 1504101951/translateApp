@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translate_app/main.dart' show TranslateApp;
+import 'package:translate_app/src/platform/macos_platform_bridge.dart';
+import 'package:translate_app/src/translation/language_direction.dart';
 import 'package:translate_app/src/overlay/translation_overlay.dart';
 import 'package:translate_app/src/selection/selection_session.dart';
 import 'package:translate_app/src/translation/translation_types.dart';
@@ -21,6 +26,98 @@ class _Provider implements TranslationProvider {
 
 /// 无参数；注册紧凑按钮的拖动、翻译和关闭回归检查。
 void main() {
+  testWidgets('加载与结果保留至显式关闭，自动新选区不替换，热键可替换', (tester) async {
+    // 使用真实事件编解码、App 和会话；只替代不可在 headless 测试中运行的原生窗口端。
+    const methods = MethodChannel('test/retained-overlay/methods');
+    const events = EventChannel('test/retained-overlay/events');
+    const codec = StandardMethodCodec();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(methods, (_) async => null);
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('test/retained-overlay/events'),
+      (_) async => null,
+    );
+    final detection = Completer<String?>();
+    final session = SelectionSession(
+      provider: _Provider(),
+      detectLanguage: (_) => detection.future,
+      language: LanguageDirection(primaryCode: 'zh-CN'),
+    );
+    addTearDown(session.dispose);
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(methods, null);
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('test/retained-overlay/events'),
+        null,
+      );
+    });
+    await tester.pumpWidget(
+      TranslateApp(
+        bridge: MacosPlatformBridge(methods: methods, events: events),
+        session: session,
+      ),
+    );
+    await tester.pump();
+
+    /// payload 为原生事件字典；通过真实通道发给 App 并刷新一帧，无返回值。
+    Future<void> send(Map<String, Object> payload) async {
+      await messenger.handlePlatformMessage(
+        events.name,
+        codec.encodeSuccessEnvelope(payload),
+        (_) {},
+      );
+      await tester.pump();
+    }
+
+    await send({
+      'type': 'selectionCaptured',
+      'sessionId': 'first',
+      'gesture': 'hotkey',
+      'text': 'Hello',
+    });
+    expect(session.snapshot.phase, TranslationPhase.translating);
+    await send({'type': 'selectionInvalidated', 'sessionId': 'first'});
+    await send({
+      'type': 'selectionCaptured',
+      'sessionId': 'passive',
+      'gesture': 'selectAll',
+      'text': 'Ignored',
+    });
+    expect(session.sessionId, 'first');
+    expect(session.snapshot.phase, TranslationPhase.translating);
+    detection.complete('en');
+    await tester.pumpAndSettle();
+    await send({'type': 'selectionInvalidated', 'sessionId': 'first'});
+    expect(session.snapshot.phase, TranslationPhase.completed);
+    expect(find.text('Hello'), findsOneWidget);
+    expect(find.text('你好'), findsOneWidget);
+    await send({
+      'type': 'selectionCaptured',
+      'sessionId': 'replacement',
+      'gesture': 'hotkey',
+      'text': 'Next',
+    });
+    await tester.pumpAndSettle();
+    expect(session.sessionId, 'replacement');
+    expect(find.text('Next'), findsOneWidget);
+    await send({'type': 'escapePressed', 'sessionId': 'first'});
+    expect(session.isExpanded, isTrue);
+    await send({'type': 'escapePressed', 'sessionId': 'replacement'});
+    expect(session.snapshot.phase, TranslationPhase.idle);
+    await send({
+      'type': 'selectionCaptured',
+      'sessionId': 'close',
+      'gesture': 'hotkey',
+      'text': 'Close',
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(session.snapshot.phase, TranslationPhase.idle);
+    expect(find.text('你好'), findsNothing);
+  });
+
   testWidgets(
     'compact trigger drags without translating and expands on click',
     (tester) async {
@@ -35,13 +132,14 @@ void main() {
       );
       addTearDown(session.dispose);
       session.begin(sessionId: 's1', text: 'Hello');
+      var drags = 0;
       await tester.pumpWidget(
         MaterialApp(
           home: TranslationOverlay(
             session: session,
             onActivate: session.activate,
             onDismiss: session.dismiss,
-            onDrag: () {},
+            onDrag: () => drags += 1,
           ),
         ),
       );
@@ -72,6 +170,18 @@ void main() {
       );
       expect(find.byTooltip('复制原文'), findsOneWidget);
       expect(find.byTooltip('复制译文'), findsOneWidget);
+      // 标题下缘空白也能拖动；正文/关闭保持独立，拖动不改变结果内容或会话。
+      final dragArea = find.byKey(const ValueKey('result-drag-area'));
+      expect(tester.getSize(dragArea).height, 56);
+      await tester.dragFrom(
+        tester.getTopLeft(dragArea) + const Offset(180, 50),
+        const Offset(40, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(drags, 2);
+      expect(session.sessionId, 's1');
+      expect(session.snapshot.phase, TranslationPhase.completed);
+      expect(find.text('你好'), findsOneWidget);
       await tester.tap(find.byTooltip('关闭'));
       await tester.pumpAndSettle();
       expect(session.snapshot.phase, TranslationPhase.idle);

@@ -21,6 +21,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     private var sourceProcessIdentifier: pid_t?
     private var selectionReadTask: Task<Void, Never>?
     var hasSelection: Bool { currentSessionId != nil }
+    private(set) var retainsResult = false
 
     /// overlay 为浮层，selectionMonitor 为系统输入监听；创建不含翻译业务状态的平台桥。
     init(overlay: OverlayPanelController, selectionMonitor: SelectionMonitor) {
@@ -73,6 +74,13 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 sessionId: sessionId
             )
             result(nil)
+        case "retainOverlay":
+            guard let sessionId = args["sessionId"] as? String else {
+                result(FlutterError(code: "bad_args", message: "retainOverlay 需要 sessionId", details: nil)); return
+            }
+            // 展开由显式翻译触发，之后被动选区和前台变化只影响新的采集。
+            if currentSessionId == sessionId { retainsResult = true }
+            result(nil)
         case "hideOverlay":
             guard let sessionId = args["sessionId"] as? String else {
                 result(FlutterError(code: "bad_args", message: "hideOverlay 需要 sessionId", details: nil))
@@ -83,6 +91,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             selectionReadTask = nil
             currentSessionId = nil
             sourceProcessIdentifier = nil
+            retainsResult = false
             overlay.hide(sessionId: sessionId)
             result(nil)
         case "setOverlaySize":
@@ -310,7 +319,10 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
 
     /// text 为选中文字，gesture 为手势，x/y 为屏幕锚点，sourcePID 为来源进程；发送新会话，无返回值。
     func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat, sourcePID: pid_t) {
-        // 新选区先结束旧会话，避免结果卡片等待 Dart 往返期间残留。
+        guard !retainsResult || gesture == "hotkey" else { return }
+        // 只有显式热键可以替换保留的结果；被动手势不打断阅读或正在进行的翻译。
+        retainsResult = false
+        // 结束被替换的会话，迟到命令仍由新旧 sessionId 隔离。
         invalidateSelection()
         let sessionId = UUID().uuidString
         currentSessionId = sessionId
@@ -333,20 +345,22 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                               sourcePID: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? getpid())
     }
 
-    /// processIdentifier 为新前台进程；仅在离开来源应用时结束会话，无返回值。
+    /// processIdentifier 为新前台进程；离开来源时只结束未展开的按钮，无返回值。
     func sourceApplicationChanged(to processIdentifier: pid_t?) {
         guard sourceProcessIdentifier != processIdentifier else { return }
         // 显示非激活面板不会改变前台 PID，因此不会误关自身浮层。
         invalidateSelection()
     }
 
-    /// eventType 为失效或 Escape 事件类型；同步隐藏并通知 Dart 丢弃旧结果，无返回值。
+    /// eventType 为失效或 Escape 类型；被动失效只关闭按钮，Escape 关闭所有状态，无返回值。
     func invalidateSelection(eventType: String = "selectionInvalidated") {
+        guard !retainsResult || eventType == "escapePressed" else { return }
         selectionReadTask?.cancel()
         selectionReadTask = nil
         guard let sessionId = currentSessionId else { return }
         currentSessionId = nil
         sourceProcessIdentifier = nil
+        retainsResult = false
         overlay.hide(sessionId: sessionId)
         emit([
             "type": eventType,

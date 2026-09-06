@@ -26,6 +26,31 @@ class RecordingProvider implements TranslationProvider {
 
 void main() {
   final language = LanguageDirection(primaryCode: 'zh-CN', secondaryCode: 'en');
+  test('展开后的请求保留激活时服务和语言，设置变更只影响下一次翻译', () async {
+    // 设置窗口保存可跨越选区补读/语言识别的 await，不能切换已授权请求的接收方。
+    final detection = Completer<String?>();
+    final first = RecordingProvider();
+    final next = RecordingProvider();
+    final session = SelectionSession(
+      detectLanguage: (_) => detection.future,
+      provider: first,
+      language: language,
+    );
+    addTearDown(session.dispose);
+    session.begin(sessionId: 'first', text: 'Hello');
+    final active = session.activate();
+    session.provider = next;
+    session.language = LanguageDirection(primaryCode: 'fr');
+    detection.complete('en');
+    await active;
+    expect(first.requests.single.targetLanguage, 'zh-CN');
+    expect(next.requests, isEmpty);
+    expect(session.isExpanded, isTrue);
+    session.begin(sessionId: 'next', text: 'Next');
+    await session.activate();
+    expect(next.requests.single.targetLanguage, 'fr');
+  });
+
   test('键盘无 AX 文本时可显示按钮，只有显式补读的有效文字会被翻译', () async {
     // 空文本只代表待确认键盘选区；自动捕获和缺少补读的激活不能发送空请求。
     final provider = RecordingProvider();
@@ -43,7 +68,7 @@ void main() {
     expect(session.snapshot.phase, TranslationPhase.completed);
     session.begin(sessionId: 'empty', text: '', awaitSelection: true);
     await session.activate();
-    expect(session.snapshot.phase, TranslationPhase.idle);
+    expect(session.snapshot.phase, TranslationPhase.failed);
     expect(provider.requests, hasLength(1));
   });
 
@@ -105,7 +130,7 @@ void main() {
         await session.activate(readSelection: () async => text);
         expect(
           session.snapshot.phase,
-          text == null ? TranslationPhase.idle : TranslationPhase.sizeLimited,
+          text == null ? TranslationPhase.failed : TranslationPhase.sizeLimited,
         );
         expect(provider.requests, isEmpty);
       }
