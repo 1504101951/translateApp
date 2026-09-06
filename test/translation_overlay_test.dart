@@ -116,6 +116,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(session.snapshot.phase, TranslationPhase.idle);
     expect(find.text('你好'), findsNothing);
+
+    // 空文本是热键读取失败的边界：显示可关闭的错误卡片，不能退回隐藏状态。
+    await send({
+      'type': 'selectionCaptured',
+      'sessionId': 'empty-hotkey',
+      'gesture': 'hotkey',
+      'text': '',
+    });
+    await tester.pumpAndSettle();
+    expect(session.snapshot.phase, TranslationPhase.failed);
+    expect(find.text('未读取到选中文字，请重新选择后使用翻译快捷键。'), findsOneWidget);
+    await send({'type': 'selectionInvalidated', 'sessionId': 'empty-hotkey'});
+    expect(session.snapshot.phase, TranslationPhase.failed);
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(session.snapshot.phase, TranslationPhase.idle);
   });
 
   testWidgets(

@@ -23,7 +23,7 @@ Topic: selection-translation
 
 **Automatic Translation Trigger**: User-controlled appearance of the translation button after a Selection Gesture. Mouse gestures require readable Accessibility text. Keyboard selection gestures may create a pending-text trigger after source, permission, and text-context checks. Passive detection never injects copy keystrokes. Automatic gestures are ignored while a result is retained. Disabling automatic capture ends only an unexpanded trigger.
 
-**Global Translation Shortcut**: A configurable macOS hotkey that reads the current allowed text selection and starts translation directly. It explicitly replaces a retained result with a new Selection Session in the same nonactivating Translation Overlay.
+**Global Translation Shortcut**: A configurable macOS hotkey that reads the current allowed text selection and starts translation directly. It explicitly replaces a retained result with a new Selection Session in the same nonactivating Translation Overlay. An empty read displays a retained error card instead of silently hiding the overlay.
 
 **Exclusion**: Persistent set of application bundle identifiers from which neither automatic gestures nor the Global Translation Shortcut capture text.
 
@@ -45,7 +45,7 @@ _Avoid_: Unlimited Selection, Silent Rejection
 
 _Avoid_: Global Pause, Editable-Field Exclusion
 
-**Translation Overlay**: A nonactivating draggable interface initially anchored beside the accepted selection. The whole trigger button and the result card’s 56-point title area support dragging; the close button and selectable body text are independent interaction regions. It preserves its position for the current session. Explicit replacement by a new translation reanchors it.
+**Translation Overlay**: A nonactivating draggable interface. The whole trigger button and the result card’s 56-point title area support dragging; the close button and selectable body text are independent interaction regions. It initially appears beside the latest mouse position after text capture, clamped to the visible screen. It preserves its position for the current session; unchanged content size does not reposition the window. Explicit replacement by a new translation reanchors it.
 
 _Avoid_: Floating Window, Popup
 

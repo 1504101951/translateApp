@@ -219,11 +219,14 @@ class _TranslateAppState extends State<TranslateApp> {
       ):
         // 被动捕获只更新小按钮，不能替换用户正在阅读的结果。
         if (widget.session.isExpanded && gesture != 'hotkey') return;
-        // 键盘选择可先显示候选按钮；文字只在用户点击后补读，不被动模拟复制。
+        // 键盘选择先显示候选按钮；明确热键的空读取也必须进入可见失败状态。
         widget.session.begin(
           sessionId: sessionId,
           text: text,
-          awaitSelection: gesture == 'selectAll' || gesture == 'keyboard',
+          awaitSelection:
+              gesture == 'selectAll' ||
+              gesture == 'keyboard' ||
+              gesture == 'hotkey',
         );
         if (widget.session.snapshot.phase == TranslationPhase.trigger) {
           final size = gesture == 'hotkey' ? _resultSize : _triggerSize;

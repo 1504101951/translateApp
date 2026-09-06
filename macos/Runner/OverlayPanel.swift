@@ -79,7 +79,8 @@ final class OverlayPanelController {
 
     /// sessionId 标识会话，size 为内容尺寸；保留左上角并夹取屏幕边界，无返回值。
     func resize(sessionId: String, size: NSSize) {
-        guard currentSessionId == sessionId else { return }
+        // 流式译文反复通知同一尺寸，不能在系统拖动期间重新夹取窗口位置。
+        guard currentSessionId == sessionId, panel.frame.size != size else { return }
         var frame = panel.frame
         frame.origin.y = frame.maxY - size.height
         frame.size = size

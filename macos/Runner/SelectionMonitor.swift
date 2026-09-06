@@ -40,7 +40,7 @@ final class SelectionMonitor {
                         return
                     }
                     // 全局热键复用选区读取和会话失效机制，不激活 TranslateApp。
-                    monitor.capture(gesture: .hotkey, location: NSEvent.mouseLocation)
+                    monitor.capture(gesture: .hotkey)
                 }
                 return noErr
             }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
@@ -177,7 +177,7 @@ final class SelectionMonitor {
         let pointer = MousePointerEvent(kind: kind, clickCount: clickCount, x: location.x, y: location.y)
         // 检测器仅在拖选、双击或三击完成时产出手势。
         guard let gesture = detector.handle(pointer) else { return }
-        capture(gesture: gesture, location: location)
+        capture(gesture: gesture)
     }
 
     /// type/keyCode/modifiers 为原始键盘事件；处理 Escape 和选择手势，无返回值。
@@ -202,7 +202,7 @@ final class SelectionMonitor {
         if let pending = pendingKeySelection, pending.keyCode == keyCode {
             pendingKeySelection = nil
             // 非激活浮层不接收键盘焦点，鼠标悬停位置不能屏蔽来源应用的扩选。
-            capture(gesture: pending.gesture, location: NSEvent.mouseLocation)
+            capture(gesture: pending.gesture)
             return
         }
         if bridge?.hasSelection == true, observedPID != nil {
@@ -211,9 +211,9 @@ final class SelectionMonitor {
         }
     }
 
-    /// gesture 为选区手势，location 为鼠标锚点；去抖读取并上报当前前台应用的文本，无返回值。
+    /// gesture 为选区手势；去抖读取文本，在上报时获取当前鼠标位置，无返回值。
     @MainActor
-    private func capture(gesture: SelectionGesture, location: NSPoint) {
+    private func capture(gesture: SelectionGesture) {
         // 保留的译文框不消费新的被动选区；全局热键仍可明确发起下一次翻译。
         guard gesture == .hotkey || MacPlatformBridge.Shared.instance?.retainsResult != true else { return }
         captureTask?.cancel()
@@ -230,17 +230,13 @@ final class SelectionMonitor {
             let text = selection.text ?? ""
             let keyboardCandidate = (gesture == .selectAll || gesture == .keyboard)
                 && AccessibilitySelection.permitsKeyboardTrigger(sourcePID: pid)
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || keyboardCandidate else {
+            // 明确热键即使读不到文字也要展示失败卡片，不能静默丢弃用户操作。
+            guard gesture == .hotkey || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || keyboardCandidate else {
                 MacPlatformBridge.Shared.instance?.invalidateSelection()
                 return
             }
-            // 键盘选择时鼠标可停在远处，优先使用真实选区的屏幕矩形。
-            let anchor: NSPoint
-            if (gesture == .selectAll || gesture == .keyboard), let bounds = selection.bounds, !bounds.isEmpty {
-                anchor = NSPoint(x: bounds.midX, y: bounds.minY)
-            } else {
-                anchor = OverlayAnchor.point(mouse: location, bounds: selection.bounds)
-            }
+            // AX 矩形可能覆盖整段或整页；异步读取完成后以最新鼠标位置统一定位。
+            let anchor = NSEvent.mouseLocation
             MacPlatformBridge.Shared.instance?.emitSelectionCaptured(
                 text: text, gesture: gesture.rawValue, x: anchor.x, y: anchor.y, sourcePID: pid
             )
