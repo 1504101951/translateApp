@@ -13,6 +13,7 @@ class AppSettings {
     this.screenshotShortcutKeyCode = 1,
     this.screenshotShortcutLabel = 'S',
     this.screenshotShortcutModifiers = 6144,
+    this.screenshotSaveDirectory = '',
     this.launchAtLogin = false,
     Map<String, String>? excludedApps,
     this.defaultServiceId = ServiceConfig.builtinId,
@@ -29,6 +30,8 @@ class AppSettings {
   int screenshotShortcutKeyCode;
   String screenshotShortcutLabel;
   int screenshotShortcutModifiers;
+  /// 固定截图保存目录；空字符串表示每次保存时询问。
+  String screenshotSaveDirectory;
   bool launchAtLogin;
   final Map<String, String> excludedApps;
   String defaultServiceId;
@@ -79,6 +82,7 @@ class AppSettings {
       screenshotShortcutLabel: map['screenshotShortcutLabel'] as String? ?? 'S',
       screenshotShortcutModifiers:
           map['screenshotShortcutModifiers'] as int? ?? 6144,
+      screenshotSaveDirectory: map['screenshotSaveDirectory'] as String? ?? '',
       launchAtLogin: map['launchAtLogin'] as bool? ?? false,
       excludedApps: Map<String, String>.from(map['excludedApps'] as Map? ?? {}),
     );
@@ -141,6 +145,7 @@ class AppSettings {
     'screenshotShortcutKeyCode': screenshotShortcutKeyCode,
     'screenshotShortcutLabel': screenshotShortcutLabel,
     'screenshotShortcutModifiers': screenshotShortcutModifiers,
+    'screenshotSaveDirectory': screenshotSaveDirectory,
     'launchAtLogin': launchAtLogin,
     'excludedApps': excludedApps,
   };

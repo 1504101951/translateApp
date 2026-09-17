@@ -11,6 +11,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var accessItem: NSMenuItem?
     var showSettings: (() -> Void)?
     var refreshSettings: (() -> Void)?
+    var showHistory: (() -> Void)?
 
     func install() {
         if installed { return }
@@ -45,6 +46,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let screenshot = NSMenuItem(title: "区域截图…", action: #selector(captureScreenshot), keyEquivalent: "")
         screenshot.target = self
         menu.addItem(screenshot)
+        let history = NSMenuItem(title: "翻译历史…", action: #selector(openHistory), keyEquivalent: "")
+        history.target = self
+        menu.addItem(history)
         let automatic = NSMenuItem(title: "仅使用快捷键", action: #selector(toggleAutomatic), keyEquivalent: "")
         automatic.target = self
         automaticItem = automatic
@@ -82,6 +86,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// 无参数；打开普通设置窗口，无返回值。
     @objc private func openSettings() { showSettings?() }
 
+    /// 无参数；打开翻译历史窗口，无返回值。
+    @objc private func openHistory() { showHistory?() }
+
     /// 无参数；菜单关闭后进入系统区域框选，不触发翻译，无返回值。
     @objc private func captureScreenshot() {
         DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture() }
@@ -101,11 +108,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// 无参数；已授权则只刷新菜单，未授权才弹出系统提示。
     @objc private func requestAccess() {
-        if AccessibilitySelection.isTrusted(prompt: true) {
+        if AccessibilitySelection.isTrusted(prompt: false) {
             reloadMenu()
             return
         }
+        _ = AccessibilitySelection.isTrusted(prompt: true)
         AccessibilitySelection.openSettings()
     }
 

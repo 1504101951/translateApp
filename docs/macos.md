@@ -2,7 +2,7 @@
 
 ## 可直接启动的 App
 
-`scripts/package-macos.sh` 构建、签名并验证 Release App，生成 `dist/TranslateApp.zip`；`scripts/install-macos.sh` 在暂存目录解压并验签，安装到 `~/Applications/TranslateApp.app` 并注册 LaunchServices。可双击安装后的 App，或从 Spotlight 搜索 TranslateApp。
+`scripts/package-macos.sh` 构建、签名并验证 Release App，生成 `dist/TranslateApp.zip`；`scripts/install-macos.sh` 在暂存目录解压并验签，安装到 `/Applications/TranslateApp.app`（访达「应用程序」）并注册 LaunchServices。可双击安装后的 App，或从 Spotlight 搜索 TranslateApp。
 
 安装更新前从菜单栏退出 App，再执行安装脚本；构建 ZIP 可以保留已安装版本运行。安装脚本验证签名、检查归档和目标 Bundle ID，使用暂存目录替换整个 bundle，失败时恢复已有 App。偏好保存在 UserDefaults，安装不会清理偏好。
 
@@ -27,7 +27,7 @@ TRANSLATEAPP_SIGN_IDENTITY='Developer ID Application: YOUR NAME (TEAMID)' ./scri
 
 ```sh
 security find-identity -v -p codesigning
-codesign -d -r- --verbose=4 ~/Applications/TranslateApp.app
+codesign -d -r- --verbose=4 /Applications/TranslateApp.app
 ```
 
 App 不修改 TCC 数据库，也不添加只匹配 Bundle ID 的宽松自定义 requirement。
@@ -36,4 +36,4 @@ App 不修改 TCC 数据库，也不添加只匹配 Bundle ID 的宽松自定义
 
 打包脚本退出时清理本次暂存目录及 `build/macos/Build/Products/Release/translate_app.app`，交付目录只保留 ZIP。开发和原生测试产生的 Debug、Xcode DerivedData 及临时目录中的 `translate_app.app` 在验证结束后清理，仅删除经路径与 Bundle ID 核对的生成 App；不删除整个 DerivedData、源码或偏好文件。清理前确认目标副本没有运行。
 
-日常启动入口只保留 `~/Applications/TranslateApp.app`；ZIP 归档不作为已安装应用登记。
+日常启动入口只保留 `/Applications/TranslateApp.app`；ZIP 归档不作为已安装应用登记。用户主目录下的 `~/Applications/TranslateApp.app` 在安装到「应用程序」后删除，避免两份副本抢 TCC。

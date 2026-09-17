@@ -7,10 +7,10 @@ macOS 14+ 全局选区翻译 App。Flutter/Dart 负责界面与翻译业务，Sw
 ```sh
 ./scripts/package-macos.sh
 ./scripts/install-macos.sh
-open ~/Applications/TranslateApp.app
+open /Applications/TranslateApp.app
 ```
 
-安装位置固定为 `~/Applications/TranslateApp.app`，可直接通过 Finder 或 Spotlight 启动。菜单栏「选区翻译」提供设置、仅使用快捷键开关和退出入口。设置使用独立普通窗口，翻译浮层使用非激活面板。
+安装位置固定为 `/Applications/TranslateApp.app`（访达「应用程序」）。菜单栏「选区翻译」提供设置、仅使用快捷键开关和退出入口。设置使用独立普通窗口，翻译浮层使用非激活面板。
 
 打包签名、辅助功能授权与旧副本说明见 [macOS 安装](docs/macos.md)。
 

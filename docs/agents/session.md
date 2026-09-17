@@ -13,4 +13,4 @@ Use the complete `CODEX_THREAD_ID` as the session ID. If it is unavailable, gene
 
 ## Generated macOS apps
 
-After build and headless native verification, remove the generated App bundles from this session and the Release build path after checking bundle identity and running executable paths. Keep the installed `~/Applications/TranslateApp.app` and the packaged `dist/TranslateApp.zip`; do not remove source, preferences, entire build trees, or a running App.
+After build and headless native verification, remove the generated App bundles from this session and the Release build path after checking bundle identity and running executable paths. Keep the installed `/Applications/TranslateApp.app` and the packaged `dist/TranslateApp.zip`; do not remove source, preferences, entire build trees, or a running App.

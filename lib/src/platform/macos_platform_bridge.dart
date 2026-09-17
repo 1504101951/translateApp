@@ -77,6 +77,10 @@ class MacosPlatformBridge {
   Future<Map<Object?, Object?>> loadSettings() async =>
       (await _methods.invokeMapMethod<Object?, Object?>('loadSettings'))!;
 
+  /// 无参数；返回应用支持目录路径，供 SQLite 历史库使用。
+  Future<String> applicationSupportPath() async =>
+      (await _methods.invokeMethod<String>('applicationSupportPath'))!;
+
   /// settings 为经 Dart 校验的偏好字典；成功保存并应用系统能力后完成。
   Future<void> applySettings(
     Map<String, Object> settings, {

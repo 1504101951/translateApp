@@ -4,7 +4,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:translate_app/main.dart' show TranslateApp;
+import 'package:translate_app/src/history/translation_history.dart';
 import 'package:translate_app/src/platform/macos_platform_bridge.dart';
 import 'package:translate_app/src/translation/language_direction.dart';
 import 'package:translate_app/src/overlay/translation_overlay.dart';
@@ -15,6 +17,8 @@ import 'package:translate_app/src/translation/translation_types.dart';
 class _Provider implements TranslationProvider {
   @override
   String get id => 'local-test';
+  @override
+  bool get usesSlidingContext => false;
 
   /// request 为真实翻译请求；返回一个完整译文事件流。
   @override
@@ -56,6 +60,7 @@ void main() {
       TranslateApp(
         bridge: MacosPlatformBridge(methods: methods, events: events),
         session: session,
+        history: TranslationHistoryStore(sqlite3.openInMemory()),
       ),
     );
     await tester.pump();

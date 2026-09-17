@@ -16,7 +16,18 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     private let selectionMonitor: SelectionMonitor
     let screenshot = ScreenshotWindowController()
     private var methods: FlutterMethodChannel?
-    var onReady: (() -> Void)?
+    var onReady: (() -> Void)? {
+        didSet {
+            // Dart 可能在回调赋值前就发来 appReady；补一次，避免向导被丢掉。
+            if pendingAppReady, let onReady {
+                pendingAppReady = false
+                onReady()
+            }
+        }
+    }
+    private var pendingAppReady = false
+    var closePermissionWizard: (() -> Void)?
+    var showHistory: (() -> Void)?
     var shortcutRecorder: ((UInt32, UInt32) -> Void)?
     private var currentSessionId: String?
     private var sourceProcessIdentifier: pid_t?
@@ -138,7 +149,26 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             var settings = UserDefaults.standard.dictionary(forKey: "preferences") ?? [:]
             settings["systemLanguage"] = Locale.preferredLanguages.first ?? "en"
             settings["launchAtLogin"] = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
+            // 截图目录历史上独立存储；设置分段页与截图导出共用同一键。
+            settings["screenshotSaveDirectory"] =
+                UserDefaults.standard.string(forKey: "screenshotSaveDirectory")
+                ?? (settings["screenshotSaveDirectory"] as? String)
+                ?? ""
             result(settings)
+        case "chooseScreenshotDirectory":
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "使用此目录"
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else {
+                    result(nil)
+                    return
+                }
+                result(url.path)
+            }
         case "applySettings":
             guard let settings = args["settings"] as? [String: Any],
                   let credentials = args["credentials"] as? [String: Any] else {
@@ -184,8 +214,46 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             result([
                 "accessibility": AccessibilitySelection.isTrusted(prompt: false),
                 "loginNeedsApproval": SMAppService.mainApp.status == .requiresApproval,
+                "screenAccess": ScreenCaptureService.isAuthorized(),
             ])
+        case "permissionWizardStatus":
+            result([
+                "accessibility": AccessibilitySelection.isTrusted(prompt: false),
+                "screenAccess": ScreenCaptureService.isAuthorized(),
+                "finishedOrSkipped": UserDefaults.standard.bool(forKey: "permissionWizardFinished"),
+            ])
+        case "finishPermissionWizard":
+            UserDefaults.standard.set(true, forKey: "permissionWizardFinished")
+            result(nil)
+        case "closePermissionWizard":
+            closePermissionWizard?()
+            result(nil)
+        case "applicationSupportPath":
+            let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let dir = root.appendingPathComponent("TranslateApp", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            result(dir.path)
+        case "openHistory":
+            showHistory?()
+            result(nil)
+        case "requestScreenAccess":
+            Task { @MainActor in
+                let granted = await ScreenCaptureService.requestAccess()
+                if !granted {
+                    ScreenCaptureService.openScreenRecordingSettings()
+                }
+                result([
+                    "screenAccess": granted,
+                    "accessibility": AccessibilitySelection.isTrusted(prompt: false),
+                    "loginNeedsApproval": SMAppService.mainApp.status == .requiresApproval,
+                ])
+            }
         case "openAccessibility":
+            // 已授权则只复用，不再弹系统提示。
+            if AccessibilitySelection.isTrusted(prompt: false) {
+                result(nil)
+                return
+            }
             _ = AccessibilitySelection.isTrusted(prompt: true)
             AccessibilitySelection.openSettings()
             result(nil)
@@ -206,7 +274,11 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 result(["id": id, "name": (FileManager.default.displayName(atPath: url.path) as NSString).deletingPathExtension])
             }
         case "appReady":
-            onReady?()
+            if let onReady {
+                onReady()
+            } else {
+                pendingAppReady = true
+            }
             result(nil)
         case "probeEmitSelection":
             emitProbeSelection()
@@ -247,6 +319,12 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 loginChanged = true
             }
             try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers, screenshotCode: screenshotCode, screenshotFlags: screenshotFlags)
+            // 截图导出仍读独立键；保存设置时与 preferences 字典同步，避免双源互相覆盖。
+            if let directory = settings["screenshotSaveDirectory"] as? String, !directory.isEmpty {
+                UserDefaults.standard.set(directory, forKey: "screenshotSaveDirectory")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "screenshotSaveDirectory")
+            }
             // 凭据与系统副作用成功后才保存不含密钥的偏好。
             UserDefaults.standard.set(settings, forKey: "preferences")
             StatusBarController.shared.updateAutomatic(automatic)

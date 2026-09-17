@@ -5,6 +5,9 @@ import 'app_settings.dart';
 import 'service_config.dart';
 import 'service_editor.dart';
 
+/// 设置窗口顶部分段；仅控制展示，不进入持久化偏好。
+enum SettingsSection { general, translation, screenshot }
+
 /// 独立可激活窗口的设置 UI；所有偏好读写由主 Dart 引擎处理。
 class SettingsApp extends StatelessWidget {
   const SettingsApp({super.key});
@@ -43,6 +46,7 @@ class _SettingsPageState extends State<_SettingsPage>
   int _revision = 0;
   Set<String> _credentialIds = {};
   final Map<String, Map<String, String>?> _credentials = {};
+  SettingsSection _section = SettingsSection.general;
 
   /// 无参数；加载主引擎偏好，并监听菜单引起的偏好变化，无返回值。
   @override
@@ -200,6 +204,38 @@ class _SettingsPageState extends State<_SettingsPage>
   }
 
   /// change 写入一次用户编辑；保留草稿，避免菜单刷新直接覆盖未保存内容。
+
+  /// 无参数；选择固定截图目录，取消保留当前草稿目录。
+  Future<void> _chooseScreenshotDirectory() async {
+    final path = await _channel.invokeMethod<String>('chooseScreenshotDirectory');
+    if (!mounted || path == null) return;
+    _edit(() => _settings!.screenshotSaveDirectory = path);
+  }
+
+  /// 无参数；由本进程向 TCC 申请屏幕录制，失败则打开系统屏幕录制页。
+  Future<void> _requestScreenAccess() async {
+    try {
+      final status = await _channel.invokeMapMethod<Object?, Object?>(
+        'requestScreenAccess',
+      );
+      if (!mounted || status == null) return;
+      setState(() {
+        _status = {..._status, ...status};
+        _message = status['screenAccess'] == true
+            ? '已获得屏幕录制权限。'
+            : '请在系统设置中允许 TranslateApp 的屏幕录制。';
+        _failed = status['screenAccess'] != true;
+      });
+    } on PlatformException catch (error) {
+      if (mounted) {
+        setState(() {
+          _message = error.message;
+          _failed = true;
+        });
+      }
+    }
+  }
+
   void _edit(VoidCallback change) {
     // 保存回包会替换整个表单；等待期间不接收会被回包覆盖的新编辑。
     if (_saving) return;
@@ -269,6 +305,41 @@ class _SettingsPageState extends State<_SettingsPage>
     );
   }
 
+  /// title 为按钮标题，code/label 为当前组合，screenshot 区分录制目标；返回热键录制区块。
+  List<Widget> _shortcutBlock({
+    required String title,
+    required int code,
+    required String label,
+    required bool screenshot,
+  }) =>
+      [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: ValueKey(title),
+          onPressed: _saving || _recording
+              ? null
+              : () => _recordShortcut(screenshot: screenshot),
+          icon: const Icon(Icons.keyboard_outlined),
+          label: Text(
+            _recording
+                ? '请按下组合键，Esc 取消…'
+                : [
+                    if (code & 4096 != 0) '⌃',
+                    if (code & 2048 != 0) '⌥',
+                    if (code & 512 != 0) '⇧',
+                    if (code & 256 != 0) '⌘',
+                    label,
+                  ].join(' '),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '点击录制；保存时检查系统保留组合和可识别的全局占用。',
+          style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
+        ),
+      ];
+
   /// context 为窗口上下文；返回可滚动表单与保存反馈。
   @override
   Widget build(BuildContext context) {
@@ -300,213 +371,257 @@ class _SettingsPageState extends State<_SettingsPage>
           const SizedBox(height: 4),
           const Text('选中文字，随手翻译。', style: TextStyle(color: Color(0xFF72747B))),
           const SizedBox(height: 24),
-          const Text('翻译语言', style: TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _language(
-                '主要语言',
-                settings.primaryLanguage,
-                (v) => settings.primaryLanguage = v,
-              ),
-              const SizedBox(width: 12),
-              _language(
-                '次要语言（可选）',
-                settings.secondaryLanguage ?? '',
-                (v) => settings.secondaryLanguage = v.isEmpty ? null : v,
-                optional: true,
-              ),
-            ],
+      SegmentedButton<SettingsSection>(
+        segments: const [
+          ButtonSegment(
+            value: SettingsSection.general,
+            label: Text('通用'),
+            icon: Icon(Icons.tune),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Text(
-              '设置次要语言时，主要语言文本译为次要语言；不设置时统一译为主要语言，已是主要语言的文本直接展示。',
-              style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
-            ),
+          ButtonSegment(
+            value: SettingsSection.translation,
+            label: Text('翻译'),
+            icon: Icon(Icons.translate),
           ),
-          const Divider(height: 28),
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  '翻译服务',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _saving ? null : () => _editService(),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('添加服务'),
-              ),
-            ],
+          ButtonSegment(
+            value: SettingsSection.screenshot,
+            label: Text('截图'),
+            icon: Icon(Icons.crop_free),
           ),
-          DropdownButtonFormField<String>(
-            key: ValueKey('default:${settings.defaultServiceId}'),
-            initialValue: settings.defaultServiceId,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: '默认翻译服务',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              const DropdownMenuItem(
-                value: ServiceConfig.builtinId,
-                child: Text('Google 免费接口（非官方）'),
-              ),
-              ...settings.services.map(
-                (e) => DropdownMenuItem(value: e.id, child: Text(e.name)),
-              ),
-            ],
-            onChanged: _saving
-                ? null
-                : (value) => _edit(() => settings.defaultServiceId = value!),
-          ),
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text(
-              '添加百度、Google Cloud 或大模型 API；翻译发送到选中的服务。',
-              style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
-            ),
-          ),
-          for (final service in settings.services)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(service.name),
-              subtitle: Text(
-                '${ServiceConfig.kinds[service.kind]}${service.isModel ? ' · ${service.model}' : ''}',
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: '编辑 ${service.name}',
-                    onPressed: _saving ? null : () => _editService(service),
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
-                  IconButton(
-                    tooltip: '删除 ${service.name}',
-                    onPressed: _saving
-                        ? null
-                        : () => _edit(() {
-                            settings.services.remove(service);
-                            _credentials[service.id] = null;
-                            if (settings.defaultServiceId == service.id) {
-                              settings.defaultServiceId =
-                                  ServiceConfig.builtinId;
-                            }
-                          }),
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-                ],
+        ],
+        selected: {_section},
+        onSelectionChanged: (next) {
+          setState(() => _section = next.single);
+        },
+      ),
+      const SizedBox(height: 24),
+      if (_section == SettingsSection.general) ...[
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                '排除应用',
+                style: TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('仅使用快捷键'),
-            subtitle: const Text('按钮开启时，只能通过快捷键唤醒翻译'),
-            value: !settings.automatic,
-            onChanged: (v) => _edit(() => settings.automatic = !v),
-          ),
-          const Divider(height: 28),
-          for (final (title, code, label, screenshot) in [
-            (
-              '全局翻译快捷键',
-              settings.shortcutModifiers,
-              settings.shortcutLabel,
-              false,
+            TextButton.icon(
+              onPressed: _addExclusion,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('添加应用'),
             ),
-            (
-              '区域截图快捷键',
-              settings.screenshotShortcutModifiers,
-              settings.screenshotShortcutLabel,
-              true,
-            ),
-          ]) ...[
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              key: ValueKey(title),
-              onPressed: _saving || _recording
-                  ? null
-                  : () => _recordShortcut(screenshot: screenshot),
-              icon: const Icon(Icons.keyboard_outlined),
-              label: Text(
-                _recording
-                    ? '请按下组合键，Esc 取消…'
-                    : [
-                        if (code & 4096 != 0) '⌃',
-                        if (code & 2048 != 0) '⌥',
-                        if (code & 512 != 0) '⇧',
-                        if (code & 256 != 0) '⌘',
-                        label,
-                      ].join(' '),
-              ),
-            ),
-            const SizedBox(height: 8),
           ],
+        ),
+        if (settings.excludedApps.isEmpty)
           const Text(
-            '点击录制；保存时检查系统保留组合和可识别的全局占用。',
-            style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
+            '所有支持读取选区的应用均可翻译。',
+            style: TextStyle(color: Color(0xFF72747B)),
           ),
-          const Divider(height: 28),
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  '排除应用',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _addExclusion,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('添加应用'),
-              ),
-            ],
-          ),
-          if (settings.excludedApps.isEmpty)
-            const Text(
-              '所有支持读取选区的应用均可翻译。',
-              style: TextStyle(color: Color(0xFF72747B)),
-            ),
-          for (final app in settings.excludedApps.entries)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(app.value),
-              subtitle: Text(app.key),
-              trailing: IconButton(
-                tooltip: '移除排除项',
-                icon: const Icon(Icons.remove_circle_outline),
-                onPressed: () =>
-                    _edit(() => settings.excludedApps.remove(app.key)),
-              ),
-            ),
-          const Divider(height: 28),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('登录时启动'),
-            value: settings.launchAtLogin,
-            onChanged: (v) => _edit(() => settings.launchAtLogin = v),
-          ),
-          if (_status['loginNeedsApproval'] == true)
-            TextButton(
-              onPressed: () => _channel.invokeMethod<void>('openLoginItems'),
-              child: const Text('在系统设置中允许登录项'),
-            ),
+        for (final app in settings.excludedApps.entries)
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('辅助功能权限'),
-            subtitle: Text(
-              _status['accessibility'] == true
-                  ? '已授权，可以读取其他应用的选区。'
-                  : '未授权，请在系统设置中开启。',
-            ),
-            trailing: TextButton(
-              onPressed: () => _channel.invokeMethod<void>('openAccessibility'),
-              child: const Text('打开设置'),
+            title: Text(app.value),
+            subtitle: Text(app.key),
+            trailing: IconButton(
+              tooltip: '移除排除项',
+              icon: const Icon(Icons.remove_circle_outline),
+              onPressed: () =>
+                  _edit(() => settings.excludedApps.remove(app.key)),
             ),
           ),
+        const Divider(height: 28),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('登录时启动'),
+          value: settings.launchAtLogin,
+          onChanged: (v) => _edit(() => settings.launchAtLogin = v),
+        ),
+        if (_status['loginNeedsApproval'] == true)
+          TextButton(
+            onPressed: () => _channel.invokeMethod<void>('openLoginItems'),
+            child: const Text('在系统设置中允许登录项'),
+          ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('辅助功能权限'),
+          subtitle: Text(
+            _status['accessibility'] == true ? '已授权' : '未授权，无法读取选中文字',
+          ),
+          trailing: TextButton(
+            onPressed: () => _channel.invokeMethod<void>('openAccessibility'),
+            child: const Text('打开设置'),
+          ),
+        ),
+      ] else if (_section == SettingsSection.translation) ...[
+
+        const Text('翻译语言', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            _language(
+              '主要语言',
+              settings.primaryLanguage,
+              (v) => settings.primaryLanguage = v,
+            ),
+            const SizedBox(width: 12),
+            _language(
+              '次要语言（可选）',
+              settings.secondaryLanguage ?? '',
+              (v) => settings.secondaryLanguage = v.isEmpty ? null : v,
+              optional: true,
+            ),
+          ],
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 10),
+          child: Text(
+            '设置次要语言时，主要语言文本译为次要语言；不设置时统一译为主要语言，已是主要语言的文本直接展示。',
+            style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
+          ),
+        ),
+        const Divider(height: 28),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                '翻译服务',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => _editService(),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('添加服务'),
+            ),
+          ],
+        ),
+        DropdownButtonFormField<String>(
+          key: ValueKey('default:${settings.defaultServiceId}'),
+          initialValue: settings.defaultServiceId,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: '默认翻译服务',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem(
+              value: ServiceConfig.builtinId,
+              child: Text('Unofficial Google'),
+            ),
+            ...settings.services.map(
+              (e) => DropdownMenuItem(value: e.id, child: Text(e.name)),
+            ),
+          ],
+          onChanged: (v) => _edit(() => settings.defaultServiceId = v!),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text(
+            'Unofficial Google 是默认内置 API；翻译发送到选中的服务。',
+            style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
+          ),
+        ),
+        for (final service in settings.services)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(service.name),
+            subtitle: Text(
+              '${ServiceConfig.kinds[service.kind]}${service.isModel ? ' · ${service.model}' : ''}',
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: '编辑 ${service.name}',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => _editService(service),
+                ),
+                IconButton(
+                  tooltip: '删除 ${service.name}',
+                  onPressed: () => _edit(() {
+                    settings.services.remove(service);
+                    _credentials[service.id] = null;
+                    if (settings.defaultServiceId == service.id) {
+                      settings.defaultServiceId = ServiceConfig.builtinId;
+                    }
+                  }),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+          ),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('仅使用快捷键'),
+          subtitle: const Text('关闭自动按钮后，只能通过快捷键唤醒翻译'),
+          value: !settings.automatic,
+          onChanged: (v) => _edit(() => settings.automatic = !v),
+        ),
+        const Divider(height: 28),
+        ..._shortcutBlock(
+          title: '全局翻译快捷键',
+          code: settings.shortcutModifiers,
+          label: settings.shortcutLabel,
+          screenshot: false,
+        ),
+      ] else ...[
+
+        const Text('截图目录', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        ListTile(
+          key: const ValueKey('截图目录'),
+          contentPadding: EdgeInsets.zero,
+          title: Text(
+            settings.screenshotSaveDirectory.isEmpty
+                ? '保存时选择位置'
+                : settings.screenshotSaveDirectory,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: const Text('固定目录后，保存截图默认写入此处；空目录表示每次询问。'),
+          trailing: Wrap(
+            spacing: 4,
+            children: [
+              TextButton(
+                onPressed: _saving || _recording
+                    ? null
+                    : _chooseScreenshotDirectory,
+                child: const Text('选择…'),
+              ),
+              if (settings.screenshotSaveDirectory.isNotEmpty)
+                TextButton(
+                  onPressed: _saving || _recording
+                      ? null
+                      : () => _edit(() => settings.screenshotSaveDirectory = ''),
+                  child: const Text('每次询问'),
+                ),
+            ],
+          ),
+        ),
+        const Divider(height: 28),
+        ..._shortcutBlock(
+          title: '区域截图快捷键',
+          code: settings.screenshotShortcutModifiers,
+          label: settings.screenshotShortcutLabel,
+          screenshot: true,
+        ),
+
+        const Divider(height: 28),
+        ListTile(
+          key: const ValueKey('屏幕录制权限'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('屏幕录制权限'),
+          subtitle: Text(
+            _status['screenAccess'] == true
+                ? '已授权，可截取屏幕'
+                : '未授权；申请后 TranslateApp 会出现在系统屏幕录制列表',
+          ),
+          trailing: TextButton(
+            onPressed: _saving || _recording ? null : _requestScreenAccess,
+            child: Text(_status['screenAccess'] == true ? '重新检查' : '申请权限'),
+          ),
+        ),
+      ],
+
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _saving || _recording || _conflicted ? null : _save,

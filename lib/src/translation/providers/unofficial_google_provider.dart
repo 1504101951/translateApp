@@ -14,6 +14,8 @@ class UnofficialGoogleProvider implements TranslationProvider {
 
   @override
   final String id = 'unofficial-google';
+  @override
+  bool get usesSlidingContext => false;
   final String endpoint;
 
   /// request 包含原文和语言方向；返回可取消的译文、完成或失败事件流。

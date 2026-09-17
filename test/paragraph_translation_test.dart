@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:characters/characters.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/translation/paragraph_translation.dart';
+import 'package:translate_app/src/translation/segmented_translation.dart';
 import 'package:translate_app/src/translation/translation_types.dart';
 
 /// 按真实段落提供事件流；未定义的段落直接失败，避免额外请求被测试吞掉。
@@ -12,6 +14,8 @@ class _Provider implements TranslationProvider {
 
   @override
   String get id => 'paragraph-test';
+  @override
+  bool get usesSlidingContext => false;
 
   /// request 为段落及语言方向；返回对应事件流，意外的段落请求抛出错误。
   @override
@@ -157,4 +161,73 @@ void main() {
       expect((output.single as TranslationUpdate).addition, '部分译文');
     },
   );
+
+  test('长文按 4000/6000 分包，超长段先句再硬切', () {
+    final short = 'a' * 5000;
+    expect(splitTranslationSegments(short), [short]);
+    final packed = '${'p' * 3500}\n${'q' * 2000}';
+    // 3500+2000=5500 <=6000 且超过 4000，两段并成一片。
+    expect(splitTranslationSegments(packed), [packed]);
+    final two = '${'a' * 4000}\n${'b' * 4000}';
+    expect(splitTranslationSegments(two).length, 2);
+    final hugeSentence = 'word ' * 2000; // 远超 6000
+    final chunks = splitTranslationSegments(hugeSentence);
+    expect(chunks.length, greaterThan(1));
+    expect(chunks.every((c) => c.characters.length <= 6000), isTrue);
+    expect(chunks.join(), hugeSentence);
+  });
+
+  test('分段串行、模型带 1000 字尾部，Google 不带；失败可从失败片续翻', () async {
+    final first = 'A' * 4000;
+    final second = 'B' * 4000;
+    final source = '$first\n$second';
+    final seen = <TranslationRequest>[];
+    Stream<TranslationEvent> translate(TranslationRequest request) {
+      seen.add(request);
+      if (request.sourceText.contains('B') && seen.length == 2) {
+        return Stream.value(const TranslationFailure('第二片失败'));
+      }
+      return Stream.fromIterable([
+        TranslationUpdate('T-${request.sourceText[0]}'),
+        const TranslationCompleted(),
+      ]);
+    }
+
+    final failed = await translateSegmented(
+      translate,
+      TranslationRequest(sourceText: source, targetLanguage: 'zh-CN'),
+      usesSlidingContext: true,
+    ).toList();
+    expect(failed.last, isA<TranslationFailure>());
+    expect(failed.whereType<TranslationUpdate>().map((e) => e.addition), ['T-A']);
+    expect(seen, hasLength(2));
+    expect(seen.first.previousSourceTail, isNull);
+    expect(seen[1].previousSourceTail, first.substring(first.length - 1000));
+    expect(seen[1].previousTranslationTail, 'T-A');
+
+    seen.clear();
+    Stream<TranslationEvent> google(TranslationRequest request) {
+      seen.add(request);
+      return Stream.fromIterable([
+        TranslationUpdate('G-${request.sourceText[0]}'),
+        const TranslationCompleted(),
+      ]);
+    }
+
+    await translateSegmented(
+      google,
+      TranslationRequest(sourceText: source, targetLanguage: 'zh-CN'),
+    ).toList();
+    expect(seen.every((r) => r.previousSourceTail == null), isTrue);
+
+    seen.clear();
+    final resumed = await translateSegmented(
+      translate,
+      TranslationRequest(sourceText: source, targetLanguage: 'zh-CN'),
+      usesSlidingContext: true,
+      startIndex: 1,
+    ).toList();
+    expect(resumed.last, isA<TranslationCompleted>());
+    expect(seen.single.sourceText.contains('B'), isTrue);
+  });
 }

@@ -5,6 +5,18 @@ import FlutterMacOS
 @main
 class AppDelegate: FlutterAppDelegate {
   private let settingsWindow = SettingsWindowController()
+  private let permissionWizard = AuxiliaryWindowController(
+    engineName: "permission-wizard",
+    entrypoint: "permissionWizardMain",
+    title: "TranslateApp 权限",
+    size: NSSize(width: 440, height: 280)
+  )
+  private let historyWindow = AuxiliaryWindowController(
+    engineName: "history",
+    entrypoint: "historyMain",
+    title: "翻译历史",
+    size: NSSize(width: 520, height: 640)
+  )
   private var launchedAtLogin = false
 
   /// notification 为应用启动通知；从系统 AppleEvent 识别登录项启动，无返回值。
@@ -34,14 +46,30 @@ class AppDelegate: FlutterAppDelegate {
         hideMainWindowOnly()
         StatusBarController.shared.showSettings = { [weak self] in self?.settingsWindow.show() }
         StatusBarController.shared.refreshSettings = { [weak self] in self?.settingsWindow.refresh() }
+        StatusBarController.shared.showHistory = { [weak self] in self?.historyWindow.show() }
         StatusBarController.shared.install()
+        bridge.closePermissionWizard = { [weak self] in self?.permissionWizard.close() }
+        bridge.showHistory = { [weak self] in self?.historyWindow.show() }
         bridge.onReady = { [weak self] in
-            if self?.launchedAtLogin == false { self?.settingsWindow.show() }
+            let access = AccessibilitySelection.isTrusted(prompt: false)
+            let screen = ScreenCaptureService.isAuthorized()
+            if access && screen {
+                UserDefaults.standard.set(true, forKey: "permissionWizardFinished")
+                if self?.launchedAtLogin == false { self?.settingsWindow.show() }
+                return
+            }
+            // 缺权限就弹向导；稍后只关这一次，下次启动仍要检查实际 TCC。
+            self?.permissionWizard.show()
         }
         selectionMonitor.start()
         // 不调用 super.applicationDidFinishLaunching：FlutterAppDelegate 未实现该方法，
         // Swift super 会进入嵌套 run loop 且永不返回。AppKit 因此认为启动未结束，
         // 选区监听起不来，浮层窗口也合成不到屏幕上。
+    }
+
+    /// notification 为激活通知；从系统设置返回后刷新权限向导步骤。
+    override func applicationDidBecomeActive(_ notification: Notification) {
+        permissionWizard.notifyPermissionStatusChanged()
     }
 
     /// notification 为 App 退出通知；不遗留系统框选进程或临时 PNG，无返回值。

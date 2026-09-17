@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "TranslateApp 项目架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "repository": { "url": "https://github.com/1504101951/translateApp", "revision": "05b5cd8b9ef49e06ace50d11a74c89af4a14d01a" }
+  },
+  "layout": { "mode": "grid", "origin": [50, 40], "cols": 4, "cellW": 220, "cellH": 86, "gapX": 20, "gapY": 35 },
+  "components": [
+    { "id": "native-runtime", "type": "backend", "label": "macOS 原生层", "sublabel": "选区监听 · 平台桥 · NSPanel", "row": 1, "col": 0, "sources": [{ "path": "macos/Runner/AppDelegate.swift", "line": 20 }, { "path": "macos/Runner/SelectionMonitor.swift", "line": 267 }, { "path": "macos/Runner/MacPlatformBridge.swift", "line": 327 }] },
+    { "id": "selection-session", "type": "backend", "label": "Dart 会话编排", "sublabel": "SelectionSession", "row": 1, "col": 1, "sources": [{ "path": "lib/main.dart", "line": 218 }, { "path": "lib/src/selection/selection_session.dart", "line": 57 }] },
+    { "id": "translation-adapters", "type": "backend", "label": "翻译 Provider", "sublabel": "语言方向 · 段落配对 · 取消", "row": 1, "col": 2, "sources": [{ "path": "lib/src/translation/paragraph_translation.dart", "line": 6 }, { "path": "lib/src/translation/providers/api_translation_provider.dart", "line": 12 }, { "path": "lib/src/translation/providers/unofficial_google_provider.dart", "line": 8 }] },
+    { "id": "remote-translation", "type": "external", "label": "外部翻译服务", "sublabel": "Google · 百度 · 模型 API", "row": 1, "col": 3, "sources": [{ "path": "lib/src/translation/providers/api_translation_provider.dart", "line": 20 }, { "path": "lib/src/translation/providers/unofficial_google_provider.dart", "line": 8 }] },
+    { "id": "local-settings", "type": "security", "label": "本机配置与凭据", "sublabel": "UserDefaults · Keychain", "row": 0, "col": 0, "sources": [{ "path": "macos/Runner/MacPlatformBridge.swift", "line": 230 }, { "path": "lib/src/settings/service_config.dart", "line": 56 }] },
+    { "id": "settings-window", "type": "frontend", "label": "设置窗口", "sublabel": "独立 Flutter 引擎 · revision", "row": 0, "col": 1, "sources": [{ "path": "macos/Runner/SettingsWindowController.swift", "line": 21 }, { "path": "lib/main.dart", "line": 43 }] },
+    { "id": "screenshot-window", "type": "frontend", "label": "独立截图窗口", "sublabel": "screencapture · captureId", "row": 2, "col": 0, "sources": [{ "path": "macos/Runner/ScreenshotWindowController.swift", "line": 19 }, { "path": "lib/main.dart", "line": 181 }] },
+    { "id": "translation-overlay", "type": "frontend", "label": "翻译浮层", "sublabel": "TranslationOverlay · 双栏对照", "row": 2, "col": 1, "sources": [{ "path": "lib/src/overlay/translation_overlay.dart", "line": 4 }, { "path": "macos/Runner/OverlayPanel.swift", "line": 24 }] }
+  ],
+  "connections": [
+    { "id": "selection-event", "from": "native-runtime", "to": "selection-session", "label": "EventChannel", "variant": "emphasis" },
+    { "id": "activate-translation", "from": "selection-session", "to": "translation-adapters", "label": "translate", "variant": "emphasis" },
+    { "id": "translation-http", "from": "translation-adapters", "to": "remote-translation", "label": "HTTP API", "variant": "emphasis" },
+    { "id": "persist-settings", "from": "native-runtime", "to": "local-settings", "label": "配置 / 凭据读写", "fromSide": "top", "toSide": "bottom", "variant": "security" },
+    { "id": "settings-requests", "from": "settings-window", "to": "selection-session", "label": "设置桥接请求", "fromSide": "bottom", "toSide": "top", "labelAt": [350, 114] },
+    { "id": "capture-launch", "from": "native-runtime", "to": "screenshot-window", "label": "菜单 / 全局热键", "fromSide": "bottom", "toSide": "top", "labelAt": [110, 235] },
+    { "id": "render-session", "from": "selection-session", "to": "translation-overlay", "label": "会话状态驱动", "fromSide": "bottom", "toSide": "top", "labelAt": [350, 235] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "系统边界", "items": ["macOS 14+；Accessibility 读取前台选区", "MethodChannel 回传浮层命令与设置", "NSPanel 不抢占前台应用焦点"] },
+    { "dot": "emerald", "title": "翻译会话", "items": ["sessionId 与 generation 隔离迟到结果", "最多 50,000 字符；取消时关闭请求", "模型协议：OpenAI-compatible / DeepSeek / Anthropic"] },
+    { "dot": "amber", "title": "独立状态", "items": ["设置请求串行保存，以 revision 校验", "截图使用 captureId，PNG 在内存流转", "截图仅预览、复制和保存"] }
+  ]
+}

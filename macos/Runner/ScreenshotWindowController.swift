@@ -2,184 +2,284 @@ import Cocoa
 import FlutterMacOS
 import UniformTypeIdentifiers
 
-/// 系统负责区域采集和文件/剪贴板，独立 Flutter 窗口负责截图预览及操作界面。
+/// 系统截图模块承接权限与冻结帧；Dart 编辑层负责框选变暗、标注与导出。
 final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     private var engine: FlutterEngine?
     private var window: NSWindow?
     private var channel: FlutterMethodChannel?
-    private var process: Process?
-    private var captureURL: URL?
+    private var capturing = false
     private var png: Data?
     private var captureId: String?
     private var capturedAt: Int64 = 0
     private var pixels = NSSize.zero
+    private var displayFrame = NSRect(x: 0, y: 0, width: 1280, height: 800)
     private var message: String?
+    /// 贴图与编辑窗分离；关闭编辑不销毁已贴出的图。
+    let pins = PinOverlayController()
     var onCapturingChanged: ((Bool) -> Void)?
 
-    /// 无参数；启动系统框选，取消保留旧截图，成功只保留内存 PNG，无返回值。
+    /// 无参数；本进程申请权限并捕获指针所在屏冻结帧，无权限不进入编辑。
     func capture() {
-        guard process == nil, window?.attachedSheet == nil else { return }
-        guard CGPreflightScreenCaptureAccess() else {
-            message = "截图需要屏幕录制权限。授权后重新点击截图；系统提示重启时请退出并重开 App。"
-            show()
-            return
-        }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("translateapp-\(UUID().uuidString).png")
-        let task = Process()
-        let errors = Pipe()
-        task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        // 系统框选负责多屏坐标、Escape 取消和选区边框，不维护第二套屏幕选择器。
-        task.arguments = ["-i", "-s", "-x", "-t", "png", url.path]
-        task.standardError = errors
-        task.terminationHandler = { [weak self] task in
-            let diagnostic = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            DispatchQueue.main.async {
-                guard let self else { try? FileManager.default.removeItem(at: url); return }
-                defer {
-                    try? FileManager.default.removeItem(at: url)
-                    self.captureURL = nil
-                }
-                self.process = nil
+        guard !capturing, window?.attachedSheet == nil else { return }
+        capturing = true
+        onCapturingChanged?(true)
+        // 先收起编辑窗，避免冻结帧含工具栏。
+        window?.orderOut(nil)
+        Task { @MainActor in
+            defer {
+                self.capturing = false
                 self.onCapturingChanged?(false)
-                do {
-                    if FileManager.default.fileExists(atPath: url.path) {
-                        let data = try Data(contentsOf: url)
-                        guard let image = NSBitmapImageRep(data: data) else {
-                            throw NSError(domain: "TranslateApp", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法读取截图，请重新框选。"])
-                        }
-                        self.png = data
-                        self.captureId = UUID().uuidString
-                        self.capturedAt = Int64(Date().timeIntervalSince1970 * 1000)
-                        self.pixels = NSSize(width: image.pixelsWide, height: image.pixelsHigh)
-                        self.message = nil
-                        self.show()
-                    } else if !diagnostic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        self.message = "截图未完成，请检查屏幕录制权限后重试。"
-                        self.show()
-                    } else if self.png != nil {
-                        // 重新截图时取消，恢复仍在内存中的上一张，不改剪贴板或导出文件。
-                        self.show()
-                    }
-                } catch {
-                    self.message = error.localizedDescription
-                    self.show()
-                }
+            }
+            let granted = await ScreenCaptureService.requestAccess()
+            guard granted else {
+                self.png = nil
+                self.captureId = nil
+                self.message = "截图需要屏幕录制权限。请在设置中允许 TranslateApp。"
+                ScreenCaptureService.openScreenRecordingSettings()
+                self.show(compact: true)
+                return
+            }
+            do {
+                let frame = try await ScreenCaptureService.captureActiveDisplay()
+                self.png = frame.png
+                self.captureId = UUID().uuidString
+                self.capturedAt = Int64(Date().timeIntervalSince1970 * 1000)
+                self.pixels = NSSize(width: frame.pixelWidth, height: frame.pixelHeight)
+                self.displayFrame = frame.displayFrame
+                self.message = nil
+                self.show(compact: false)
+            } catch {
+                self.png = nil
+                self.captureId = nil
+                self.message = error.localizedDescription
+                self.show(compact: true)
             }
         }
-        window?.orderOut(nil)
-        onCapturingChanged?(true)
-        process = task
-        captureURL = url
-        do { try task.run() } catch {
-            process = nil
-            onCapturingChanged?(false)
-            message = "无法启动系统截图：\(error.localizedDescription)"
-            show()
-        }
     }
 
-    /// 无参数；App 退出时终止系统框选并清理临时文件，无返回值。
+    /// 无参数；标记取消进行中的捕获；异步任务结束时自行复位 capturing。
+    func cancelCapture() {
+        onCapturingChanged?(false)
+    }
+
+    /// 无参数；关闭编辑窗并关闭引擎，保留已创建的贴图。
     func shutdown() {
-        if let process, process.isRunning { process.terminate() }
-        if let captureURL { try? FileManager.default.removeItem(at: captureURL) }
+        cancelCapture()
+        window?.delegate = nil
+        window?.close()
+        window = nil
+        channel?.setMethodCallHandler(nil)
+        engine?.shutDownEngine()
+        engine = nil
+        channel = nil
+        png = nil
+        captureId = nil
+        pins.closeAll()
     }
 
-    /// 无参数；返回当前截图和保存目录，PNG 使用二进制通道，不将图片路径交给网页或翻译服务。
+    /// 无参数；返回当前截图和保存目录，PNG 以 typed data 下发。
     private func snapshot() -> [String: Any] {
         var value: [String: Any] = [
             "directory": UserDefaults.standard.string(forKey: "screenshotSaveDirectory") ?? "",
-            "screenAccess": CGPreflightScreenCaptureAccess(),
+            "screenAccess": ScreenCaptureService.isAuthorized(),
             "capturedAt": capturedAt,
-            "width": pixels.width, "height": pixels.height,
+            "width": pixels.width,
+            "height": pixels.height,
         ]
         if let png, let captureId {
-            value["bytes"] = FlutterStandardTypedData(bytes: png)
             value["id"] = captureId
+            value["bytes"] = FlutterStandardTypedData(bytes: png)
         }
         if let message { value["error"] = message }
         return value
     }
 
-    /// call 为截图操作，result 返回数据/路径或错误；所有读写仅使用当前内存截图。
-    private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    /// png/id 为测试注入的捕获态；只用于 RunnerTests 走真实 pinScreenshot 路径。
+    func seedCaptureForTesting(png: Data, id: String, width: CGFloat = 1, height: CGFloat = 1) {
+        self.png = png
+        self.captureId = id
+        self.pixels = NSSize(width: width, height: height)
+        self.capturedAt = Int64(Date().timeIntervalSince1970 * 1000)
+        self.message = nil
+    }
+
+    /// call 为截图操作，result 返回数据/路径或错误；导出优先使用 Dart 合成后的 bytes。
+    func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         switch call.method {
-        case "getScreenshot": result(snapshot())
-        case "captureRegion": capture(); result(nil)
-        case "closeScreenshot": window?.close(); result(nil)
-        case "requestScreenAccess":
-            _ = CGRequestScreenCaptureAccess()
-            if !CGPreflightScreenCaptureAccess() {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
-            }
+        case "getScreenshot":
             result(snapshot())
-        case "chooseDirectory":
-            let panel = NSOpenPanel()
-            panel.canChooseDirectories = true
-            panel.canChooseFiles = false
-            panel.canCreateDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.prompt = "使用此目录"
-            panel.beginSheetModal(for: window!) { response in
-                guard response == .OK, let url = panel.url else { result(nil); return }
-                UserDefaults.standard.set(url.path, forKey: "screenshotSaveDirectory")
-                result(url.path)
+        case "recognizeBlocks":
+            guard let id = args["id"] as? String, id == captureId else {
+                result(FlutterError(code: "stale_capture", message: "截图已关闭或被替换，请重新截图。", details: nil))
+                return
             }
-        case "clearDirectory":
-            UserDefaults.standard.removeObject(forKey: "screenshotSaveDirectory")
+            let payload: Data
+            if let typed = args["bytes"] as? FlutterStandardTypedData {
+                payload = typed.data
+            } else if let png {
+                payload = png
+            } else {
+                result(FlutterError(code: "stale_capture", message: "截图已关闭或被替换，请重新截图。", details: nil))
+                return
+            }
+            do {
+                result(try ScreenCaptureService.recognizeBlocks(png: payload))
+            } catch {
+                result(FlutterError(code: "ocr_failed", message: error.localizedDescription, details: nil))
+            }
+        case "recognizeText":
+            guard let id = args["id"] as? String, id == captureId else {
+                result(FlutterError(code: "stale_capture", message: "截图已关闭或被替换，请重新截图。", details: nil))
+                return
+            }
+            let payload: Data
+            if let typed = args["bytes"] as? FlutterStandardTypedData {
+                payload = typed.data
+            } else if let png {
+                payload = png
+            } else {
+                result(FlutterError(code: "stale_capture", message: "截图已关闭或被替换，请重新截图。", details: nil))
+                return
+            }
+            do {
+                result(try ScreenCaptureService.recognizeText(png: payload))
+            } catch {
+                result(FlutterError(code: "ocr_failed", message: error.localizedDescription, details: nil))
+            }
+        case "copyText":
+            guard let text = args["text"] as? String, !text.isEmpty else {
+                result(FlutterError(code: "ocr_empty", message: "没有可复制的文字。", details: nil))
+                return
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
             result(nil)
-        case "copyScreenshot", "saveScreenshot":
-            guard let png, let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: "stale_capture", message: "截图已关闭或被替换，请重新截图。", details: nil)); return
+        case "translatePlainText":
+            guard let text = args["text"] as? String, !text.isEmpty else {
+                result(FlutterError(code: "ocr_empty", message: "没有可翻译的文字。", details: nil))
+                return
             }
-            if call.method == "copyScreenshot" {
+            MacPlatformBridge.Shared.instance?.requestSettings(
+                "translatePlainText",
+                arguments: ["text": text],
+                result: result
+            )
+        case "captureRegion":
+            capture(); result(nil)
+        case "closeScreenshot":
+            window?.close(); result(nil)
+        case "requestScreenAccess":
+            Task { @MainActor in
+                let granted = await ScreenCaptureService.requestAccess()
+                if !granted {
+                    ScreenCaptureService.openScreenRecordingSettings()
+                }
+                result(self.snapshot())
+            }
+        case "copyScreenshot", "saveScreenshot", "pinScreenshot":
+            guard let id = args["id"] as? String, id == captureId else {
+                result(FlutterError(code: "stale_capture", message: "截图已关闭或被替换，请重新截图。", details: nil))
+                return
+            }
+            // Dart 合成图优先；无 bytes 时回退原始捕获，便于旧调用与测试。
+            let payload: Data
+            if let typed = args["bytes"] as? FlutterStandardTypedData {
+                payload = typed.data
+            } else if let png {
+                payload = png
+            } else {
+                result(FlutterError(code: "stale_capture", message: "截图已关闭或被替换，请重新截图。", details: nil))
+                return
+            }
+            switch call.method {
+            case "copyScreenshot":
                 let item = NSPasteboardItem()
-                item.setData(png, forType: .png)
+                item.setData(payload, forType: .png)
                 NSPasteboard.general.clearContents()
                 guard NSPasteboard.general.writeObjects([item]) else {
-                    result(FlutterError(code: "copy_failed", message: "无法复制截图，请重试。", details: nil)); return
+                    result(FlutterError(code: "copy_failed", message: "无法复制截图，请重试。", details: nil))
+                    return
                 }
                 result(nil)
-                return
-            }
-            guard let name = args["name"] as? String else {
-                result(FlutterError(code: "bad_args", message: "缺少截图文件名。", details: nil)); return
-            }
-            if let directory = UserDefaults.standard.string(forKey: "screenshotSaveDirectory"), args["saveAs"] as? Bool != true {
-                do {
-                    let url = try ScreenshotStorage.save(png, directory: URL(fileURLWithPath: directory), name: name)
-                    result(url.path)
-                } catch { result(FlutterError(code: "save_failed", message: error.localizedDescription, details: nil)) }
-                return
-            }
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.png]
-            panel.nameFieldStringValue = name
-            panel.canCreateDirectories = true
-            panel.beginSheetModal(for: window!) { response in
-                guard response == .OK, let url = panel.url else { result(nil); return }
-                do {
-                    // 系统保存面板已处理用户改名及覆盖确认，原子写入避免留下半张图片。
-                    try png.write(to: url, options: .atomic)
-                    result(url.path)
-                } catch { result(FlutterError(code: "save_failed", message: error.localizedDescription, details: nil)) }
+            case "saveScreenshot":
+                let name = args["name"] as? String ?? "screenshot.png"
+                if let directory = UserDefaults.standard.string(forKey: "screenshotSaveDirectory"),
+                   args["saveAs"] as? Bool != true {
+                    do {
+                        let url = try ScreenshotStorage.save(
+                            payload,
+                            directory: URL(fileURLWithPath: directory),
+                            name: name
+                        )
+                        result(url.path)
+                    } catch {
+                        result(FlutterError(code: "save_failed", message: error.localizedDescription, details: nil))
+                    }
+                    return
+                }
+                guard let window else {
+                    result(FlutterError(code: "save_failed", message: "截图窗口已关闭。", details: nil))
+                    return
+                }
+                let panel = NSSavePanel()
+                panel.allowedContentTypes = [.png]
+                panel.nameFieldStringValue = name
+                panel.canCreateDirectories = true
+                panel.beginSheetModal(for: window) { response in
+                    guard response == .OK, let url = panel.url else {
+                        result(nil)
+                        return
+                    }
+                    do {
+                        try payload.write(to: url)
+                        result(url.path)
+                    } catch {
+                        result(FlutterError(code: "save_failed", message: error.localizedDescription, details: nil))
+                    }
+                }
+            case "pinScreenshot":
+                let origin: NSPoint?
+                if let x = args["x"] as? NSNumber, let y = args["y"] as? NSNumber {
+                    origin = NSPoint(x: x.doubleValue, y: y.doubleValue)
+                } else {
+                    origin = nil
+                }
+                let pinId = pins.pin(png: payload, origin: origin)
+                result(pinId)
+            default:
+                result(FlutterMethodNotImplemented)
             }
         case "revealFile":
-            guard let path = args["path"] as? String else { result(nil); return }
+            guard let path = args["path"] as? String else {
+                result(FlutterError(code: "bad_args", message: "缺少文件路径。", details: nil))
+                return
+            }
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
             result(nil)
-        default: result(FlutterMethodNotImplemented)
+        case "closePin":
+            if let pinId = args["id"] as? String {
+                pins.close(pinId: pinId)
+            }
+            result(nil)
+        default:
+            result(FlutterMethodNotImplemented)
         }
     }
 
-    /// 无参数；按需创建普通预览窗口并同步截图，不占用翻译浮层，无返回值。
-    private func show() {
-        if window == nil {
+    /// compact 为无权限/失败时的小窗；成功时覆盖冻结帧所在显示器。
+    private func show(compact: Bool) {
+        if engine == nil {
             let engine = FlutterEngine(name: "screenshot", project: nil, allowHeadlessExecution: false)
             self.engine = engine
-            let channel = FlutterMethodChannel(name: "translateapp/screenshot", binaryMessenger: engine.binaryMessenger)
+            let channel = FlutterMethodChannel(
+                name: "translateapp/screenshot",
+                binaryMessenger: engine.binaryMessenger
+            )
             self.channel = channel
-            channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
+            channel.setMethodCallHandler { [weak self] call, result in
+                self?.handle(call, result: result)
+            }
             let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
             guard engine.run(withEntrypoint: "screenshotMain") else {
                 channel.setMethodCallHandler(nil)
@@ -193,22 +293,76 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 return
             }
             RegisterGeneratedPlugins(registry: flutter)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 660), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "TranslateApp 截图"
-            window.minSize = NSSize(width: 700, height: 520)
+            // 无边框置顶编辑层覆盖冻结屏；编辑期可成为 key 以接收 Esc/文字。
+            let window = ScreenshotPanel(
+                contentRect: displayFrame,
+                styleMask: [.borderless, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.onEscape = { [weak self] in
+                // Dart 判断文字输入中只取消草稿；否则关闭编辑层。
+                self?.channel?.invokeMethod("escapePressed", arguments: nil)
+            }
+            window.onUndo = { [weak self] in
+                self?.channel?.invokeMethod("undoPressed", arguments: nil)
+            }
+            window.onRedo = { [weak self] in
+                self?.channel?.invokeMethod("redoPressed", arguments: nil)
+            }
+            window.isFloatingPanel = true
+            window.level = .statusBar
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = false
             window.isReleasedWhenClosed = false
             window.delegate = self
             window.contentViewController = flutter
-            window.center()
             self.window = window
         }
+        let frame = compact
+            ? NSRect(x: displayFrame.midX - 220, y: displayFrame.midY - 90, width: 440, height: 180)
+            : displayFrame
+        window?.setFrame(frame, display: true)
         // Dart 首帧主动拉取快照，已就绪的窗口通过通知更新；不会丢失第一张截图。
         channel?.invokeMethod("screenshotChanged", arguments: snapshot())
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// notification 为预览关闭通知；释放原始图像并通知 Dart 清空，不撤销已导出的文件。
+}
+
+/// 截图编辑层需要成为 key 才能收 Esc 与文字输入；非激活译文浮层不能复用。
+final class ScreenshotPanel: NSPanel {
+    var onEscape: (() -> Void)?
+    var onUndo: (() -> Void)?
+    var onRedo: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    /// event 为按键；Esc 结束本次截图；⌘Z / ⇧⌘Z 走标注历史。
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            onEscape?()
+            return
+        }
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if event.modifierFlags.contains(.shift) {
+                onRedo?()
+            } else {
+                onUndo?()
+            }
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
+extension ScreenshotWindowController {
+    /// notification 为编辑窗关闭通知；释放原始图像并通知 Dart 清空，不撤销已导出文件或贴图。
     func windowWillClose(_ notification: Notification) {
         png = nil
         captureId = nil

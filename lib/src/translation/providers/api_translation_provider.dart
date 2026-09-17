@@ -16,6 +16,8 @@ class ApiTranslationProvider implements TranslationProvider {
   final Future<Map<String, String>> Function() credentials;
   @override
   String get id => config.id;
+  @override
+  bool get usesSlidingContext => config.isModel;
 
   /// request 为同一会话的原文与语言方向；返回增量译文及完整结束/失败事件。
   @override
@@ -130,6 +132,12 @@ class ApiTranslationProvider implements TranslationProvider {
               ]
             else
               'text': request.sourceText,
+            if (request.previousSourceTail != null ||
+                request.previousTranslationTail != null)
+              'previous_context': {
+                'source_tail': request.previousSourceTail,
+                'translation_tail': request.previousTranslationTail,
+              },
           });
           if (config.kind != 'anthropic') {
             http.headers.set('Authorization', 'Bearer ${secret['apiKey']}');

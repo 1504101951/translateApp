@@ -4,6 +4,7 @@ import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
 
 import '../translation/language_direction.dart';
+import '../translation/segmented_translation.dart';
 import '../translation/translation_types.dart';
 
 /// Dart 侧 Selection Session。激活前不请求 Provider。
@@ -115,6 +116,7 @@ class SelectionSession extends ChangeNotifier {
     // 设备识别是异步桥调用；等待期间换选区或关闭不能发出旧请求。
     if (generation != _generation) return;
     final direction = activeLanguage.resolve(detected);
+    snapshot = snapshot.copyWith(detectedLanguage: direction.detectedLanguage);
     final request = TranslationRequest(
       sourceText: source,
       detectedLanguage: direction.detectedLanguage,
@@ -124,8 +126,11 @@ class SelectionSession extends ChangeNotifier {
     final completion = Completer<void>();
     _completion = completion;
     // 保存真实流订阅，使关闭会话能即时取消 Provider 的网络连接。
-    _translation = activeProvider
-        .translate(request)
+    _translation = translateSegmented(
+          activeProvider.translate,
+          request,
+          usesSlidingContext: activeProvider.usesSlidingContext,
+        )
         .listen(
           (event) {
             if (generation != _generation) return;

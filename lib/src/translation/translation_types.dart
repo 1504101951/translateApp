@@ -13,6 +13,7 @@ class TranslationSnapshot {
     required this.sourceText,
     required this.translatedText,
     this.message,
+    this.detectedLanguage,
     this.pairs = const [],
   });
 
@@ -26,6 +27,8 @@ class TranslationSnapshot {
   final String sourceText;
   final String translatedText;
   final String? message;
+  /// 设备识别出的来源语言；写入历史时必须用这次识别结果，不能再 resolve(null)。
+  final String? detectedLanguage;
   final List<TranslationPair> pairs;
 
   TranslationSnapshot copyWith({
@@ -33,6 +36,7 @@ class TranslationSnapshot {
     String? sourceText,
     String? translatedText,
     String? message,
+    String? detectedLanguage,
     List<TranslationPair>? pairs,
   }) {
     return TranslationSnapshot(
@@ -40,6 +44,7 @@ class TranslationSnapshot {
       sourceText: sourceText ?? this.sourceText,
       translatedText: translatedText ?? this.translatedText,
       message: message,
+      detectedLanguage: detectedLanguage ?? this.detectedLanguage,
       pairs: pairs ?? this.pairs,
     );
   }
@@ -57,11 +62,17 @@ class TranslationRequest {
     required this.sourceText,
     required this.targetLanguage,
     this.detectedLanguage,
+    this.previousSourceTail,
+    this.previousTranslationTail,
   });
 
   final String sourceText;
   final String? detectedLanguage;
   final String targetLanguage;
+  /// 模型后续片的前一片原文尾部，最多 1000 字符；Google 忽略。
+  final String? previousSourceTail;
+  /// 模型后续片的前一片译文尾部，最多 1000 字符；Google 忽略。
+  final String? previousTranslationTail;
 }
 
 sealed class TranslationEvent {
@@ -85,5 +96,7 @@ final class TranslationFailure extends TranslationEvent {
 
 abstract class TranslationProvider {
   String get id;
+  /// 模型后续片携带滑动上下文；Google 系为 false。
+  bool get usesSlidingContext => false;
   Stream<TranslationEvent> translate(TranslationRequest request);
 }

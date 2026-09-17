@@ -12,6 +12,8 @@ class RecordingProvider implements TranslationProvider {
 
   @override
   final id = 'recording';
+  @override
+  bool get usesSlidingContext => false;
   final List<TranslationEvent> events;
   final requests = <TranslationRequest>[];
 
@@ -44,6 +46,7 @@ void main() {
     detection.complete('en');
     await active;
     expect(first.requests.single.targetLanguage, 'zh-CN');
+    expect(session.snapshot.detectedLanguage, 'en');
     expect(next.requests, isEmpty);
     expect(session.isExpanded, isTrue);
     session.begin(sessionId: 'next', text: 'Next');
@@ -227,6 +230,10 @@ void main() {
     session.begin(sessionId: 's1', text: 'a' * SelectionSession.selectionLimit);
     await session.activate();
     expect(session.snapshot.phase, TranslationPhase.completed);
-    expect(provider.requests, hasLength(1));
+    expect(provider.requests, isNotEmpty);
+    expect(
+      provider.requests.map((r) => r.sourceText).join().length,
+      SelectionSession.selectionLimit,
+    );
   });
 }

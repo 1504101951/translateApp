@@ -25,6 +25,8 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const SettingsApp());
     await tester.pumpAndSettle();
+    await tester.tap(find.text('翻译'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('仅使用快捷键'));
     await tester.pumpAndSettle();
     revision = 1;
@@ -73,6 +75,11 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const SettingsApp());
     await tester.pumpAndSettle();
+    await tester.tap(find.text('翻译'));
+    await tester.pumpAndSettle();
+    // 分段导航后热键更靠下；先滚入视口再录制，避免点到不可命中区域。
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('全局翻译快捷键')), 300);
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('全局翻译快捷键')));
     await tester.pumpAndSettle();
     expect(find.text('⌃ ⌘ 1'), findsOneWidget);
@@ -119,6 +126,8 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const SettingsApp());
     await tester.pumpAndSettle();
+    await tester.tap(find.text('翻译'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('添加服务'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('测试连接'));
@@ -156,8 +165,12 @@ void main() {
     expect(state['defaultServiceId'], credentialIds.single);
     expect(state['automatic'], false);
     expect(find.text('已保存，下次翻译立即生效。'), findsOneWidget);
-    await tester.scrollUntilVisible(find.byTooltip('删除 百度翻译'), -350);
-    await tester.tap(find.byTooltip('删除 百度翻译'));
+    // 保存后视口在底部；向上拖回服务列表再删，避免 scrollUntilVisible 在边界抛错。
+    await tester.drag(find.byType(ListView), const Offset(0, 1200));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('删除 百度翻译'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除 百度翻译'), warnIfMissed: false);
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('保存设置'), 350);
     await tester.pumpAndSettle();
@@ -167,5 +180,73 @@ void main() {
     await tester.pumpAndSettle();
     expect(state['services'], isEmpty);
     expect(state['defaultServiceId'], 'unofficial-google');
+  });
+
+  testWidgets('设置分段：截图与翻译控件互斥，切换保留草稿', (tester) async {
+    const channel = MethodChannel('translateapp/settings');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'systemStatus') {
+        return {'accessibility': true, 'loginItems': 'enabled'};
+      }
+      if (call.method == 'getSettings') {
+        return {
+          'primaryLanguage': 'zh-CN',
+          'secondaryLanguage': 'en',
+          'revision': 0,
+          'screenshotSaveDirectory': '/tmp/shots',
+        };
+      }
+      if (call.method == 'chooseScreenshotDirectory') {
+        return '/tmp/chosen';
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+
+    // 默认通用段：登录/排除可见，翻译与截图控件不可见。
+    expect(find.text('通用'), findsOneWidget);
+    expect(find.text('翻译'), findsOneWidget);
+    expect(find.text('截图'), findsOneWidget);
+    expect(find.text('排除应用'), findsOneWidget);
+    expect(find.text('登录时启动'), findsOneWidget);
+    expect(find.text('翻译语言'), findsNothing);
+    expect(find.text('截图目录'), findsNothing);
+
+    await tester.tap(find.text('翻译'));
+    await tester.pumpAndSettle();
+    expect(find.text('翻译语言'), findsOneWidget);
+    expect(find.text('仅使用快捷键'), findsOneWidget);
+    expect(find.byKey(const ValueKey('全局翻译快捷键')), findsOneWidget);
+    expect(find.text('截图目录'), findsNothing);
+    expect(find.text('排除应用'), findsNothing);
+
+    await tester.tap(find.text('仅使用快捷键'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('截图'));
+    await tester.pumpAndSettle();
+    expect(find.text('截图目录'), findsOneWidget);
+    expect(find.text('/tmp/shots'), findsOneWidget);
+    expect(find.byKey(const ValueKey('区域截图快捷键')), findsOneWidget);
+    expect(find.text('屏幕录制权限'), findsOneWidget);
+    expect(find.text('翻译语言'), findsNothing);
+    expect(find.text('仅使用快捷键'), findsNothing);
+    expect(find.text('排除应用'), findsNothing);
+
+    await tester.tap(find.text('选择…'));
+    await tester.pumpAndSettle();
+    expect(find.text('/tmp/chosen'), findsOneWidget);
+
+    await tester.tap(find.text('翻译'));
+    await tester.pumpAndSettle();
+    expect(find.text('翻译语言'), findsOneWidget);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile).first).value,
+      isTrue,
+    );
   });
 }

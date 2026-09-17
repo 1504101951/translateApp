@@ -30,6 +30,9 @@
 		A13A00000000000000000002 /* OverlayPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000001 /* OverlayPanel.swift */; };
 		A14C00000000000000000004 /* ScreenshotWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C00000000000000000003 /* ScreenshotWindowController.swift */; };
 		A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C00000000000000000001 /* ScreenshotStorage.swift */; };
+		A15P00000000000000000002 /* PinOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15P00000000000000000001 /* PinOverlayController.swift */; };
+		A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16C00000000000000000001 /* ScreenCaptureService.swift */; };
+		A17C00000000000000000002 /* AuxiliaryWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000001 /* AuxiliaryWindowController.swift */; };
 		A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000003 /* MacPlatformBridge.swift */; };
 		A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000005 /* AccessibilitySelection.swift */; };
 		A13A00000000000000000008 /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000007 /* SelectionMonitor.swift */; };
@@ -84,6 +87,9 @@
 		A13A00000000000000000001 /* OverlayPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayPanel.swift; sourceTree = "<group>"; };
 		A14C00000000000000000003 /* ScreenshotWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotWindowController.swift; sourceTree = "<group>"; };
 		A14C00000000000000000001 /* ScreenshotStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotStorage.swift; sourceTree = "<group>"; };
+		A15P00000000000000000001 /* PinOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinOverlayController.swift; sourceTree = "<group>"; };
+		A16C00000000000000000001 /* ScreenCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureService.swift; sourceTree = "<group>"; };
+		A17C00000000000000000001 /* AuxiliaryWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuxiliaryWindowController.swift; sourceTree = "<group>"; };
 		A13A00000000000000000003 /* MacPlatformBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPlatformBridge.swift; sourceTree = "<group>"; };
 		A13A00000000000000000005 /* AccessibilitySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilitySelection.swift; sourceTree = "<group>"; };
 		A13A00000000000000000007 /* SelectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionMonitor.swift; sourceTree = "<group>"; };
@@ -191,6 +197,9 @@
 				A13A00000000000000000001 /* OverlayPanel.swift */,
 				A14C00000000000000000003 /* ScreenshotWindowController.swift */,
 				A14C00000000000000000001 /* ScreenshotStorage.swift */,
+				A15P00000000000000000001 /* PinOverlayController.swift */,
+				A16C00000000000000000001 /* ScreenCaptureService.swift */,
+				A17C00000000000000000001 /* AuxiliaryWindowController.swift */,
 				A13A00000000000000000003 /* MacPlatformBridge.swift */,
 				A13A00000000000000000005 /* AccessibilitySelection.swift */,
 				A13A00000000000000000007 /* SelectionMonitor.swift */,
@@ -389,6 +398,9 @@
 				A13A00000000000000000002 /* OverlayPanel.swift in Sources */,
 				A14C00000000000000000004 /* ScreenshotWindowController.swift in Sources */,
 				A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */,
+				A15P00000000000000000002 /* PinOverlayController.swift in Sources */,
+				A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */,
+				A17C00000000000000000002 /* AuxiliaryWindowController.swift in Sources */,
 				A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */,
 				A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */,
 				A13A00000000000000000008 /* SelectionMonitor.swift in Sources */,

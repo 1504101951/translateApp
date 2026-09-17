@@ -32,5 +32,7 @@
 	<string>NSApplication</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>TranslateApp 需要屏幕录制权限，以便截取你选中的屏幕区域并在桌面上标注、复制或贴图。</string>
 </dict>
 </plist>

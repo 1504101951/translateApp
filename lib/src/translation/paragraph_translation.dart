@@ -50,6 +50,8 @@ Stream<TranslationEvent> translateParagraphs(
                   sourceText: paragraph,
                   detectedLanguage: request.detectedLanguage,
                   targetLanguage: request.targetLanguage,
+                  previousSourceTail: request.previousSourceTail,
+                  previousTranslationTail: request.previousTranslationTail,
                 ),
               ),
             );

@@ -308,4 +308,248 @@ class RunnerTests: XCTestCase {
         XCTAssertTrue(TextSelectionContext.shouldCopySelection(ancestorRoles: ["AXStaticText", "AXWebArea"], hasAXText: true, allowCopy: true))
         XCTAssertFalse(TextSelectionContext.shouldCopySelection(ancestorRoles: ["AXTextArea"], hasAXText: true, allowCopy: true))
     }
+
+    /// 无参数；在位图上绘制文字后 OCR 必须读出该词，空图返回空串。
+    @MainActor
+    func testScreenCaptureOcrReadsDrawnText() throws {
+        let image = NSImage(size: NSSize(width: 200, height: 60))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath.fill(NSRect(x: 0, y: 0, width: 200, height: 60))
+        let text = "HelloOCR" as NSString
+        text.draw(at: NSPoint(x: 8, y: 18), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 28),
+            .foregroundColor: NSColor.black,
+        ])
+        image.unlockFocus()
+        let tiff = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        let recognized = try ScreenCaptureService.recognizeText(png: png)
+        XCTAssertTrue(recognized.contains("HelloOCR"), recognized)
+        let blocks = try ScreenCaptureService.recognizeBlocks(png: png)
+        XCTAssertFalse(blocks.isEmpty)
+        XCTAssertTrue((blocks[0]["text"] as? String)?.contains("HelloOCR") == true, String(describing: blocks))
+        XCTAssertGreaterThan((blocks[0]["width"] as? Double) ?? 0, 0)
+        XCTAssertGreaterThan((blocks[0]["height"] as? Double) ?? 0, 0)
+        let blank = NSImage(size: NSSize(width: 8, height: 8))
+        blank.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath.fill(NSRect(x: 0, y: 0, width: 8, height: 8))
+        blank.unlockFocus()
+        let blankTiff = try XCTUnwrap(blank.tiffRepresentation)
+        let blankBitmap = try XCTUnwrap(NSBitmapImageRep(data: blankTiff))
+        let blankPng = try XCTUnwrap(blankBitmap.representation(using: .png, properties: [:]))
+        let empty = try ScreenCaptureService.recognizeText(png: blankPng)
+        XCTAssertTrue(empty.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// 无参数；本进程已有录屏授权时 requestAccess 必须立刻 true，不再走申请框。
+    @MainActor
+    func testRequestAccessReusesExistingGrant() async throws {
+        guard ScreenCaptureService.isAuthorized() else {
+            throw XCTSkip("测试进程没有屏幕录制授权，无法断言复用路径。")
+        }
+        let granted = await ScreenCaptureService.requestAccess()
+        XCTAssertTrue(granted)
+    }
+
+    /// 无参数；快照暴露 screenAccess；无捕获时 requestScreenAccess 仍返回该键，不进入编辑图像。
+    @MainActor
+    func testScreenshotSnapshotReportsScreenAccessWithoutCaptureBytes() throws {
+        let controller = ScreenshotWindowController()
+        defer { controller.shutdown() }
+        let snapshotExpectation = expectation(description: "getScreenshot")
+        var snapshot: [String: Any]?
+        controller.handle(FlutterMethodCall(methodName: "getScreenshot", arguments: nil)) { value in
+            snapshot = value as? [String: Any]
+            snapshotExpectation.fulfill()
+        }
+        wait(for: [snapshotExpectation], timeout: 1)
+        let body = try XCTUnwrap(snapshot)
+        XCTAssertNotNil(body["screenAccess"] as? Bool)
+        XCTAssertNil(body["bytes"])
+        XCTAssertNil(body["id"])
+    }
+
+    /// 无参数；贴图置顶、不可成为 key/main，关闭不影响其他贴图，且与选区浮层互不销毁。
+    @MainActor
+    func testPinOverlayStaysIndependentOfSelectionSession() throws {
+        let existing = Set(NSApp.windows.map { ObjectIdentifier($0) })
+        let overlay = OverlayPanelController()
+        let pins = PinOverlayController()
+        defer {
+            pins.closeAll()
+            overlay.hide(sessionId: "pin-lifecycle")
+        }
+
+        // 1x1 PNG
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )!
+        let png = rep.representation(using: .png, properties: [:])!
+        let pinId = pins.pin(png: png, origin: NSPoint(x: 120, y: 180))
+        let panel = try XCTUnwrap(pins.firstPanel)
+        XCTAssertTrue(panel is PinPanel)
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertFalse(panel.canBecomeMain)
+        XCTAssertEqual(panel.level, .statusBar)
+        XCTAssertTrue(pins.isVisible(pinId: pinId))
+
+        overlay.show(at: NSPoint(x: 250, y: 450), size: NSSize(width: 84, height: 36), sessionId: "pin-lifecycle")
+        // 选区浮层隐藏不应关闭贴图。
+        overlay.hide(sessionId: "pin-lifecycle")
+        XCTAssertTrue(pins.isVisible(pinId: pinId))
+        XCTAssertEqual(pins.count, 1)
+
+        let second = pins.pin(png: png, origin: NSPoint(x: 200, y: 220))
+        XCTAssertEqual(pins.count, 2)
+        pins.close(pinId: pinId)
+        XCTAssertFalse(pins.isVisible(pinId: pinId))
+        XCTAssertTrue(pins.isVisible(pinId: second))
+        XCTAssertEqual(pins.count, 1)
+
+        // 新贴图窗应出现在 NSApp.windows 中。
+        let created = NSApp.windows.filter { !existing.contains(ObjectIdentifier($0)) && $0 is PinPanel }
+        XCTAssertFalse(created.isEmpty)
+
+        // 图片层必须走 mouseDown→performDrag；关闭按钮不得触发拖动计数。
+        let remaining = try XCTUnwrap(pins.firstPanel)
+        let image = remaining.imageViewForTesting
+        XCTAssertTrue(image is DraggablePinImageView)
+        let beforeDrag = image.dragBeginCountForTesting
+        let dragEvent = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: image.bounds.midX, y: image.bounds.midY),
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: remaining.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        image.mouseDown(with: dragEvent)
+        XCTAssertEqual(image.dragBeginCountForTesting, beforeDrag + 1)
+
+        let beforeCloseDrag = image.dragBeginCountForTesting
+        remaining.closeButtonForTesting.performClick(nil)
+        XCTAssertEqual(image.dragBeginCountForTesting, beforeCloseDrag)
+        XCTAssertEqual(pins.count, 0)
+        XCTAssertFalse(pins.isVisible(pinId: second))
+    }
+
+    /// 无参数；走真实 handle(pinScreenshot)：合成 bytes 建贴图，过期 id 拒绝，用户关闭生效。
+    @MainActor
+    func testScreenshotPinExportUsesPayloadBytesAndRejectsStaleId() throws {
+        let controller = ScreenshotWindowController()
+        defer { controller.shutdown() }
+
+        func png(width: Int, height: Int, color: NSColor) throws -> Data {
+            let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            )!
+            for x in 0..<width {
+                for y in 0..<height {
+                    rep.setColor(color, atX: x, y: y)
+                }
+            }
+            return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        }
+
+        // 原图 8×8；合成图 64×16。断言贴图 NSImage 像素尺寸，不依赖窗口 clamp 后的 frame。
+        let originalPng = try png(width: 8, height: 8, color: .red)
+        controller.seedCaptureForTesting(png: originalPng, id: "capture-1", width: 8, height: 8)
+        let editedPng = try png(width: 64, height: 16, color: .blue)
+
+        var pinResult: Any?
+        let pinExpectation = expectation(description: "pinScreenshot")
+        controller.handle(
+            FlutterMethodCall(
+                methodName: "pinScreenshot",
+                arguments: [
+                    "id": "capture-1",
+                    "bytes": FlutterStandardTypedData(bytes: editedPng),
+                ]
+            )
+        ) { value in
+            pinResult = value
+            pinExpectation.fulfill()
+        }
+        wait(for: [pinExpectation], timeout: 1)
+        let pinId = try XCTUnwrap(pinResult as? String)
+        XCTAssertEqual(controller.pins.count, 1)
+        let panel = try XCTUnwrap(controller.pins.firstPanel)
+        let pixels = panel.pinnedImagePixelSizeForTesting
+        XCTAssertEqual(Int(pixels.width), 64)
+        XCTAssertEqual(Int(pixels.height), 16)
+
+        var staleResult: Any?
+        let staleExpectation = expectation(description: "stale pin")
+        controller.handle(
+            FlutterMethodCall(
+                methodName: "pinScreenshot",
+                arguments: [
+                    "id": "not-current",
+                    "bytes": FlutterStandardTypedData(bytes: editedPng),
+                ]
+            )
+        ) { value in
+            staleResult = value
+            staleExpectation.fulfill()
+        }
+        wait(for: [staleExpectation], timeout: 1)
+        let staleError = try XCTUnwrap(staleResult as? FlutterError)
+        XCTAssertEqual(staleError.code, "stale_capture")
+        XCTAssertEqual(controller.pins.count, 1)
+
+        // 用户关闭入口销毁贴图，不经由 shutdown。
+        panel.closeFromUserAction()
+        XCTAssertEqual(controller.pins.count, 0)
+        XCTAssertFalse(controller.pins.isVisible(pinId: pinId))
+    }
+
+    /// 无参数；选中贴图后 Esc（keyCode 53）只关这一张，另一张仍在。
+    @MainActor
+    func testSelectedPinClosesOnEscape() throws {
+        let pins = PinOverlayController()
+        defer { pins.closeAll() }
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )!
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        let firstId = pins.pin(png: png, origin: NSPoint(x: 80, y: 80))
+        let firstPanel = try XCTUnwrap(pins.firstPanel)
+        let secondId = pins.pin(png: png, origin: NSPoint(x: 160, y: 160))
+        XCTAssertEqual(pins.count, 2)
+        XCTAssertTrue(firstPanel.canBecomeKey)
+
+        let esc = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: firstPanel.windowNumber,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        firstPanel.keyDown(with: esc)
+        XCTAssertFalse(pins.isVisible(pinId: firstId))
+        XCTAssertTrue(pins.isVisible(pinId: secondId))
+        XCTAssertEqual(pins.count, 1)
+    }
+
 }

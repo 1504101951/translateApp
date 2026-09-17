@@ -1,18 +1,24 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:sqlite3/sqlite3.dart';
 
+import 'src/history/history_app.dart';
+import 'src/history/translation_history.dart';
 import 'src/overlay/translation_overlay.dart';
 import 'src/platform/macos_bridge_event.dart';
 import 'src/platform/macos_platform_bridge.dart';
 import 'src/selection/selection_session.dart';
 import 'src/screenshot/screenshot_app.dart';
 import 'src/settings/app_settings.dart';
+import 'src/settings/permission_wizard_app.dart';
 import 'src/settings/settings_app.dart';
 import 'src/settings/service_config.dart';
 import 'src/translation/providers/api_translation_provider.dart';
 import 'src/translation/providers/unofficial_google_provider.dart';
+import 'src/translation/segmented_translation.dart';
 import 'src/translation/translation_types.dart';
 
 /// 无参数；初始化主 Dart 偏好、系统桥和翻译会话，无返回值。
@@ -20,6 +26,11 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final bridge = MacosPlatformBridge();
   var settings = AppSettings.fromMap(await bridge.loadSettings());
+  final support = await bridge.applicationSupportPath();
+  Directory(support).createSync(recursive: true);
+  final history = TranslationHistoryStore(
+    sqlite3.open('$support/translation_history.sqlite'),
+  );
 
   /// config 为偏好快照；返回当前默认服务，凭据仅在请求前从 Keychain 读取。
   TranslationProvider providerFor(AppSettings config) {
@@ -111,6 +122,57 @@ Future<void> main() async {
             }),
             {},
           );
+        case 'historyPage':
+          final map = Map<Object?, Object?>.from(call.arguments as Map? ?? {});
+          final offset = (map['offset'] as num?)?.toInt() ?? 0;
+          final limit = (map['limit'] as num?)?.toInt() ?? 10;
+          return [
+            for (final row in history.page(offset: offset, limit: limit))
+              {
+                'id': row.id,
+                'sourceText': row.sourceText,
+                'translatedText': row.translatedText,
+                'detectedLanguage': row.detectedLanguage,
+                'targetLanguage': row.targetLanguage,
+                'providerId': row.providerId,
+                'model': row.model,
+                'completedAt': row.completedAt,
+              },
+          ];
+        case 'historyRecording':
+          return history.recordingEnabled;
+        case 'setHistoryRecording':
+          final map = Map<Object?, Object?>.from(call.arguments as Map);
+          history.recordingEnabled = map['enabled'] == true;
+          return null;
+        case 'translatePlainText':
+          final map = Map<Object?, Object?>.from(call.arguments as Map);
+          final text = map['text'] as String;
+          if (text.trim().isEmpty) {
+            throw PlatformException(code: 'ocr_empty', message: '没有可翻译的文字。');
+          }
+          final detected = await bridge.detectLanguage(text);
+          final direction = settings.direction.resolve(detected);
+          final buffer = StringBuffer();
+          await for (final event in translateSegmented(
+            providerFor(settings).translate,
+            TranslationRequest(
+              sourceText: text,
+              detectedLanguage: direction.detectedLanguage,
+              targetLanguage: direction.targetLanguage,
+            ),
+            usesSlidingContext: providerFor(settings).usesSlidingContext,
+          )) {
+            switch (event) {
+              case TranslationUpdate(:final addition):
+                buffer.write(addition);
+              case TranslationCompleted():
+                break;
+              case TranslationFailure(:final message):
+                throw PlatformException(code: 'translate_failed', message: message);
+            }
+          }
+          return buffer.toString();
         case 'testService':
           final map = Map<Object?, Object?>.from(call.arguments as Map);
           final config = ServiceConfig.fromMap(
@@ -165,7 +227,7 @@ Future<void> main() async {
     // 快捷键被其他应用占用时仍提供设置入口，让用户能修正已保存配置。
     settingsError = error.message;
   }
-  runApp(TranslateApp(bridge: bridge, session: session));
+  runApp(TranslateApp(bridge: bridge, session: session, history: history));
   await bridge.appReady();
 }
 
@@ -183,11 +245,29 @@ void screenshotMain() {
   runApp(const ScreenshotApp());
 }
 
+@pragma('vm:entry-point')
+void permissionWizardMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const PermissionWizardApp());
+}
+
+@pragma('vm:entry-point')
+void historyMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const HistoryApp());
+}
+
 class TranslateApp extends StatefulWidget {
-  const TranslateApp({super.key, required this.bridge, required this.session});
+  const TranslateApp({
+    super.key,
+    required this.bridge,
+    required this.session,
+    required this.history,
+  });
 
   final MacosPlatformBridge bridge;
   final SelectionSession session;
+  final TranslationHistoryStore history;
 
   @override
   State<TranslateApp> createState() => _TranslateAppState();
@@ -300,6 +380,26 @@ class _TranslateAppState extends State<TranslateApp> {
           ? () => widget.bridge.readSelectionForTranslation(sessionId: id)
           : null,
     );
+    if (widget.session.snapshot.phase == TranslationPhase.completed) {
+      widget.history.insert(
+        sourceText: widget.session.snapshot.sourceText,
+        translatedText: widget.session.snapshot.translatedText,
+        detectedLanguage: widget.session.snapshot.detectedLanguage ?? '',
+        targetLanguage: widget.session.language.primaryCode,
+        providerId: widget.session.provider.id,
+        model: widget.session.provider is ApiTranslationProvider
+            ? ((widget.session.provider as ApiTranslationProvider)
+                      .config
+                      .model
+                      .isEmpty
+                  ? null
+                  : (widget.session.provider as ApiTranslationProvider)
+                      .config
+                      .model)
+            : null,
+        completedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
   }
 
   /// 无参数；关闭当前会话及其原生窗口，无返回值。

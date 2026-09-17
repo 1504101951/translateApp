@@ -1,0 +1,21 @@
+{
+  "diagram_type": "architecture",
+  "output": "translate-app.architecture.html",
+  "specification": {
+    "file": "translate-app.architecture.json",
+    "sha256": "7f527695c2af3ee3d856dc06b79c7f86a9a75f85d025a79f98a101c796ba90aa",
+    "bytes": 4723
+  },
+  "artifact": {
+    "sha256": "f3913c0aad84d75806354e19bc3969ad929c90ecec5175b97c051f6a2552694c",
+    "bytes": 715269
+  },
+  "validation": { "checksPassed": 9, "checkCount": 9, "profile": "showcase", "errors": 0, "warnings": 0 },
+  "repository_revision": "05b5cd8b9ef49e06ace50d11a74c89af4a14d01a",
+  "verified_source_references": 18,
+  "browser_evidence": "passed",
+  "browser_receipt": "translate-app.architecture.visual-check.json",
+  "visual_review": "passed",
+  "visual_review_method": "Image-capable reviewer inspected all four artifact-bound screenshots in READ / Still state, covering light and dark themes at 1440x900 and 2048x1320. Labels, routes, node fit, controls and overall composition are unobstructed. Interactive workflows and exports were not exercised.",
+  "correction_rounds": 1
+}

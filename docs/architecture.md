@@ -64,8 +64,8 @@ AX 读取优先使用文本标记范围获取跨节点选区及矩形，再读�
 
 ## 区域截图
 
-Dart 的 `ScreenshotApp` 使用独立引擎展示内存 PNG，负责预览、自动文件名和导出操作状态。Swift 的 `ScreenshotWindowController` 调用系统区域框选，负责屏幕权限、短暂 PNG 文件清理、普通预览窗口、系统文件面板和 PNG 剪贴板。截图结果用独立 captureId 拒绝过期操作，不属于 Selection Session。
+Swift 的系统截图模块用本进程 ScreenCaptureKit 申请屏幕录制并取得显示器冻结帧；未授权不进入编辑。Dart 的 `ScreenshotApp` 在冻结帧上框选（选区外变暗、选区内清晰），负责标注、自动文件名和导出。截图结果用独立 captureId 拒绝过期操作，不属于 Selection Session。
 
-固定目录保存在 UserDefaults 的 `screenshotSaveDirectory`；用户通过目录选择器立即修改，清除后每次保存使用系统面板。ScreenshotStorage 通过拒绝覆盖的实际写入和序号处理重名。翻译与截图热键由同一 Carbon 注册事务管理，已有组合交换用途时复用注册，全部新注册成功才更新配置。
+固定目录保存在 UserDefaults 的 `screenshotSaveDirectory`，只通过设置页修改。ScreenshotStorage 通过拒绝覆盖的实际写入和序号处理重名。翻译与截图热键由同一 Carbon 注册事务管理，已有组合交换用途时复用注册，全部新注册成功才更新配置。
 
 区域框选时暂停文本手势采集并隐藏翻译浮层，完成后只恢复仍有效的浮层。截图的复制与保存不经过翻译层；OCR 及统一文本请求由 #20 后续实现。
