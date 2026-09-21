@@ -5,11 +5,13 @@ import Foundation
 
 /// 从前台应用读取当前选区。翻译业务在 Dart。
 enum AccessibilitySelection {
+    /// prompt决定是否显示辅助功能授权提示；返回当前进程是否获得系统信任。
     static func isTrusted(prompt: Bool) -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 
+    /// 无参数；打开系统辅助功能隐私设置页，无返回值。
     static func openSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
@@ -116,6 +118,7 @@ enum AccessibilitySelection {
         return (nil, nil, nil)
     }
 
+    /// app为来源应用的AX根节点；请求其暴露手动辅助功能属性以读取文本，无返回值。
     private static func enableManualAccessibility(_ app: AXUIElement) {
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
     }
@@ -125,15 +128,18 @@ enum AccessibilitySelection {
         axElement(attribute(app, kAXFocusedUIElementAttribute as CFString))
     }
 
+    /// 无参数；返回当前系统焦点AX节点，无法读取时返回nil。
     private static func systemFocusedElement() -> AXUIElement? {
         axElement(attribute(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString))
     }
 
+    /// value为AX API返回对象；返回其中的AX节点，缺失时返回nil。
     private static func axElement(_ value: AnyObject?) -> AXUIElement? {
         guard let value else { return nil }
         return (value as! AXUIElement)
     }
 
+    /// element为候选文本节点；依次读取文本标记、已选文本和值范围，返回文本及AppKit坐标矩形，未找到时返回nil。
     private static func selection(from element: AXUIElement) -> (text: String, bounds: CGRect?)? {
         // 先读取浏览器的 anchor/focus 标记范围，覆盖跨多个 DOM 文本节点的全选。
         if let selection = selectedTextMarker(from: element), isUsable(selection.text) {
@@ -158,6 +164,7 @@ enum AccessibilitySelection {
         return (text, marker)
     }
 
+    /// element提供文本值和选区范围；返回对应UTF-16文本，属性缺失或范围无效时返回nil。
     private static func selectedTextFromValue(_ element: AXUIElement) -> String? {
         guard let value = stringAttribute(element, kAXValueAttribute as CFString) else { return nil }
         guard let rangeValue = attribute(element, kAXSelectedTextRangeAttribute as CFString) else { return nil }
@@ -188,16 +195,19 @@ enum AccessibilitySelection {
         return nil
     }
 
+    /// element为AX节点；返回直接子节点，属性缺失或类型不符时返回空数组。
     private static func children(of element: AXUIElement) -> [AXUIElement] {
         guard let value = attribute(element, kAXChildrenAttribute as CFString) else { return [] }
         guard let array = value as? NSArray else { return [] }
         return array.map { $0 as! AXUIElement }
     }
 
+    /// element为AX节点；返回角色字符串，属性不可读时返回nil。
     private static func role(of element: AXUIElement) -> String? {
         stringAttribute(element, kAXRoleAttribute as CFString)
     }
 
+    /// element为起点；向上最多收集16层祖先角色，返回由近到远的角色列表。
     private static func ancestorRoles(of element: AXUIElement) -> [String] {
         var roles: [String] = []
         var current: AXUIElement? = element
@@ -210,6 +220,7 @@ enum AccessibilitySelection {
         return roles
     }
 
+    /// element为可选AX节点；返回其角色或子角色是否表示安全文本控件。
     private static func isSecure(_ element: AXUIElement?) -> Bool {
         guard let element else { return false }
         let role = role(of: element)
@@ -217,11 +228,13 @@ enum AccessibilitySelection {
         return role == "AXSecureTextField" || subrole == "AXSecureTextField"
     }
 
+    /// text为可选候选文本；返回去除空白后是否仍有可译内容。
     private static func isUsable(_ text: String?) -> Bool {
         guard let text else { return false }
         return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// element为AX节点，name为属性名；返回读取的原始属性对象，失败时返回nil。
     private static func attribute(_ element: AXUIElement, _ name: CFString) -> AnyObject? {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(element, name, &value)
@@ -229,6 +242,7 @@ enum AccessibilitySelection {
         return value
     }
 
+    /// element为AX节点，name为属性名；返回字符串属性，缺失或非字符串时返回nil。
     private static func stringAttribute(_ element: AXUIElement, _ name: CFString) -> String? {
         attribute(element, name) as? String
     }
@@ -276,6 +290,7 @@ enum AccessibilitySelection {
         return nil
     }
 
+    /// 无参数；向前台应用发送Command-C，仅用于已验证允许复制的显式翻译流程，无返回值。
     private static func postCopyKey() {
         let source = CGEventSource(stateID: .hidSystemState)
         let down = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: true)
@@ -287,9 +302,11 @@ enum AccessibilitySelection {
     }
 }
 
+/// 保存复制前全部剪贴板条目的原始数据；仅在流程仍拥有复制结果时恢复，避免覆盖用户后续复制。
 private struct PasteboardSnapshot {
     let items: [[NSPasteboard.PasteboardType: Data]]
 
+    /// pasteboard为复制前系统剪贴板；提取每个条目所有类型的数据，返回恢复快照。
     static func capture(_ pasteboard: NSPasteboard) -> PasteboardSnapshot {
         let encoded = (pasteboard.pasteboardItems ?? []).map { item in
             var values: [NSPasteboard.PasteboardType: Data] = [:]
@@ -303,6 +320,7 @@ private struct PasteboardSnapshot {
         return PasteboardSnapshot(items: encoded)
     }
 
+    /// pasteboard必须仍由当前流程拥有；清空后写回快照全部条目，无返回值。
     func restore(_ pasteboard: NSPasteboard) {
         pasteboard.clearContents()
         let objects = items.map { values -> NSPasteboardItem in

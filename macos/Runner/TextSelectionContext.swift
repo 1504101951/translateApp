@@ -10,6 +10,7 @@ enum TextSelectionContext {
         "AXImage", "AXButton", "AXMenu", "AXMenuBar", "AXMenuItem", "AXToolbar", "AXTabGroup",
     ]
 
+    /// ancestorRoles为由近到远的AX祖先角色；遇到非文本角色返回false，遇到文本角色返回true，未识别角色时允许继续读取。
     static func shouldReadSelectedText(ancestorRoles: [String]) -> Bool {
         for role in ancestorRoles {
             if nonTextRoles.contains(role) { return false }

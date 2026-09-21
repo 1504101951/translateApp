@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:translate_app/src/settings/permission_wizard.dart';
+import 'package:translate_app/src/common/constants/permission_enums.dart';
+import 'package:translate_app/src/common/utils/permission_utils.dart';
 
 /// 无参数；验证首次授权向导的下一步决策，不点击系统 TCC。
 void main() {
@@ -33,6 +34,14 @@ void main() {
         screenRecordingGranted: false,
       ),
       PermissionWizardStep.accessibility,
+    );
+    expect(
+      canEnterApp(accessibilityGranted: false, screenRecordingGranted: true),
+      isFalse,
+    );
+    expect(
+      canEnterApp(accessibilityGranted: true, screenRecordingGranted: true),
+      isTrue,
     );
   });
 }

@@ -13,10 +13,25 @@ class ServiceConfig {
   static const builtinId = 'unofficial-google';
   static const kinds = {
     'baidu': '百度翻译',
-    'google': 'Google Cloud',
-    'openai': 'OpenAI-compatible',
+    'google': '谷歌翻译',
+    'openai': 'OpenAI',
     'deepseek': 'DeepSeek',
     'anthropic': 'Anthropic',
+  };
+
+  /// 新建服务仅展示四类；既有协议ID仍用于原请求与凭据账户，不迁移用户配置。
+  static const selectableKinds = {
+    'google': '谷歌翻译',
+    'baidu': '百度翻译',
+    'openai': 'OpenAI',
+    'anthropic': 'Anthropic',
+  };
+
+  /// 无参数；系统默认名使用当前产品名称，用户自定义配置名保持原样。
+  String get displayName => switch (name) {
+    'OpenAI-compatible' => 'OpenAI',
+    'Google Cloud' => '谷歌翻译',
+    _ => name,
   };
   static const endpoints = {
     'baidu': 'https://fanyi-api.baidu.com',

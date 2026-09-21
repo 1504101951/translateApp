@@ -38,6 +38,7 @@ Stream<TranslationEvent> translateParagraphs(
           if (gap.isNotEmpty) output.add(TranslationUpdate(gap));
           var translated = '';
           var semanticPairs = const <TranslationPair>[];
+          var completed = sameLanguage;
           if (sameLanguage) {
             // 已是目标语言时保留原文，避免未设置次要语言仍产生无意义的 API 请求。
             translated = paragraph;
@@ -63,6 +64,7 @@ Stream<TranslationEvent> translateParagraphs(
                   translated += addition;
                   output.add(event);
                 case TranslationCompleted(:final pairs):
+                  completed = true;
                   semanticPairs = pairs;
                 case TranslationFailure():
                   output.add(event);
@@ -70,6 +72,11 @@ Stream<TranslationEvent> translateParagraphs(
               }
             }
             if (cancelled) return;
+            // 外层分片只接受明确完成的段落；网络断流不能升级为全篇成功。
+            if (!completed) {
+              output.add(const TranslationFailure('服务未返回完整译文。'));
+              return;
+            }
           }
           final paragraphPairs = semanticPairs.isEmpty
               ? [TranslationPair(paragraph, translated)]

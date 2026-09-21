@@ -29,6 +29,21 @@ class SelectionSession extends ChangeNotifier {
   bool get isExpanded =>
       snapshot.phase != TranslationPhase.idle &&
       snapshot.phase != TranslationPhase.trigger;
+
+  /// 活跃请求与服务冻结到重试完成，不受期间设置修改影响。
+  TranslationProgress? _progress;
+  TranslationProvider? _activeProvider;
+  LanguageDirection? _activeLanguage;
+
+  /// 无参数；返回当前失败是否有可恢复的分片请求。
+  bool get canRetry =>
+      snapshot.phase == TranslationPhase.failed && _progress != null;
+
+  /// 无参数；返回本会话实际服务，供成功历史使用。
+  TranslationProvider get activeProvider => _activeProvider ?? provider;
+
+  /// 无参数；返回本会话冻结语言方向，供重试和成功历史使用。
+  LanguageDirection get activeLanguage => _activeLanguage ?? language;
   int _generation = 0;
   StreamSubscription<TranslationEvent>? _translation;
   Completer<void>? _completion;
@@ -60,8 +75,8 @@ class SelectionSession extends ChangeNotifier {
     if (snapshot.phase != TranslationPhase.trigger) return;
 
     final generation = _generation;
-    final activeProvider = provider;
-    final activeLanguage = language;
+    final activeProvider = _activeProvider = provider;
+    final activeLanguage = _activeLanguage = language;
     var source = snapshot.sourceText;
     snapshot = TranslationSnapshot(
       phase: TranslationPhase.translating,
@@ -123,15 +138,43 @@ class SelectionSession extends ChangeNotifier {
       targetLanguage: direction.targetLanguage,
     );
 
+    _progress = TranslationProgress(request);
+    // 共享运行路径让初次翻译和失败恢复遵循同一个取消、配对和完成边界。
+    await _runTranslation(activeProvider, _progress!);
+  }
+
+  /// 无参数；保留完整片并重新请求失败片，返回完成或取消的 Future。
+  Future<void> retry() async {
+    if (!canRetry) return;
+    final progress = _progress!;
+    snapshot = snapshot.copyWith(
+      phase: TranslationPhase.translating,
+      translatedText: progress.completedText,
+      pairs: List.unmodifiable(progress.pairs),
+    );
+    notifyListeners();
+    await _translation?.cancel();
+    // 取消订阅期间关闭/换选区不允许重启旧请求。
+    if (!identical(progress, _progress)) return;
+    await _runTranslation(_activeProvider!, progress);
+  }
+
+  /// activeProvider 和 progress 为冻结服务及本次请求检查点；返回结束或取消的 Future。
+  Future<void> _runTranslation(
+    TranslationProvider activeProvider,
+    TranslationProgress progress,
+  ) async {
+    final generation = _generation;
     final completion = Completer<void>();
     _completion = completion;
     // 保存真实流订阅，使关闭会话能即时取消 Provider 的网络连接。
-    _translation = translateSegmented(
+    _translation =
+        translateSegmented(
           activeProvider.translate,
-          request,
+          progress.request,
+          progress: progress,
           usesSlidingContext: activeProvider.usesSlidingContext,
-        )
-        .listen(
+        ).listen(
           (event) {
             if (generation != _generation) return;
             switch (event) {
@@ -139,6 +182,8 @@ class SelectionSession extends ChangeNotifier {
                 snapshot = snapshot.copyWith(
                   phase: TranslationPhase.translating,
                   translatedText: snapshot.translatedText + addition,
+                  // 恢复期间仍显示正在增长的统一结果，不能让旧完整配对遮住新片增量。
+                  pairs: const [],
                   message: null,
                 );
               case TranslationCompleted(:final pairs):
@@ -150,10 +195,18 @@ class SelectionSession extends ChangeNotifier {
               case TranslationFailure(:final message):
                 snapshot = snapshot.copyWith(
                   phase: TranslationPhase.failed,
+                  translatedText: progress.completedText,
+                  pairs: List.unmodifiable(progress.pairs),
                   message: message,
                 );
             }
             notifyListeners();
+            // 完整业务结果已经确定，不把历史提交拖到网络订阅清理之后。
+            if ((event is TranslationCompleted ||
+                    event is TranslationFailure) &&
+                !completion.isCompleted) {
+              completion.complete();
+            }
           },
           onDone: () {
             if (!completion.isCompleted) completion.complete();
@@ -178,6 +231,9 @@ class SelectionSession extends ChangeNotifier {
   /// 无参数；取消当前流并完成调用方等待，递增代次拒绝迟到事件，无返回值。
   void _cancelTranslation() {
     _generation += 1;
+    _progress = null;
+    _activeProvider = null;
+    _activeLanguage = null;
     unawaited(_translation?.cancel());
     _translation = null;
     final completion = _completion;

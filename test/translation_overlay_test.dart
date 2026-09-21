@@ -1,3 +1,7 @@
+import 'package:translate_app/src/common/constants/selection_gesture_types.dart';
+import 'package:translate_app/src/common/constants/method_names.dart';
+import 'package:translate_app/src/common/constants/bridge_event_types.dart';
+
 import 'dart:async';
 import 'dart:ui';
 
@@ -76,44 +80,58 @@ void main() {
     }
 
     await send({
-      'type': 'selectionCaptured',
+      'type': BridgeEventTypes.selectionCaptured,
       'sessionId': 'first',
-      'gesture': 'hotkey',
+      'gesture': SelectionGestureTypes.hotkey,
       'text': 'Hello',
     });
     expect(session.snapshot.phase, TranslationPhase.translating);
-    await send({'type': 'selectionInvalidated', 'sessionId': 'first'});
     await send({
-      'type': 'selectionCaptured',
+      'type': BridgeEventTypes.selectionInvalidated,
+      'sessionId': 'first',
+    });
+    await send({
+      'type': BridgeEventTypes.selectionCaptured,
       'sessionId': 'passive',
-      'gesture': 'selectAll',
+      'gesture': SelectionGestureTypes.selectAll,
       'text': 'Ignored',
     });
     expect(session.sessionId, 'first');
     expect(session.snapshot.phase, TranslationPhase.translating);
     detection.complete('en');
     await tester.pumpAndSettle();
-    await send({'type': 'selectionInvalidated', 'sessionId': 'first'});
+    await send({
+      'type': BridgeEventTypes.selectionInvalidated,
+      'sessionId': 'first',
+    });
     expect(session.snapshot.phase, TranslationPhase.completed);
     expect(find.text('Hello'), findsOneWidget);
     expect(find.text('你好'), findsOneWidget);
+    // 真实App入口不经过Scaffold；验证最终文字样式，避免黄色诊断双下划线回归。
+    for (final rich in tester.widgetList<RichText>(find.byType(RichText))) {
+      expect(
+        rich.text.style?.decoration?.contains(TextDecoration.underline) ??
+            false,
+        isFalse,
+      );
+    }
     await send({
-      'type': 'selectionCaptured',
+      'type': BridgeEventTypes.selectionCaptured,
       'sessionId': 'replacement',
-      'gesture': 'hotkey',
+      'gesture': SelectionGestureTypes.hotkey,
       'text': 'Next',
     });
     await tester.pumpAndSettle();
     expect(session.sessionId, 'replacement');
     expect(find.text('Next'), findsOneWidget);
-    await send({'type': 'escapePressed', 'sessionId': 'first'});
+    await send({'type': MethodNames.escapePressed, 'sessionId': 'first'});
     expect(session.isExpanded, isTrue);
-    await send({'type': 'escapePressed', 'sessionId': 'replacement'});
+    await send({'type': MethodNames.escapePressed, 'sessionId': 'replacement'});
     expect(session.snapshot.phase, TranslationPhase.idle);
     await send({
-      'type': 'selectionCaptured',
+      'type': BridgeEventTypes.selectionCaptured,
       'sessionId': 'close',
-      'gesture': 'hotkey',
+      'gesture': SelectionGestureTypes.hotkey,
       'text': 'Close',
     });
     await tester.pumpAndSettle();
@@ -124,15 +142,18 @@ void main() {
 
     // 空文本是热键读取失败的边界：显示可关闭的错误卡片，不能退回隐藏状态。
     await send({
-      'type': 'selectionCaptured',
+      'type': BridgeEventTypes.selectionCaptured,
       'sessionId': 'empty-hotkey',
-      'gesture': 'hotkey',
+      'gesture': SelectionGestureTypes.hotkey,
       'text': '',
     });
     await tester.pumpAndSettle();
     expect(session.snapshot.phase, TranslationPhase.failed);
     expect(find.text('未读取到选中文字，请重新选择后使用翻译快捷键。'), findsOneWidget);
-    await send({'type': 'selectionInvalidated', 'sessionId': 'empty-hotkey'});
+    await send({
+      'type': BridgeEventTypes.selectionInvalidated,
+      'sessionId': 'empty-hotkey',
+    });
     expect(session.snapshot.phase, TranslationPhase.failed);
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
@@ -142,8 +163,8 @@ void main() {
   testWidgets(
     'compact trigger drags without translating and expands on click',
     (tester) async {
-      // 84×36 是真实原生触发窗口边界；拖动应保留 trigger，点击才产生译文。
-      tester.view.physicalSize = TranslationOverlay.triggerSize;
+      // 原生窗口84×32含透明命中边缘，视觉按钮84×30；拖动保留trigger。
+      tester.view.physicalSize = TranslationOverlay.triggerWindowSize;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);

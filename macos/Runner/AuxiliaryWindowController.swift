@@ -28,13 +28,13 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
         }
         let engine = FlutterEngine(name: engineName, project: nil, allowHeadlessExecution: false)
         self.engine = engine
-        let channel = FlutterMethodChannel(name: "translateapp/settings", binaryMessenger: engine.binaryMessenger)
+        let channel = FlutterMethodChannel(name: AppConstants.settingsChannel, binaryMessenger: engine.binaryMessenger)
         self.channel = channel
         channel.setMethodCallHandler { call, result in
             let bridge = MacPlatformBridge.Shared.instance!
             switch call.method {
-            case "getSettings", "saveSettings", "testService",
-                 "historyPage", "historyRecording", "setHistoryRecording", "translatePlainText":
+            case AppConstants.getSettingsMethod, AppConstants.saveSettingsMethod, AppConstants.testServiceMethod,
+                 AppConstants.historyPageMethod, AppConstants.historyRecordingMethod, AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod:
                 bridge.requestSettings(call.method, arguments: call.arguments, result: result)
             default:
                 bridge.handle(call, result: result)
@@ -49,6 +49,8 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
             return
         }
         RegisterGeneratedPlugins(registry: flutter)
+        // 平台视图工厂按引擎注册，避免独立窗口缺少原生玻璃材料。
+        NativeGlassFactory.register(with: flutter)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -58,7 +60,10 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
         window.title = title
         window.isReleasedWhenClosed = false
-        window.contentViewController = flutter
+        // 辅助窗口共用透明承载，玻璃材料由各自 Flutter 引擎的原生视图绘制。
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        NativeGlassFactory.installContent(flutter, in: window)
         window.setContentSize(size)
         window.center()
         self.window = window
@@ -68,7 +73,7 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
 
     /// 无参数；通知 Dart 重新读取系统授权，用于从系统设置返回后刷新步骤。
     func notifyPermissionStatusChanged() {
-        channel?.invokeMethod("permissionStatusChanged", arguments: nil)
+        channel?.invokeMethod(AppConstants.permissionStatusChangedMethod, arguments: nil)
     }
 
     /// notification 为窗口成为 key；用户点回向导时补一次授权读取。
@@ -81,6 +86,7 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
         window?.close()
     }
 
+    /// notification 为窗口关闭事件；解除当前引擎回调并停止引擎，返回void。
     func windowWillClose(_ notification: Notification) {
         channel?.setMethodCallHandler(nil)
         engine?.shutDownEngine()

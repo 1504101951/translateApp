@@ -1,5 +1,8 @@
 import 'package:sqlite3/sqlite3.dart';
 
+/// 分页位置；时间与自增 ID 一起保证同毫秒记录及新增记录不会造成重复分页。
+typedef HistoryCursor = ({int completedAt, int id});
+
 /// 一条完整成功的翻译记录。
 class TranslationRecord {
   const TranslationRecord({
@@ -11,6 +14,7 @@ class TranslationRecord {
     required this.providerId,
     required this.completedAt,
     this.model,
+    this.sourceLabel,
   });
 
   final int id;
@@ -21,6 +25,26 @@ class TranslationRecord {
   final String providerId;
   final String? model;
   final int completedAt;
+
+  /// 来源应用显示名称或「截图」；未记录来源的已有数据为空，不推断其来源。
+  final String? sourceLabel;
+
+  /// 无参数；返回供下一页查询使用的稳定时间/ID 游标。
+  HistoryCursor get cursor => (completedAt: completedAt, id: id);
+
+  /// map 为主引擎返回的完整历史字段；返回用于卡片展示的记录。
+  factory TranslationRecord.fromMap(Map<Object?, Object?> map) =>
+      TranslationRecord(
+        id: map['id'] as int,
+        sourceText: map['sourceText'] as String,
+        translatedText: map['translatedText'] as String,
+        detectedLanguage: map['detectedLanguage'] as String,
+        targetLanguage: map['targetLanguage'] as String,
+        providerId: map['providerId'] as String,
+        completedAt: map['completedAt'] as int,
+        model: map['model'] as String?,
+        sourceLabel: map['sourceLabel'] as String?,
+      );
 }
 
 /// SQLite 翻译历史；只在整篇成功后写入。database 由调用方提供以便测试用内存库。
@@ -42,6 +66,15 @@ CREATE TABLE IF NOT EXISTS history_meta (
   value TEXT NOT NULL
 );
 ''');
+    // 本地已有历史不能因新增来源字段丢失；只扩展表结构，不伪造旧记录的来源。
+    final columns = database.select('PRAGMA table_info(translation_history)');
+    if (!columns.any((column) => column['name'] == 'source_label')) {
+      database.execute(
+        'ALTER TABLE translation_history ADD COLUMN source_label TEXT',
+      );
+    }
+    database.execute('''CREATE INDEX IF NOT EXISTS history_completed_order
+      ON translation_history(completed_at DESC, id DESC)''');
     final existing = database.select(
       "SELECT value FROM history_meta WHERE key = 'recording'",
     );
@@ -78,12 +111,13 @@ CREATE TABLE IF NOT EXISTS history_meta (
     required String providerId,
     String? model,
     required int completedAt,
+    String? sourceLabel,
   }) {
     if (!recordingEnabled) return;
     database.execute(
       '''INSERT INTO translation_history(
-        source_text, translated_text, detected_language, target_language, provider_id, model, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)''',
+        source_text, translated_text, detected_language, target_language, provider_id, model, completed_at, source_label
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
       [
         sourceText,
         translatedText,
@@ -92,16 +126,24 @@ CREATE TABLE IF NOT EXISTS history_meta (
         providerId,
         model,
         completedAt,
+        sourceLabel,
       ],
     );
   }
 
-  /// offset 为已加载条数，limit 默认 10；按完成时间倒序。
-  List<TranslationRecord> page({int offset = 0, int limit = 10}) {
+  /// before 为上一页末条位置，首屏为空；limit 为正数；返回完成时间倒序记录。
+  List<TranslationRecord> page({HistoryCursor? before, int limit = 10}) {
+    if (limit < 1) throw ArgumentError.value(limit, 'limit', '必须为正数');
+    // 使用稳定游标，浏览过程中新增翻译不会挤动 OFFSET 导致重复或漏项。
     final rows = database.select(
-      '''SELECT id, source_text, translated_text, detected_language, target_language, provider_id, model, completed_at
-         FROM translation_history ORDER BY completed_at DESC, id DESC LIMIT ? OFFSET ?''',
-      [limit, offset],
+      '''SELECT id, source_text, translated_text, detected_language, target_language, provider_id, model, completed_at, source_label
+         FROM translation_history
+         ${before == null ? '' : 'WHERE (completed_at, id) < (?, ?)'}
+         ORDER BY completed_at DESC, id DESC LIMIT ?''',
+      [
+        if (before != null) ...[before.completedAt, before.id],
+        limit,
+      ],
     );
     return [
       for (final row in rows)
@@ -114,6 +156,7 @@ CREATE TABLE IF NOT EXISTS history_meta (
           providerId: row['provider_id'] as String,
           model: row['model'] as String?,
           completedAt: row['completed_at'] as int,
+          sourceLabel: row['source_label'] as String?,
         ),
     ];
   }

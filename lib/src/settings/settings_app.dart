@@ -1,8 +1,18 @@
+import '../common/constants/glass_metrics.dart';
+import '../common/constants/appearance_modes.dart';
+import '../common/constants/method_names.dart';
+import '../common/constants/channel_names.dart';
+import '../common/constants/error_codes.dart';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../common/widgets/native_glass.dart';
+
 import 'app_settings.dart';
 import 'service_config.dart';
+import 'screenshot_toolbar_editor.dart';
 import 'service_editor.dart';
 
 /// 设置窗口顶部分段；仅控制展示，不进入持久化偏好。
@@ -14,27 +24,23 @@ class SettingsApp extends StatelessWidget {
 
   /// context 为设置引擎的构建上下文；返回完整设置应用。
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
+  Widget build(BuildContext context) => NativeGlassApp(
     title: 'TranslateApp 设置',
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF246BFD)),
-      scaffoldBackgroundColor: const Color(0xFFF5F5F7),
-      useMaterial3: true,
-    ),
-    home: const _SettingsPage(),
+    home: const NativeGlassWindowPage(child: _SettingsPage()),
   );
 }
 
+/// 设置页有状态入口；将主题应用与草稿、保存事务生命周期分开。
 class _SettingsPage extends StatefulWidget {
   const _SettingsPage();
   @override
   State<_SettingsPage> createState() => _SettingsPageState();
 }
 
+/// 管理本地草稿、版本冲突和串行自动保存；旧回包不能覆盖新编辑。
 class _SettingsPageState extends State<_SettingsPage>
     with WidgetsBindingObserver {
-  static const _channel = MethodChannel('translateapp/settings');
+  static const _channel = MethodChannel(ChannelNames.settings);
   AppSettings? _settings;
   Map<Object?, Object?> _status = {};
   String? _message;
@@ -44,6 +50,8 @@ class _SettingsPageState extends State<_SettingsPage>
   bool _dirty = false;
   bool _conflicted = false;
   int _revision = 0;
+  int _editGeneration = 0;
+  bool _adjustingOpacity = false;
   Set<String> _credentialIds = {};
   final Map<String, Map<String, String>?> _credentials = {};
   SettingsSection _section = SettingsSection.general;
@@ -54,7 +62,7 @@ class _SettingsPageState extends State<_SettingsPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'refreshSettings') await _load();
+      if (call.method == MethodNames.refreshSettings) await _load();
     });
     _load();
   }
@@ -76,7 +84,7 @@ class _SettingsPageState extends State<_SettingsPage>
   /// 无参数；读取系统真实权限和登录项状态，完成后刷新界面。
   Future<void> _refreshStatus() async {
     final status = await _channel.invokeMapMethod<Object?, Object?>(
-      'systemStatus',
+      MethodNames.systemStatus,
     );
     if (mounted) setState(() => _status = status!);
   }
@@ -85,10 +93,12 @@ class _SettingsPageState extends State<_SettingsPage>
   Future<void> _load() async {
     try {
       final map = (await _channel.invokeMapMethod<Object?, Object?>(
-        'getSettings',
+        MethodNames.getSettings,
       ))!;
       await _refreshStatus();
       if (!mounted) return;
+      // 系统状态查询期间可能完成自动保存，旧加载快照不能回退表单及其版本。
+      if ((map['revision'] as int) < _revision) return;
       if (_dirty) {
         if (map['revision'] != _revision) {
           setState(() {
@@ -103,7 +113,9 @@ class _SettingsPageState extends State<_SettingsPage>
         _revision = map['revision'] as int;
         _conflicted = false;
         _settings = AppSettings.fromMap(map);
-        _credentialIds = Set<String>.from(map['credentialIds'] as List? ?? []);
+        _credentialIds = Set<String>.from(
+          map[MethodNames.credentialIds] as List? ?? [],
+        );
         _credentials.clear();
         _message = map['error'] as String?;
         _failed = _message != null;
@@ -118,43 +130,66 @@ class _SettingsPageState extends State<_SettingsPage>
     }
   }
 
-  /// 无参数；提交完整表单，系统配置成功后才展示已保存结果。
+  /// 无参数；串行提交当前有效草稿，成功推进版本，失败保留编辑并停止重试。
   Future<void> _save() async {
-    setState(() => _saving = true);
+    if (_saving || !_dirty || _conflicted || _adjustingOpacity) return;
+    setState(() {
+      _saving = true;
+      _failed = false;
+      // 后台保存不改变布局；仅失败或冲突需要用户可见反馈。
+      _message = null;
+    });
     try {
-      _settings!.validate();
-      final saved = (await _channel.invokeMapMethod<Object?, Object?>(
-        'saveSettings',
-        {
-          ..._settings!.toMap(),
-          'revision': _revision,
-          'credentials': _credentials,
-        },
-      ))!;
-      await _refreshStatus();
-      if (!mounted) return;
-      setState(() {
-        _settings = AppSettings.fromMap(saved);
-        _credentialIds = Set<String>.from(
-          saved['credentialIds'] as List? ?? [],
+      while (_dirty && !_conflicted && !_adjustingOpacity) {
+        _settings!.validate();
+        final generation = _editGeneration;
+        // 深拷贝本次事务；请求等待期间的新编辑不能修改已提交快照。
+        final preferences = AppSettings.fromMap(_settings!.toMap()).toMap();
+        final credentials = _credentials.map(
+          (id, value) => MapEntry(
+            id,
+            value == null ? null : Map<String, String>.from(value),
+          ),
         );
-        _credentials.clear();
-        _revision = saved['revision'] as int;
-        _dirty = false;
-        _conflicted = false;
-        _message = '已保存，下次翻译立即生效。';
-        _failed = false;
-      });
+        final saved = (await _channel.invokeMapMethod<Object?, Object?>(
+          MethodNames.saveSettings,
+          {...preferences, 'revision': _revision, 'credentials': credentials},
+        ))!;
+        if (!mounted) return;
+        setState(() {
+          _revision = saved['revision'] as int;
+          _credentialIds = Set<String>.from(
+            saved[MethodNames.credentialIds] as List? ?? [],
+          );
+          // 只移除已确认的凭据变更；后续新密钥或删除操作仍留在下一笔事务。
+          for (final entry in credentials.entries) {
+            if (_credentials.containsKey(entry.key) &&
+                mapEquals(_credentials[entry.key], entry.value)) {
+              _credentials.remove(entry.key);
+            }
+          }
+          if (generation == _editGeneration) {
+            _settings = AppSettings.fromMap(saved);
+            _dirty = false;
+          }
+          if (!_conflicted) {
+            _message = null;
+          }
+        });
+        // 状态查询期间也可能继续编辑；下一轮仍检查最新草稿，不遗漏尾部更改。
+        await _refreshStatus();
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        if (error is PlatformException && error.code == 'settings_conflict') {
+        if (error is PlatformException &&
+            error.code == ErrorCodes.settingsConflict) {
           _conflicted = true;
         }
         _message = switch (error) {
           PlatformException(:final message) => message,
           FormatException(:final message) => message,
-          _ => '操作失败，请重试。',
+          _ => '自动保存失败，请重试。',
         };
         _failed = true;
       });
@@ -168,7 +203,7 @@ class _SettingsPageState extends State<_SettingsPage>
     setState(() => _recording = true);
     try {
       final key = await _channel.invokeMapMethod<Object?, Object?>(
-        'recordShortcut',
+        MethodNames.recordShortcut,
       );
       if (!mounted || key == null) return;
       _edit(() {
@@ -197,17 +232,17 @@ class _SettingsPageState extends State<_SettingsPage>
   /// 无参数；使用 macOS 应用选择器添加一个排除项，取消不改变表单。
   Future<void> _addExclusion() async {
     final app = await _channel.invokeMapMethod<String, String>(
-      'chooseExcludedApp',
+      MethodNames.chooseExcludedApp,
     );
     if (app == null || !mounted) return;
     _edit(() => _settings!.excludedApps[app['id']!] = app['name']!);
   }
 
-  /// change 写入一次用户编辑；保留草稿，避免菜单刷新直接覆盖未保存内容。
-
   /// 无参数；选择固定截图目录，取消保留当前草稿目录。
   Future<void> _chooseScreenshotDirectory() async {
-    final path = await _channel.invokeMethod<String>('chooseScreenshotDirectory');
+    final path = await _channel.invokeMethod<String>(
+      MethodNames.chooseScreenshotDirectory,
+    );
     if (!mounted || path == null) return;
     _edit(() => _settings!.screenshotSaveDirectory = path);
   }
@@ -216,7 +251,7 @@ class _SettingsPageState extends State<_SettingsPage>
   Future<void> _requestScreenAccess() async {
     try {
       final status = await _channel.invokeMapMethod<Object?, Object?>(
-        'requestScreenAccess',
+        MethodNames.requestScreenAccess,
       );
       if (!mounted || status == null) return;
       setState(() {
@@ -236,16 +271,18 @@ class _SettingsPageState extends State<_SettingsPage>
     }
   }
 
-  void _edit(VoidCallback change) {
-    // 保存回包会替换整个表单；等待期间不接收会被回包覆盖的新编辑。
-    if (_saving) return;
+  /// change 修改当前草稿；submit 为 false 时由连续控件结束回调提交，返回 void。
+  void _edit(VoidCallback change, {bool submit = true}) {
     setState(() {
       change();
+      _editGeneration += 1;
       _dirty = true;
     });
+    // 同一时刻只有一个事务；正在保存时由回包后的循环提交最新草稿。
+    if (submit) _save();
   }
 
-  /// config 为已有配置或空；确认后更新本窗口草稿，不立即写入凭据。
+  /// config 为已有配置或空；确认后自动提交完整服务事务，取消不写入配置或凭据。
   Future<void> _editService([ServiceConfig? config]) async {
     final draft =
         await showDialog<
@@ -288,20 +325,11 @@ class _SettingsPageState extends State<_SettingsPage>
       if (value.isNotEmpty && !AppSettings.languages.containsKey(value))
         value: value,
     };
-    return Expanded(
-      child: DropdownButtonFormField<String>(
-        key: ValueKey('$label:$value'),
-        initialValue: value,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-        ),
-        items: languages.entries
-            .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-            .toList(),
-        onChanged: (v) => _edit(() => onChanged(v!)),
-      ),
+    return NativeGlassDropdown<String>(
+      label: label,
+      value: value,
+      items: languages,
+      onChanged: (v) => _edit(() => onChanged(v)),
     );
   }
 
@@ -311,13 +339,16 @@ class _SettingsPageState extends State<_SettingsPage>
     required int code,
     required String label,
     required bool screenshot,
-  }) =>
-      [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
+  }) => [
+    Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+    const SizedBox(height: 8),
+    Align(
+      alignment: Alignment.centerLeft,
+      child: NativeGlassSurface(
+        material: true,
+        child: OutlinedButton.icon(
           key: ValueKey(title),
-          onPressed: _saving || _recording
+          onPressed: _recording
               ? null
               : () => _recordShortcut(screenshot: screenshot),
           icon: const Icon(Icons.keyboard_outlined),
@@ -333,12 +364,16 @@ class _SettingsPageState extends State<_SettingsPage>
                   ].join(' '),
           ),
         ),
-        const SizedBox(height: 8),
-        const Text(
-          '点击录制；保存时检查系统保留组合和可识别的全局占用。',
-          style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
-        ),
-      ];
+      ),
+    ),
+    if (screenshot) ...[
+      const SizedBox(height: 8),
+      Text(
+        '点击录制；录制完成后自动保存；检查系统保留组合和可识别的全局占用。',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    ],
+  ];
 
   /// context 为窗口上下文；返回可滚动表单与保存反馈。
   @override
@@ -353,300 +388,447 @@ class _SettingsPageState extends State<_SettingsPage>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(_message!),
-                    TextButton(onPressed: _load, child: const Text('重新加载')),
+                    NativeGlassSurface(
+                      material: true,
+                      child: TextButton(
+                        onPressed: _load,
+                        child: const Text('重新加载'),
+                      ),
+                    ),
                   ],
                 ),
         ),
       );
     }
     return Scaffold(
-      body: ListView(
-        padding: const EdgeInsets.all(24),
+      // 顶部导航在滚动视口之外，任何滚动位置都能切换设置分组。
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'TranslateApp',
-            style: Theme.of(context).textTheme.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          const Text('选中文字，随手翻译。', style: TextStyle(color: Color(0xFF72747B))),
-          const SizedBox(height: 24),
-      SegmentedButton<SettingsSection>(
-        segments: const [
-          ButtonSegment(
-            value: SettingsSection.general,
-            label: Text('通用'),
-            icon: Icon(Icons.tune),
-          ),
-          ButtonSegment(
-            value: SettingsSection.translation,
-            label: Text('翻译'),
-            icon: Icon(Icons.translate),
-          ),
-          ButtonSegment(
-            value: SettingsSection.screenshot,
-            label: Text('截图'),
-            icon: Icon(Icons.crop_free),
-          ),
-        ],
-        selected: {_section},
-        onSelectionChanged: (next) {
-          setState(() => _section = next.single);
-        },
-      ),
-      const SizedBox(height: 24),
-      if (_section == SettingsSection.general) ...[
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                '排除应用',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-            TextButton.icon(
-              onPressed: _addExclusion,
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('添加应用'),
-            ),
-          ],
-        ),
-        if (settings.excludedApps.isEmpty)
-          const Text(
-            '所有支持读取选区的应用均可翻译。',
-            style: TextStyle(color: Color(0xFF72747B)),
-          ),
-        for (final app in settings.excludedApps.entries)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(app.value),
-            subtitle: Text(app.key),
-            trailing: IconButton(
-              tooltip: '移除排除项',
-              icon: const Icon(Icons.remove_circle_outline),
-              onPressed: () =>
-                  _edit(() => settings.excludedApps.remove(app.key)),
-            ),
-          ),
-        const Divider(height: 28),
-        SwitchListTile.adaptive(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('登录时启动'),
-          value: settings.launchAtLogin,
-          onChanged: (v) => _edit(() => settings.launchAtLogin = v),
-        ),
-        if (_status['loginNeedsApproval'] == true)
-          TextButton(
-            onPressed: () => _channel.invokeMethod<void>('openLoginItems'),
-            child: const Text('在系统设置中允许登录项'),
-          ),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('辅助功能权限'),
-          subtitle: Text(
-            _status['accessibility'] == true ? '已授权' : '未授权，无法读取选中文字',
-          ),
-          trailing: TextButton(
-            onPressed: () => _channel.invokeMethod<void>('openAccessibility'),
-            child: const Text('打开设置'),
-          ),
-        ),
-      ] else if (_section == SettingsSection.translation) ...[
-
-        const Text('翻译语言', style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            _language(
-              '主要语言',
-              settings.primaryLanguage,
-              (v) => settings.primaryLanguage = v,
-            ),
-            const SizedBox(width: 12),
-            _language(
-              '次要语言（可选）',
-              settings.secondaryLanguage ?? '',
-              (v) => settings.secondaryLanguage = v.isEmpty ? null : v,
-              optional: true,
-            ),
-          ],
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 10),
-          child: Text(
-            '设置次要语言时，主要语言文本译为次要语言；不设置时统一译为主要语言，已是主要语言的文本直接展示。',
-            style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
-          ),
-        ),
-        const Divider(height: 28),
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                '翻译服务',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-            TextButton.icon(
-              onPressed: () => _editService(),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('添加服务'),
-            ),
-          ],
-        ),
-        DropdownButtonFormField<String>(
-          key: ValueKey('default:${settings.defaultServiceId}'),
-          initialValue: settings.defaultServiceId,
-          isExpanded: true,
-          decoration: const InputDecoration(
-            labelText: '默认翻译服务',
-            border: OutlineInputBorder(),
-          ),
-          items: [
-            const DropdownMenuItem(
-              value: ServiceConfig.builtinId,
-              child: Text('Unofficial Google'),
-            ),
-            ...settings.services.map(
-              (e) => DropdownMenuItem(value: e.id, child: Text(e.name)),
-            ),
-          ],
-          onChanged: (v) => _edit(() => settings.defaultServiceId = v!),
-        ),
-        const Padding(
-          padding: EdgeInsets.only(top: 8),
-          child: Text(
-            'Unofficial Google 是默认内置 API；翻译发送到选中的服务。',
-            style: TextStyle(fontSize: 12, color: Color(0xFF72747B)),
-          ),
-        ),
-        for (final service in settings.services)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(service.name),
-            subtitle: Text(
-              '${ServiceConfig.kinds[service.kind]}${service.isModel ? ' · ${service.model}' : ''}',
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
+          Padding(
+            key: const ValueKey('settings-fixed-navigation'),
+            padding: const EdgeInsets.fromLTRB(22, 12, 22, 12),
+            child: Wrap(
+              spacing: 24,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                IconButton(
-                  tooltip: '编辑 ${service.name}',
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _editService(service),
+                Text(
+                  '设置',
+                  style: Theme.of(context).textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
-                IconButton(
-                  tooltip: '删除 ${service.name}',
-                  onPressed: () => _edit(() {
-                    settings.services.remove(service);
-                    _credentials[service.id] = null;
-                    if (settings.defaultServiceId == service.id) {
-                      settings.defaultServiceId = ServiceConfig.builtinId;
-                    }
-                  }),
-                  icon: const Icon(Icons.delete_outline),
+                NativeGlassSegments<SettingsSection>(
+                  value: _section,
+                  navigation: true,
+                  options: const {
+                    SettingsSection.general: '通用',
+                    SettingsSection.translation: '翻译',
+                    SettingsSection.screenshot: '截图',
+                  },
+                  icons: const {
+                    SettingsSection.general: Icons.tune,
+                    SettingsSection.translation: Icons.translate,
+                    SettingsSection.screenshot: Icons.crop_free,
+                  },
+                  onChanged: (value) => setState(() => _section = value),
                 ),
               ],
             ),
           ),
-        SwitchListTile.adaptive(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('仅使用快捷键'),
-          subtitle: const Text('关闭自动按钮后，只能通过快捷键唤醒翻译'),
-          value: !settings.automatic,
-          onChanged: (v) => _edit(() => settings.automatic = !v),
-        ),
-        const Divider(height: 28),
-        ..._shortcutBlock(
-          title: '全局翻译快捷键',
-          code: settings.shortcutModifiers,
-          label: settings.shortcutLabel,
-          screenshot: false,
-        ),
-      ] else ...[
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(22, 8, 22, 22),
+              children: [
+                if (_section == SettingsSection.general) ...[
+                  NativeGlassGroup(
+                    children: [
+                      NativeGlassSettingRow(
+                        title: '外观',
+                        child: NativeGlassSegments<String>(
+                          value: settings.glassAppearance,
+                          options: AppearanceModes.labels,
+                          onChanged: (value) =>
+                              _edit(() => settings.glassAppearance = value),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '玻璃透明度 ${(100 * (1 - settings.glassOpacity)).round()}%',
+                      ),
+                      // 滑块仅绘制轨道和滑点，不创建整条玻璃外壳。
+                      SizedBox(
+                        height: GlassMetrics.sliderHeight,
+                        child: Slider(
+                          value: 1 - settings.glassOpacity,
+                          min: 0,
+                          max: 0.8,
+                          divisions: 80,
+                          label:
+                              '${(100 * (1 - settings.glassOpacity)).round()}%',
+                          // 按滑块的整数百分比换算，避免 1 - 0.8 略小于合法下限 0.2。
+                          onChanged: (value) => _edit(
+                            () => settings.glassOpacity =
+                                (100 - (value * 100).round()) / 100,
+                            submit: false,
+                          ),
+                          onChangeStart: (_) => _adjustingOpacity = true,
+                          onChangeEnd: (_) {
+                            _adjustingOpacity = false;
+                            _save();
+                          },
+                        ),
+                      ),
+                      const Text('更改后自动保存并应用到所有窗口；系统“减少透明度”开启时保持材料不透明。'),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              '排除应用',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          NativeGlassSurface(
+                            material: true,
+                            child: TextButton.icon(
+                              onPressed: _addExclusion,
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text('添加应用'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (settings.excludedApps.isEmpty)
+                        Text(
+                          '所有支持读取选区的应用均可翻译。',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      for (final app in settings.excludedApps.entries)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(app.value),
+                          subtitle: Text(app.key),
+                          trailing: NativeGlassSurface(
+                            material: true,
+                            child: IconButton(
+                              tooltip: '移除排除项',
+                              icon: const Icon(Icons.remove_circle_outline),
+                              onPressed: () => _edit(
+                                () => settings.excludedApps.remove(app.key),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      NativeGlassSwitchTile(
+                        title: '登录时启动',
+                        value: settings.launchAtLogin,
+                        onChanged: (v) =>
+                            _edit(() => settings.launchAtLogin = v),
+                      ),
+                      if (_status['loginNeedsApproval'] == true)
+                        NativeGlassSurface(
+                          material: true,
+                          child: TextButton(
+                            onPressed: () => _channel.invokeMethod<void>(
+                              MethodNames.openLoginItems,
+                            ),
+                            child: const Text('在系统设置中允许登录项'),
+                          ),
+                        ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('辅助功能权限'),
+                        subtitle: Text(
+                          _status['accessibility'] == true
+                              ? '已授权'
+                              : '未授权，无法读取选中文字',
+                        ),
+                        trailing: NativeGlassSurface(
+                          material: true,
+                          child: TextButton(
+                            onPressed: () => _channel.invokeMethod<void>(
+                              MethodNames.openAccessibility,
+                            ),
+                            child: const Text('打开设置'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      ListTile(
+                        key: const ValueKey('屏幕录制权限'),
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('屏幕录制权限'),
+                        subtitle: Text(
+                          _status['screenAccess'] == true
+                              ? '已授权，可截取屏幕'
+                              : '未授权；申请后 TranslateApp 会出现在系统屏幕录制列表',
+                        ),
+                        trailing: NativeGlassSurface(
+                          material: true,
+                          child: TextButton(
+                            onPressed: _recording ? null : _requestScreenAccess,
+                            child: Text(
+                              _status['screenAccess'] == true ? '重新检查' : '申请权限',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (_section == SettingsSection.translation) ...[
+                  NativeGlassGroup(
+                    children: [
+                      const Text(
+                        '翻译语言',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      _language(
+                        '主要语言',
+                        settings.primaryLanguage,
+                        (v) => settings.primaryLanguage = v,
+                      ),
+                      const Divider(height: 1),
+                      _language(
+                        '次要语言（可选）',
+                        settings.secondaryLanguage ?? '',
+                        (v) =>
+                            settings.secondaryLanguage = v.isEmpty ? null : v,
+                        optional: true,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Text(
+                          '当翻译文本识别为主要语言时，会自动翻译成次要语言',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              '翻译服务',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          NativeGlassSurface(
+                            material: true,
+                            child: TextButton.icon(
+                              onPressed: () => _editService(),
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text('添加服务'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      NativeGlassDropdown<String>(
+                        label: '默认翻译服务',
+                        value: settings.defaultServiceId,
+                        items: {
+                          ServiceConfig.builtinId: '谷歌翻译',
+                          for (final service in settings.services)
+                            service.id: service.displayName,
+                        },
+                        onChanged: (value) =>
+                            _edit(() => settings.defaultServiceId = value),
+                      ),
 
-        const Text('截图目录', style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        ListTile(
-          key: const ValueKey('截图目录'),
-          contentPadding: EdgeInsets.zero,
-          title: Text(
-            settings.screenshotSaveDirectory.isEmpty
-                ? '保存时选择位置'
-                : settings.screenshotSaveDirectory,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: const Text('固定目录后，保存截图默认写入此处；空目录表示每次询问。'),
-          trailing: Wrap(
-            spacing: 4,
-            children: [
-              TextButton(
-                onPressed: _saving || _recording
-                    ? null
-                    : _chooseScreenshotDirectory,
-                child: const Text('选择…'),
-              ),
-              if (settings.screenshotSaveDirectory.isNotEmpty)
-                TextButton(
-                  onPressed: _saving || _recording
-                      ? null
-                      : () => _edit(() => settings.screenshotSaveDirectory = ''),
-                  child: const Text('每次询问'),
-                ),
-            ],
-          ),
-        ),
-        const Divider(height: 28),
-        ..._shortcutBlock(
-          title: '区域截图快捷键',
-          code: settings.screenshotShortcutModifiers,
-          label: settings.screenshotShortcutLabel,
-          screenshot: true,
-        ),
+                      for (final service in settings.services)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(service.displayName),
+                          subtitle: Text(
+                            '${ServiceConfig.kinds[service.kind]}${service.isModel ? ' · ${service.model}' : ''}',
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              NativeGlassSurface(
+                                material: true,
+                                child: IconButton(
+                                  tooltip: '编辑 ${service.displayName}',
+                                  icon: const Icon(Icons.edit_outlined),
+                                  onPressed: () => _editService(service),
+                                ),
+                              ),
+                              const SizedBox(width: GlassMetrics.actionGap),
+                              NativeGlassSurface(
+                                material: true,
+                                child: IconButton(
+                                  tooltip: '删除 ${service.displayName}',
+                                  onPressed: () => _edit(() {
+                                    settings.services.remove(service);
+                                    _credentials[service.id] = null;
+                                    if (settings.defaultServiceId ==
+                                        service.id) {
+                                      settings.defaultServiceId =
+                                          ServiceConfig.builtinId;
+                                    }
+                                  }),
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      NativeGlassSwitchTile(
+                        title: '仅使用快捷键',
+                        subtitle: '关闭自动按钮后，只能通过快捷键唤醒翻译',
+                        value: !settings.automatic,
+                        onChanged: (v) => _edit(() => settings.automatic = !v),
+                      ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      ..._shortcutBlock(
+                        title: '全局翻译快捷键',
+                        code: settings.shortcutModifiers,
+                        label: settings.shortcutLabel,
+                        screenshot: false,
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  NativeGlassGroup(
+                    children: [
+                      const Text(
+                        '截图目录',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      ListTile(
+                        key: const ValueKey('截图目录'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          settings.screenshotSaveDirectory.isEmpty
+                              ? '保存时选择位置'
+                              : settings.screenshotSaveDirectory,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: const Text('固定目录后，保存截图默认写入此处；空目录表示每次询问。'),
+                        trailing: Wrap(
+                          spacing: 4,
+                          children: [
+                            NativeGlassSurface(
+                              material: true,
+                              child: TextButton(
+                                onPressed: _recording
+                                    ? null
+                                    : _chooseScreenshotDirectory,
+                                child: const Text('选择…'),
+                              ),
+                            ),
+                            if (settings.screenshotSaveDirectory.isNotEmpty)
+                              NativeGlassSurface(
+                                material: true,
+                                child: TextButton(
+                                  onPressed: _recording
+                                      ? null
+                                      : () => _edit(
+                                          () =>
+                                              settings.screenshotSaveDirectory =
+                                                  '',
+                                        ),
+                                  child: const Text('每次询问'),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      ..._shortcutBlock(
+                        title: '区域截图快捷键',
+                        code: settings.screenshotShortcutModifiers,
+                        label: settings.screenshotShortcutLabel,
+                        screenshot: true,
+                      ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      ExpansionTile(
+                        key: const ValueKey('screenshot-toolbar-section'),
+                        initiallyExpanded: false,
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.only(top: 8),
+                        minTileHeight: 40,
+                        shape: const Border(),
+                        collapsedShape: const Border(),
+                        title: const Text(
+                          '截图工具栏',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        children: [
+                          ScreenshotToolbarEditor(
+                            value: settings.screenshotToolbar,
+                            onChanged: (value) => _edit(
+                              () => _settings!.screenshotToolbar = value,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
 
-        const Divider(height: 28),
-        ListTile(
-          key: const ValueKey('屏幕录制权限'),
-          contentPadding: EdgeInsets.zero,
-          title: const Text('屏幕录制权限'),
-          subtitle: Text(
-            _status['screenAccess'] == true
-                ? '已授权，可截取屏幕'
-                : '未授权；申请后 TranslateApp 会出现在系统屏幕录制列表',
-          ),
-          trailing: TextButton(
-            onPressed: _saving || _recording ? null : _requestScreenAccess,
-            child: Text(_status['screenAccess'] == true ? '重新检查' : '申请权限'),
-          ),
-        ),
-      ],
-
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _saving || _recording || _conflicted ? null : _save,
-            child: Text(_saving ? '正在保存…' : '保存设置'),
-          ),
-          if (_conflicted)
-            TextButton(
-              onPressed: () {
-                _dirty = false;
-                _load();
-              },
-              child: const Text('重新加载设置'),
+                const SizedBox(height: 16),
+                if (_failed && _dirty && !_conflicted)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: NativeGlassSurface(
+                      material: true,
+                      child: TextButton(
+                        onPressed: _save,
+                        child: const Text('重试自动保存'),
+                      ),
+                    ),
+                  ),
+                if (_conflicted)
+                  NativeGlassSurface(
+                    material: true,
+                    child: TextButton(
+                      onPressed: () {
+                        _dirty = false;
+                        _load();
+                      },
+                      child: const Text('重新加载设置'),
+                    ),
+                  ),
+                if (_message != null && !_saving)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      _message!,
+                      style: TextStyle(
+                        color: _failed
+                            ? Theme.of(context).colorScheme.error
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          if (_message != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                _message!,
-                style: TextStyle(
-                  color: _failed
-                      ? Theme.of(context).colorScheme.error
-                      : const Color(0xFF34834B),
-                ),
-              ),
-            ),
+          ),
         ],
       ),
     );

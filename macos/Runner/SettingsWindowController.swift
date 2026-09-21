@@ -20,15 +20,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         let engine = FlutterEngine(name: "settings", project: nil, allowHeadlessExecution: false)
         self.engine = engine
-        let channel = FlutterMethodChannel(name: "translateapp/settings", binaryMessenger: engine.binaryMessenger)
+        let channel = FlutterMethodChannel(name: AppConstants.settingsChannel, binaryMessenger: engine.binaryMessenger)
         self.channel = channel
         channel.setMethodCallHandler { [weak self] call, result in
             let bridge = MacPlatformBridge.Shared.instance!
             switch call.method {
-            case "recordShortcut":
+            case AppConstants.recordShortcutMethod:
                 self?.recordShortcut(result: result)
-            case "getSettings", "saveSettings", "testService",
-                 "historyPage", "historyRecording", "setHistoryRecording", "translatePlainText":
+            case AppConstants.getSettingsMethod, AppConstants.saveSettingsMethod, AppConstants.testServiceMethod,
+                 AppConstants.historyPageMethod, AppConstants.historyRecordingMethod, AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod:
                 bridge.requestSettings(call.method, arguments: call.arguments, result: result)
             default:
                 // 系统能力复用主桥，第二引擎不注册全局选区监听或覆盖单例。
@@ -37,7 +37,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
         // 非 headless 引擎必须先绑定控制器，否则 Flutter 会拒绝启动。
-        guard engine.run(withEntrypoint: "settingsMain") else {
+        guard engine.run(withEntrypoint: AppConstants.settingsEntrypoint) else {
             channel.setMethodCallHandler(nil)
             engine.shutDownEngine()
             self.engine = nil
@@ -49,6 +49,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             return
         }
         RegisterGeneratedPlugins(registry: flutter)
+        // 平台视图工厂按引擎注册，避免独立窗口缺少原生玻璃材料。
+        NativeGlassFactory.register(with: flutter)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -58,7 +60,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.title = "TranslateApp 设置"
         window.minSize = NSSize(width: 520, height: 500)
         window.isReleasedWhenClosed = false
-        window.contentViewController = flutter
+        // Flutter 控件绘制在原生玻璃材料上；普通窗口保持原有层级。
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        NativeGlassFactory.installContent(flutter, in: window)
         // Flutter 控制器初始视图可为零尺寸；绑定后明确设置可读的表单窗口大小。
         window.setContentSize(NSSize(width: 560, height: 720))
         window.center()
@@ -72,9 +77,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         finishRecording(nil)
         recordingResult = result
         MacPlatformBridge.Shared.instance?.shortcutRecorder = { [weak self] keyCode, modifiers in
-            let preferences = UserDefaults.standard.dictionary(forKey: "preferences") ?? [:]
-            let screenshot = preferences["screenshotShortcutKeyCode"] as? UInt32 == keyCode && preferences["screenshotShortcutModifiers"] as? UInt32 == modifiers
-            let label = preferences[screenshot ? "screenshotShortcutLabel" : "shortcutLabel"] as? String ?? ""
+            let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+            let screenshot = preferences[AppConstants.screenshotShortcutKeyCodeKey] as? UInt32 == keyCode && preferences[AppConstants.screenshotShortcutModifiersKey] as? UInt32 == modifiers
+            let label = preferences[screenshot ? AppConstants.screenshotShortcutLabelKey : AppConstants.shortcutLabelKey] as? String ?? ""
             self?.finishRecording(["keyCode": keyCode, "modifiers": modifiers, "label": label])
         }
         recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -101,7 +106,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 let label = special[event.keyCode] ?? event.charactersIgnoringModifiers?.uppercased() ?? ""
                 self.finishRecording(["keyCode": Int(event.keyCode), "modifiers": modifiers, "label": label])
             } catch {
-                self.finishRecording(FlutterError(code: "shortcut_invalid", message: error.localizedDescription, details: nil))
+                self.finishRecording(FlutterError(code: AppConstants.shortcutInvalidError, message: error.localizedDescription, details: nil))
             }
             // 录制时消费组合键，避免 Command-Q/W 等触发设置窗口菜单；其他窗口不受影响。
             return nil
@@ -123,7 +128,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     /// 无参数；菜单改动或再次打开窗口时刷新主引擎快照，无返回值。
     func refresh() {
-        channel?.invokeMethod("refreshSettings", arguments: nil)
+        channel?.invokeMethod(AppConstants.refreshSettingsMethod, arguments: nil)
     }
 
     deinit {

@@ -1,8 +1,7 @@
-/// 首次启动逐步授权的决策；不读写 TCC，只根据当前授权决定下一步。
-enum PermissionWizardStep { accessibility, screenRecording, done }
+import '../constants/permission_enums.dart';
 
 /// accessibilityGranted / screenRecordingGranted 为本进程当前授权。
-/// 返回下一步；缺哪项就停在哪项，稍后跳过不能当成已授权。
+/// 返回下一步；两项都授权才是 done，缺哪项停哪项。
 PermissionWizardStep permissionWizardStep({
   required bool accessibilityGranted,
   required bool screenRecordingGranted,
@@ -12,4 +11,13 @@ PermissionWizardStep permissionWizardStep({
   }
   if (!accessibilityGranted) return PermissionWizardStep.accessibility;
   return PermissionWizardStep.screenRecording;
+}
+
+/// accessibilityGranted / screenRecordingGranted 为本进程当前授权。
+/// 两项都有才能点「进入应用」。
+bool canEnterApp({
+  required bool accessibilityGranted,
+  required bool screenRecordingGranted,
+}) {
+  return accessibilityGranted && screenRecordingGranted;
 }

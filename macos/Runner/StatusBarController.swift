@@ -13,6 +13,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     var refreshSettings: (() -> Void)?
     var showHistory: (() -> Void)?
 
+    /// 无参数；首次调用创建菜单栏图标与菜单，重复调用保持现有实例，无返回值。
     func install() {
         if installed { return }
         installed = true
@@ -35,6 +36,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// 无参数；按当前辅助功能授权状态重建菜单项与动作，无返回值。
     func reloadMenu() {
         let trusted = AccessibilitySelection.isTrusted(prompt: false)
         let menu = NSMenu()
@@ -96,7 +98,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     /// 无参数；经主 Dart 修改全局开关，成功后刷新设置窗口，无返回值。
     @objc private func toggleAutomatic() {
-        MacPlatformBridge.Shared.instance?.requestSettings("toggleAutomatic") { [weak self] value in
+        MacPlatformBridge.Shared.instance?.requestSettings(AppConstants.toggleAutomaticMethod) { [weak self] value in
             if let error = value as? FlutterError {
                 let alert = NSAlert()
                 alert.messageText = "设置未保存"

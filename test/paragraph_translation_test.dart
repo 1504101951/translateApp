@@ -188,18 +188,26 @@ void main() {
         return Stream.value(const TranslationFailure('第二片失败'));
       }
       return Stream.fromIterable([
-        TranslationUpdate('T-${request.sourceText[0]}'),
+        TranslationUpdate('T-${request.sourceText.trimLeft()[0]}'),
         const TranslationCompleted(),
       ]);
     }
 
+    final request = TranslationRequest(
+      sourceText: source,
+      targetLanguage: 'zh-CN',
+    );
+    final progress = TranslationProgress(request);
     final failed = await translateSegmented(
       translate,
-      TranslationRequest(sourceText: source, targetLanguage: 'zh-CN'),
+      request,
+      progress: progress,
       usesSlidingContext: true,
     ).toList();
     expect(failed.last, isA<TranslationFailure>());
-    expect(failed.whereType<TranslationUpdate>().map((e) => e.addition), ['T-A']);
+    expect(failed.whereType<TranslationUpdate>().map((e) => e.addition), [
+      'T-A',
+    ]);
     expect(seen, hasLength(2));
     expect(seen.first.previousSourceTail, isNull);
     expect(seen[1].previousSourceTail, first.substring(first.length - 1000));
@@ -223,11 +231,21 @@ void main() {
     seen.clear();
     final resumed = await translateSegmented(
       translate,
-      TranslationRequest(sourceText: source, targetLanguage: 'zh-CN'),
+      request,
       usesSlidingContext: true,
-      startIndex: 1,
+      progress: progress,
     ).toList();
     expect(resumed.last, isA<TranslationCompleted>());
     expect(seen.single.sourceText.contains('B'), isTrue);
+    expect(
+      seen.single.previousSourceTail,
+      first.substring(first.length - 1000),
+    );
+    expect(seen.single.previousTranslationTail, 'T-A');
+    expect(progress.completedText, 'T-AT-B');
+    expect(
+      (resumed.last as TranslationCompleted).pairs.map((p) => p.source).join(),
+      source,
+    );
   });
 }

@@ -3,17 +3,18 @@ import Carbon
 import FlutterMacOS
 
 @main
+/// 应用启动协调器；持有主引擎、辅助窗口、浮层及选区监听，将AppKit生命周期连接到平台桥。
 class AppDelegate: FlutterAppDelegate {
   private let settingsWindow = SettingsWindowController()
   private let permissionWizard = AuxiliaryWindowController(
     engineName: "permission-wizard",
-    entrypoint: "permissionWizardMain",
+    entrypoint: AppConstants.permissionWizardEntrypoint,
     title: "TranslateApp 权限",
-    size: NSSize(width: 440, height: 280)
+    size: NSSize(width: 480, height: 360)
   )
   private let historyWindow = AuxiliaryWindowController(
     engineName: "history",
-    entrypoint: "historyMain",
+    entrypoint: AppConstants.historyEntrypoint,
     title: "翻译历史",
     size: NSSize(width: 520, height: 640)
   )
@@ -35,6 +36,8 @@ class AppDelegate: FlutterAppDelegate {
         _ = flutter.view
         _ = flutter.engine.run(withEntrypoint: nil)
         RegisterGeneratedPlugins(registry: flutter)
+        // 平台视图工厂按引擎注册，避免独立窗口缺少原生玻璃材料。
+        NativeGlassFactory.register(with: flutter)
         overlay.attachFlutter(flutter)
         let bridge = MacPlatformBridge.register(
             with: flutter.engine.binaryMessenger,
@@ -54,7 +57,7 @@ class AppDelegate: FlutterAppDelegate {
             let access = AccessibilitySelection.isTrusted(prompt: false)
             let screen = ScreenCaptureService.isAuthorized()
             if access && screen {
-                UserDefaults.standard.set(true, forKey: "permissionWizardFinished")
+                UserDefaults.standard.set(true, forKey: AppConstants.permissionWizardFinishedKey)
                 if self?.launchedAtLogin == false { self?.settingsWindow.show() }
                 return
             }

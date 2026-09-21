@@ -7,12 +7,15 @@ import Vision
 
 /// 系统截图模块的权限与冻结帧；本进程捕获才会把 TranslateApp 写入屏幕录制 TCC。
 enum ScreenCaptureService {
+    /// 指针所在显示器的冻结帧，包含PNG像素、像素尺寸、AppKit显示坐标及可选前台窗口裁剪框。
     struct FreezeFrame {
         let png: Data
         let pixelWidth: Int
         let pixelHeight: Int
         /// AppKit 屏幕坐标下的显示器矩形，编辑窗与冻结帧对齐。
         let displayFrame: NSRect
+        /// 前台窗口映射到冻结帧像素的裁剪框；找不到则为 nil。
+        let windowCrop: NSRect?
     }
 
     /// 无参数；返回本进程当前是否已获屏幕录制授权。
@@ -22,15 +25,17 @@ enum ScreenCaptureService {
 
     /// 无参数；已授权则直接复用，不再弹系统框。
     /// 不写 TCC.db；ad-hoc 重签后系统会当成新身份，那时仍需再授权一次。
+    /// promoteToRegularApp 为 true 时才切到普通激活，避免截图时 Dock/整屏闪一下。
     @MainActor
-    static func requestAccess() async -> Bool {
+    static func requestAccess(promoteToRegularApp: Bool = false) async -> Bool {
         if isAuthorized() { return true }
-        // 菜单栏 App 默认不出现在 Dock；申请期间改成普通激活，系统提示才进前台。
         let previousPolicy = NSApp.activationPolicy()
-        if previousPolicy != .regular {
+        if promoteToRegularApp, previousPolicy != .regular {
             _ = NSApp.setActivationPolicy(.regular)
         }
-        NSApp.activate(ignoringOtherApps: true)
+        if promoteToRegularApp {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         // 只在尚未授权时申请；已授权不得再次 CGRequest。
         _ = CGRequestScreenCaptureAccess()
         // 只打开设置页不会把本进程写入列表；ScreenCaptureKit 枚举才会登记 TranslateApp。
@@ -112,7 +117,12 @@ enum ScreenCaptureService {
             png: png,
             pixelWidth: image.width,
             pixelHeight: image.height,
-            displayFrame: screen.frame
+            displayFrame: screen.frame,
+            windowCrop: CaptureGeometry.frontmostWindowPixelCrop(
+                displayFrame: screen.frame,
+                pixelWidth: image.width,
+                pixelHeight: image.height
+            )
         )
     }
 

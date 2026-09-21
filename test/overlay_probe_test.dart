@@ -6,9 +6,7 @@ void main() {
   testWidgets('probe overlay counts taps', (tester) async {
     var hidden = false;
     await tester.pumpWidget(
-      MaterialApp(
-        home: OverlayProbe(onHide: () => hidden = true),
-      ),
+      MaterialApp(home: OverlayProbe(onHide: () => hidden = true)),
     );
 
     expect(find.text('点击次数 0'), findsOneWidget);

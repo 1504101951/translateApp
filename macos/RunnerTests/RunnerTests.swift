@@ -6,6 +6,219 @@ import XCTest
 @testable import translate_app
 
 class RunnerTests: XCTestCase {
+    /// 尺寸和颜色为测试输入；返回实际像素明确的 PNG，避免动态颜色在离屏上下文中失效。
+    @MainActor
+    private func screenshotFixture(width: Int, height: Int, color: NSColor) throws -> Data {
+        let image = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        for x in 0..<width { for y in 0..<height { image.setColor(color, atX: x, y: y) } }
+        return try XCTUnwrap(image.representation(using: .png, properties: [:]))
+    }
+
+    /// 无参数；真实标题材料和内容安全区随外观、透明度及窗口尺寸同步，测试后恢复偏好。
+    @MainActor
+    func testGlassTitlebarAppearanceAndContentLayout() throws {
+        let previous = UserDefaults.standard.object(forKey: AppConstants.preferencesKey)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: AppConstants.preferencesKey) }
+            else { UserDefaults.standard.removeObject(forKey: AppConstants.preferencesKey) }
+        }
+        let engine = FlutterEngine(name: "glass-window-test", project: nil, allowHeadlessExecution: false)
+        defer { engine.shutDownEngine() }
+        let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        NativeGlassFactory.installContent(flutter, in: window)
+        let content = try XCTUnwrap(window.contentViewController as? NativeGlassWindowContent)
+        // 三种模式覆盖手动外观和恢复系统继承；端点0.2/1覆盖材料而非前景的透明度。
+        for (mode, opacity) in [("dark", 0.2), ("light", 1.0), ("system", 0.8)] {
+            UserDefaults.standard.set([AppConstants.glassAppearanceKey: mode, AppConstants.glassOpacityKey: opacity], forKey: AppConstants.preferencesKey)
+            NativeGlassFactory.applyAppearance(to: window)
+            XCTAssertEqual(window.appearance?.name, mode == "system" ? nil : (mode == "dark" ? NSAppearance.Name.darkAqua : NSAppearance.Name.aqua))
+            XCTAssertEqual(content.windowCanvas.alphaValue, 1)
+            let expectedWhite = mode == "dark" ? 23.0 / 255.0 : 247.0 / 255.0
+            if mode != "system" {
+                let canvasColor = try XCTUnwrap(NSColor(cgColor: try XCTUnwrap(content.windowCanvas.layer?.backgroundColor)))
+                XCTAssertEqual(canvasColor.usingColorSpace(.sRGB)!.redComponent, expectedWhite, accuracy: 0.01)
+            }
+            XCTAssertEqual(flutter.view.alphaValue, 1)
+            window.setContentSize(NSSize(width: 620, height: 540))
+            content.view.layoutSubtreeIfNeeded()
+            // 窗口缩放后背景仍铺满整窗，Flutter内容紧贴标题安全边界且无第二层圆角。
+            XCTAssertEqual(content.windowCanvas.frame, content.view.bounds)
+            XCTAssertEqual(flutter.view.frame.maxY, window.contentLayoutRect.maxY, accuracy: 0.5)
+            XCTAssertNil(content.windowCanvas.hitTest(.zero))
+            XCTAssertEqual(flutter.view.frame.width, content.windowCanvas.frame.width, accuracy: 0.5)
+        }
+    }
+
+    /// 无参数；从真实截图方法入口验证两类对角原生光标，拒绝未知值并恢复关闭后的箭头。
+    @MainActor
+    func testScreenshotDiagonalCursorUsesNativeFrameResize() throws {
+        let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        defer { controller.shutdown(); NSCursor.arrow.set() }
+        let png = try screenshotFixture(width: 80, height: 60, color: .white)
+        controller.seedCaptureForTesting(png: png, id: "diagonal", width: 80, height: 60, showEditor: true)
+        // 两个双向轴覆盖四角：左上/右下与右上/左下。检查真实NSCursor状态而非下游调用次数。
+        for (direction, position) in [(AppConstants.resizeNorthWestSouthEast, NSCursor.FrameResizePosition.topLeft), (AppConstants.resizeNorthEastSouthWest, .topRight)] {
+            NSCursor.arrow.set()
+            var response: Any?
+            controller.handle(FlutterMethodCall(methodName: AppConstants.setResizeCursorMethod, arguments: ["direction": direction])) { response = $0 }
+            XCTAssertNil(response)
+            let expected = NSCursor.frameResize(position: position, directions: .all)
+            XCTAssertEqual(NSCursor.current.image.tiffRepresentation, expected.image.tiffRepresentation)
+            XCTAssertEqual(NSCursor.current.hotSpot, expected.hotSpot)
+            XCTAssertNotEqual(NSCursor.current.image.tiffRepresentation, NSCursor.arrow.image.tiffRepresentation)
+        }
+        var invalid: Any?
+        controller.handle(FlutterMethodCall(methodName: AppConstants.setResizeCursorMethod, arguments: ["direction": "unknown"])) { invalid = $0 }
+        XCTAssertTrue(invalid is FlutterError)
+        controller.handle(FlutterMethodCall(methodName: AppConstants.closeScreenshotMethod, arguments: nil)) { _ in }
+        XCTAssertEqual(NSCursor.current.image.tiffRepresentation, NSCursor.arrow.image.tiffRepresentation)
+        // 已关闭编辑器的迟到请求不能重新设置桌面光标。
+        controller.handle(FlutterMethodCall(methodName: AppConstants.setResizeCursorMethod, arguments: ["direction": AppConstants.resizeNorthWestSouthEast])) { _ in }
+        XCTAssertEqual(NSCursor.current.image.tiffRepresentation, NSCursor.arrow.image.tiffRepresentation)
+    }
+
+    /// 无参数；非激活截图的数字/Command组合在原生入口被消费，文本输入与关闭后原样放行。
+    @MainActor
+    func testScreenshotConfiguredShortcutConsumesOnlyItsScope() throws {
+        let previous = UserDefaults.standard.object(forKey: AppConstants.preferencesKey)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: AppConstants.preferencesKey) }
+            else { UserDefaults.standard.removeObject(forKey: AppConstants.preferencesKey) }
+        }
+        UserDefaults.standard.set([AppConstants.screenshotToolbarShortcutsKey: [
+            "screenshot-tool-text": ["keyId": 49, "modifiers": 0],
+            "screenshot-tool-crop": ["keyId": 50, "modifiers": 8],
+        ]], forKey: AppConstants.preferencesKey)
+        let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        defer { controller.shutdown() }
+        let png = try screenshotFixture(width: 80, height: 60, color: .white)
+        controller.seedCaptureForTesting(png: png, id: "shortcut", width: 80, height: 60, showEditor: true)
+        // 49/50是逻辑字符1/2，18/19是ANSI物理键；真实event tap路径不直接给Flutter注入键。
+        let one = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 18, keyDown: true))
+        let two = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 19, keyDown: true))
+        two.flags = .maskCommand
+        XCTAssertNil(controller.filterScreenshotEvent(one))
+        XCTAssertNil(controller.filterScreenshotEvent(two))
+        let unbound = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 20, keyDown: true))
+        XCTAssertTrue(controller.filterScreenshotEvent(unbound) === unbound)
+        controller.handle(FlutterMethodCall(methodName: AppConstants.screenshotTextInputMethod, arguments: ["id": "shortcut", "active": true])) { _ in }
+        XCTAssertTrue(controller.filterScreenshotEvent(one) === one)
+        controller.handle(FlutterMethodCall(methodName: AppConstants.screenshotTextInputMethod, arguments: ["id": "shortcut", "active": false])) { _ in }
+        controller.handle(FlutterMethodCall(methodName: AppConstants.screenshotTextInputMethod, arguments: ["id": "stale", "active": true])) { _ in }
+        XCTAssertNil(controller.filterScreenshotEvent(two))
+        controller.shutdown()
+        XCTAssertTrue(controller.filterScreenshotEvent(one) === one)
+    }
+
+    /// 无参数；普通键和文本编辑命令原样放行，合法长按不去重；关闭后也无残留消费。
+    @MainActor
+    func testScreenshotKeysPreserveTypingAndTextEditing() throws {
+        let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        defer { controller.shutdown() }
+        let png = try screenshotFixture(width: 80, height: 60, color: .white)
+        controller.seedCaptureForTesting(png: png, id: "typing", width: 80, height: 60, showEditor: true)
+        for repeated in [false, true] {
+            let typed = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+            typed.setIntegerValueField(.keyboardEventAutorepeat, value: repeated ? 1 : 0)
+            XCTAssertTrue(controller.filterScreenshotEvent(typed) === typed)
+        }
+        controller.handle(FlutterMethodCall(methodName: AppConstants.screenshotTextInputMethod, arguments: ["id": "typing", "active": true])) { _ in }
+        let undo = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 6, keyDown: true))
+        undo.flags = .maskCommand
+        XCTAssertTrue(controller.filterScreenshotEvent(undo) === undo)
+        let enter = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        XCTAssertTrue(controller.filterScreenshotEvent(enter) === enter)
+        controller.shutdown()
+        XCTAssertTrue(controller.filterScreenshotEvent(enter) === enter)
+    }
+
+    /// 无参数；冷启动立即 Esc、首帧后失焦 Esc、引擎复用 Esc 都须关闭且保留剪贴板。
+    @MainActor
+    func testScreenshotEscapeClosesColdWarmAndReusedEditor() async throws {
+        let board = NSPasteboard.withUniqueName()
+        let controller = ScreenshotWindowController(pasteboard: board)
+        defer { controller.shutdown(); board.releaseGlobally() }
+        let png = try screenshotFixture(width: 80, height: 60, color: NSColor(deviceRed: 0, green: 0, blue: 1, alpha: 1))
+        for phase in ["cold", "warm", "reused"] {
+            board.clearContents()
+            board.setString("unchanged", forType: .string)
+            controller.seedCaptureForTesting(png: png, id: phase, width: 80, height: 60, showEditor: true)
+            // cold 不让出主线程，直接覆盖窗口显示与 Dart handler 注册的启动交界。
+            if phase == "warm" { try await Task.sleep(nanoseconds: 500_000_000) }
+            let panel = try XCTUnwrap(NSApp.windows.first { $0 is ScreenshotPanel && $0.isVisible })
+            panel.makeFirstResponder(nil)
+            panel.resignKey()
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil, characters: "\u{1B}",
+                charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53
+            ))
+            XCTAssertNil(controller.filterScreenshotEvent(try XCTUnwrap(event.cgEvent)))
+            let closed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !controller.isCurrentCapture(phase) && !panel.isVisible
+            }, object: nil)
+            await fulfillment(of: [closed], timeout: 2)
+            XCTAssertEqual(board.string(forType: .string), "unchanged")
+            XCTAssertNil(board.data(forType: .png))
+        }
+    }
+
+    /// 无参数；以真实 Flutter 截图引擎复现原生键路由丢失 Return，断言图片像素与生命周期。
+    @MainActor
+    func testScreenshotReturnCopiesImageAndClosesFromNativeRoute() async throws {
+        let board = NSPasteboard.withUniqueName()
+        let controller = ScreenshotWindowController(pasteboard: board)
+        defer { controller.shutdown(); board.releaseGlobally() }
+        let png = try screenshotFixture(width: 80, height: 60, color: NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1))
+        // 两个硬件键码分别覆盖主 Return 与小键盘 Enter；每次捕获均经过生产 show 初始化。
+        for keyCode: UInt16 in [36, 76] {
+            let id = "return-\(keyCode)"
+            board.clearContents()
+            controller.seedCaptureForTesting(png: png, id: id, width: 80, height: 60, showEditor: true)
+            // 等待真实 Flutter 引擎首帧；这里不以纯 Dart widget 键事件替代原生入口。
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            let panel = try XCTUnwrap(NSApp.windows.first { $0 is ScreenshotPanel && $0.isVisible })
+            // 检查实际引擎装配出的材料，不用 mock 背景声称通过原生玻璃验证。
+            var descendants = [try XCTUnwrap(panel.contentView)]
+            var glassViews: [NativeGlassView] = []
+            while let view = descendants.popLast() {
+                if let glass = view as? NativeGlassView { glassViews.append(glass) }
+                descendants.append(contentsOf: view.subviews)
+            }
+            XCTAssertFalse(glassViews.isEmpty)
+            XCTAssertTrue(glassViews.allSatisfy { $0.bounds.width > 0 && $0.bounds.height > 0 })
+            // 明确丢开原生键盘焦点，验证非激活截图仍能通过消费式事件路由确认。
+            panel.makeFirstResponder(nil)
+            panel.resignKey()
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil, characters: "\r",
+                charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: keyCode
+            ))
+            // nil 是系统不再向来源应用派发该键的实际过滤结果，防止顺带提交聊天或表单。
+            XCTAssertNil(controller.filterScreenshotEvent(try XCTUnwrap(event.cgEvent)))
+            let completed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                board.data(forType: .png) != nil && !controller.isCurrentCapture(id) && !panel.isVisible
+            }, object: nil)
+            await fulfillment(of: [completed], timeout: 2)
+            let copied = try XCTUnwrap(board.data(forType: .png))
+            let decoded = try XCTUnwrap(NSBitmapImageRep(data: copied))
+            XCTAssertEqual(decoded.pixelsWide, 80)
+            XCTAssertEqual(decoded.pixelsHigh, 60)
+            let color = try XCTUnwrap(decoded.colorAt(x: 40, y: 30)?.usingColorSpace(.deviceRGB))
+            XCTAssertGreaterThan(color.redComponent, 0.95)
+            XCTAssertLessThan(color.blueComponent, 0.05)
+        }
+    }
+
 
     /// 无参数；成功读取保留段落并恢复原内容，取消或非选区文本均须保留用户的新内容。
     @MainActor
@@ -83,27 +296,27 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(try MacPlatformBridge.readCredentials(id: id), ["apiKey": "second", "appId": "dummy"])
 
         let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
-        let preferences = UserDefaults.standard.dictionary(forKey: "preferences")
+        let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)
         let settings: [String: Any] = [
-            "automatic": false, "shortcutKeyCode": 128, "shortcutModifiers": 6144,
-            "screenshotShortcutKeyCode": 1, "screenshotShortcutModifiers": 6144,
-            "excludedApps": [String: String](),
-            "launchAtLogin": [.enabled, .requiresApproval].contains(SMAppService.mainApp.status),
+            AppConstants.automaticKey: false, AppConstants.shortcutKeyCodeKey: 128, AppConstants.shortcutModifiersKey: 6144,
+            AppConstants.screenshotShortcutKeyCodeKey: 1, AppConstants.screenshotShortcutModifiersKey: 6144,
+            AppConstants.excludedAppsKey: [String: String](),
+            AppConstants.launchAtLoginKey: [.enabled, .requiresApproval].contains(SMAppService.mainApp.status),
         ]
         // 无效 keyCode 在系统配置步骤失败，验证已写凭据会恢复，而非只检查方法调用。
         for prior in [["apiKey": "original"], [:]] {
             try MacPlatformBridge.storeCredentials(id: id, value: prior)
             var response: Any?
-            bridge.handle(FlutterMethodCall(methodName: "applySettings", arguments: [
+            bridge.handle(FlutterMethodCall(methodName: AppConstants.applySettingsMethod, arguments: [
                 "settings": settings, "credentials": [id: ["apiKey": "replacement"]],
             ])) { response = $0 }
             XCTAssertNotNil(response as? FlutterError)
             XCTAssertEqual(try MacPlatformBridge.readCredentials(id: id), prior)
         }
-        XCTAssertEqual(UserDefaults.standard.dictionary(forKey: "preferences") as NSDictionary?, preferences as NSDictionary?)
+        XCTAssertEqual(UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) as NSDictionary?, preferences as NSDictionary?)
         try MacPlatformBridge.storeCredentials(id: id, value: nil)
         XCTAssertNil(try MacPlatformBridge.readCredentials(id: id))
-        bridge.handle(FlutterMethodCall(methodName: "applySettings", arguments: [
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.applySettingsMethod, arguments: [
             "settings": settings, "credentials": [id: ["apiKey": "temporary"]],
         ])) { XCTAssertNotNil($0 as? FlutterError) }
         XCTAssertNil(try MacPlatformBridge.readCredentials(id: id))
@@ -162,11 +375,32 @@ class RunnerTests: XCTestCase {
         withExtendedLifetime((first, second, probe)) {}
     }
 
+    /// 无参数；从实际应用PID生成并编解码原生事件，验证来源不是Dart测试手工补入的值。
+    @MainActor
+    func testSelectionSourceSurvivesNativeEventEncoding() throws {
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        var payload: [String: Any]?
+        _ = bridge.onListen(withArguments: nil) { payload = $0 as? [String: Any] }
+        defer { _ = bridge.onCancel(withArguments: nil) }
+        let apps = [NSRunningApplication.current, try XCTUnwrap(NSWorkspace.shared.frontmostApplication)]
+        for app in apps {
+            let expected = try XCTUnwrap(app.localizedName)
+            XCTAssertFalse(expected.isEmpty)
+            bridge.emitSelectionCaptured(text: "fixture", gesture: SelectionGesture.hotkey.rawValue,
+                                         x: 0, y: 0, sourcePID: app.processIdentifier)
+            let event = try XCTUnwrap(payload)
+            let codec = FlutterStandardMessageCodec.sharedInstance()
+            let encoded = try XCTUnwrap(codec.encode(event))
+            let decoded = try XCTUnwrap(codec.decode(encoded) as? [String: Any])
+            XCTAssertEqual(decoded["sourceAppName"] as? String, expected)
+        }
+    }
+
     /// 无参数；使用真实设备语言识别，确保法语不会被当成英语，无返回值。
     @MainActor
     func testDeviceLanguageDetection() {
         let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
-        bridge.handle(FlutterMethodCall(methodName: "detectLanguage", arguments: [
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.detectLanguageMethod, arguments: [
             "text": "Bonjour, cette application permet de traduire le texte sélectionné dans une autre langue sans interrompre votre travail.",
         ])) { value in
             XCTAssertEqual(value as? String, "fr")
@@ -222,25 +456,25 @@ class RunnerTests: XCTestCase {
             let bridge = MacPlatformBridge(overlay: overlay, selectionMonitor: SelectionMonitor())
             var events: [[String: Any]] = []
             _ = bridge.onListen(withArguments: nil) { events.append($0 as! [String: Any]) }
-            bridge.emitSelectionCaptured(text: "Hello", gesture: "drag", x: 300, y: 500, sourcePID: 100)
+            bridge.emitSelectionCaptured(text: "Hello", gesture: SelectionGesture.drag.rawValue, x: 300, y: 500, sourcePID: 100)
             let sessionId = events.last!["sessionId"] as! String
-            let show = FlutterMethodCall(methodName: "showOverlay", arguments: [
+            let show = FlutterMethodCall(methodName: AppConstants.showOverlayMethod, arguments: [
                 "sessionId": sessionId, "x": 300.0, "y": 500.0, "width": 720.0, "height": 420.0,
             ])
             bridge.handle(show) { _ in }
             if retained {
-                bridge.handle(FlutterMethodCall(methodName: "retainOverlay", arguments: ["sessionId": sessionId])) { _ in }
+                bridge.handle(FlutterMethodCall(methodName: AppConstants.retainOverlayMethod, arguments: ["sessionId": sessionId])) { _ in }
             }
             let frame = overlay.frame
             bridge.sourceApplicationChanged(to: 200)
             bridge.invalidateSelection()
             if retained {
-                bridge.emitSelectionCaptured(text: "Ignored", gesture: "selectAll", x: 500, y: 600, sourcePID: 200)
+                bridge.emitSelectionCaptured(text: "Ignored", gesture: SelectionGesture.selectAll.rawValue, x: 500, y: 600, sourcePID: 200)
                 XCTAssertTrue(overlay.isPanelVisible)
                 XCTAssertEqual(overlay.frame, frame)
                 XCTAssertTrue(bridge.hasSelection)
                 XCTAssertTrue(bridge.retainsResult)
-                bridge.invalidateSelection(eventType: "escapePressed")
+                bridge.invalidateSelection(eventType: AppConstants.escapePressedMethod)
             }
             XCTAssertFalse(overlay.isPanelVisible)
             XCTAssertFalse(bridge.hasSelection)
@@ -258,19 +492,19 @@ class RunnerTests: XCTestCase {
         let bridge = MacPlatformBridge(overlay: overlay, selectionMonitor: SelectionMonitor())
         var events: [[String: Any]] = []
         _ = bridge.onListen(withArguments: nil) { events.append($0 as! [String: Any]) }
-        bridge.emitSelectionCaptured(text: "first", gesture: "drag", x: 300, y: 500, sourcePID: 100)
+        bridge.emitSelectionCaptured(text: "first", gesture: SelectionGesture.drag.rawValue, x: 300, y: 500, sourcePID: 100)
         let oldId = events.last!["sessionId"] as! String
-        bridge.handle(FlutterMethodCall(methodName: "retainOverlay", arguments: ["sessionId": oldId])) { _ in }
-        bridge.emitSelectionCaptured(text: "second", gesture: "hotkey", x: 300, y: 500, sourcePID: 100)
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.retainOverlayMethod, arguments: ["sessionId": oldId])) { _ in }
+        bridge.emitSelectionCaptured(text: "second", gesture: SelectionGesture.hotkey.rawValue, x: 300, y: 500, sourcePID: 100)
         let newId = events.last!["sessionId"] as! String
-        bridge.handle(FlutterMethodCall(methodName: "showOverlay", arguments: [
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.showOverlayMethod, arguments: [
             "sessionId": newId, "x": 300.0, "y": 500.0, "width": 84.0, "height": 36.0,
         ])) { _ in }
-        bridge.handle(FlutterMethodCall(methodName: "hideOverlay", arguments: ["sessionId": oldId])) { _ in }
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.hideOverlayMethod, arguments: ["sessionId": oldId])) { _ in }
         XCTAssertTrue(overlay.isPanelVisible)
-        bridge.invalidateSelection(eventType: "escapePressed")
+        bridge.invalidateSelection(eventType: AppConstants.escapePressedMethod)
         XCTAssertFalse(overlay.isPanelVisible)
-        XCTAssertEqual(events.last?["type"] as? String, "escapePressed")
+        XCTAssertEqual(events.last?["type"] as? String, AppConstants.escapePressedMethod)
         XCTAssertEqual(events.last?["sessionId"] as? String, newId)
     }
 
@@ -359,9 +593,9 @@ class RunnerTests: XCTestCase {
     func testScreenshotSnapshotReportsScreenAccessWithoutCaptureBytes() throws {
         let controller = ScreenshotWindowController()
         defer { controller.shutdown() }
-        let snapshotExpectation = expectation(description: "getScreenshot")
+        let snapshotExpectation = expectation(description: AppConstants.getScreenshotMethod)
         var snapshot: [String: Any]?
-        controller.handle(FlutterMethodCall(methodName: "getScreenshot", arguments: nil)) { value in
+        controller.handle(FlutterMethodCall(methodName: AppConstants.getScreenshotMethod, arguments: nil)) { value in
             snapshot = value as? [String: Any]
             snapshotExpectation.fulfill()
         }
@@ -415,7 +649,7 @@ class RunnerTests: XCTestCase {
         let created = NSApp.windows.filter { !existing.contains(ObjectIdentifier($0)) && $0 is PinPanel }
         XCTAssertFalse(created.isEmpty)
 
-        // 图片层必须走 mouseDown→performDrag；关闭按钮不得触发拖动计数。
+        // 图片层接收首次拖动；右上角没有覆盖控件，Escape只关闭当前贴图。
         let remaining = try XCTUnwrap(pins.firstPanel)
         let image = remaining.imageViewForTesting
         XCTAssertTrue(image is DraggablePinImageView)
@@ -437,7 +671,8 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(image.dragBeginCountForTesting, beforeDrag + 1)
 
         let beforeCloseDrag = image.dragBeginCountForTesting
-        remaining.closeButtonForTesting.performClick(nil)
+        XCTAssertEqual(remaining.contentView?.subviews.count, 1)
+        remaining.cancelOperation(nil)
         XCTAssertEqual(image.dragBeginCountForTesting, beforeCloseDrag)
         XCTAssertEqual(pins.count, 0)
         XCTAssertFalse(pins.isVisible(pinId: second))
@@ -469,13 +704,15 @@ class RunnerTests: XCTestCase {
         let editedPng = try png(width: 64, height: 16, color: .blue)
 
         var pinResult: Any?
-        let pinExpectation = expectation(description: "pinScreenshot")
+        let pinExpectation = expectation(description: AppConstants.pinScreenshotMethod)
         controller.handle(
             FlutterMethodCall(
-                methodName: "pinScreenshot",
+                methodName: AppConstants.pinScreenshotMethod,
                 arguments: [
                     "id": "capture-1",
                     "bytes": FlutterStandardTypedData(bytes: editedPng),
+                    "x": 40.0,
+                    "y": 80.0,
                 ]
             )
         ) { value in
@@ -494,7 +731,7 @@ class RunnerTests: XCTestCase {
         let staleExpectation = expectation(description: "stale pin")
         controller.handle(
             FlutterMethodCall(
-                methodName: "pinScreenshot",
+                methodName: AppConstants.pinScreenshotMethod,
                 arguments: [
                     "id": "not-current",
                     "bytes": FlutterStandardTypedData(bytes: editedPng),
@@ -506,7 +743,7 @@ class RunnerTests: XCTestCase {
         }
         wait(for: [staleExpectation], timeout: 1)
         let staleError = try XCTUnwrap(staleResult as? FlutterError)
-        XCTAssertEqual(staleError.code, "stale_capture")
+        XCTAssertEqual(staleError.code, AppConstants.staleCaptureError)
         XCTAssertEqual(controller.pins.count, 1)
 
         // 用户关闭入口销毁贴图，不经由 shutdown。
@@ -531,6 +768,8 @@ class RunnerTests: XCTestCase {
         let secondId = pins.pin(png: png, origin: NSPoint(x: 160, y: 160))
         XCTAssertEqual(pins.count, 2)
         XCTAssertTrue(firstPanel.canBecomeKey)
+        // 尚未激活的贴图也必须接收第一次点击，不能先丢弃鼠标以激活应用。
+        XCTAssertTrue(firstPanel.imageViewForTesting.acceptsFirstMouse(for: nil))
 
         let esc = try XCTUnwrap(
             NSEvent.keyEvent(
@@ -550,6 +789,30 @@ class RunnerTests: XCTestCase {
         XCTAssertFalse(pins.isVisible(pinId: firstId))
         XCTAssertTrue(pins.isVisible(pinId: secondId))
         XCTAssertEqual(pins.count, 1)
+    }
+
+    /// 无参数；窗口矩形映射到冻结帧像素，不相交时返回 nil。
+    func testFrontmostWindowPixelCropMapsAppKitRectIntoImagePixels() {
+        let display = NSRect(x: 0, y: 0, width: 100, height: 80)
+        let window = NSRect(x: 10, y: 10, width: 40, height: 40)
+        let crop = CaptureGeometry.pixelCrop(
+            window: window,
+            displayFrame: display,
+            pixelWidth: 200,
+            pixelHeight: 160
+        )
+        XCTAssertEqual(crop?.origin.x ?? -1, 20, accuracy: 0.01)
+        XCTAssertEqual(crop?.origin.y ?? -1, 60, accuracy: 0.01)
+        XCTAssertEqual(crop?.width ?? -1, 80, accuracy: 0.01)
+        XCTAssertEqual(crop?.height ?? -1, 80, accuracy: 0.01)
+        XCTAssertNil(
+            CaptureGeometry.pixelCrop(
+                window: NSRect(x: 400, y: 400, width: 10, height: 10),
+                displayFrame: display,
+                pixelWidth: 200,
+                pixelHeight: 100
+            )
+        )
     }
 
 }

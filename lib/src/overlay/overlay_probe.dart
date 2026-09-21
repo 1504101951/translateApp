@@ -10,6 +10,7 @@ class OverlayProbe extends StatefulWidget {
   State<OverlayProbe> createState() => OverlayProbeState();
 }
 
+/// 维护探测面板点击计数；仅验证NSPanel内Flutter命中，不参与翻译会话。
 class OverlayProbeState extends State<OverlayProbe> {
   int taps = 0;
 
@@ -36,10 +37,7 @@ class OverlayProbeState extends State<OverlayProbe> {
                   onPressed: () => setState(() => taps += 1),
                   child: const Text('点击'),
                 ),
-                TextButton(
-                  onPressed: widget.onHide,
-                  child: const Text('隐藏'),
-                ),
+                TextButton(onPressed: widget.onHide, child: const Text('隐藏')),
               ],
             ),
           ],

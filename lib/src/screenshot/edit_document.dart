@@ -3,8 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
-/// 标注种类；裁剪不进入此枚举，撤销只覆盖这些标注。
-enum AnnotationKind { rectangle, arrow, text, mask, stroke }
+import '../common/constants/screenshot_enums.dart';
 
 /// 单条标注；坐标一律为源图像素，缩放只影响显示变换。
 class EditAnnotation {
@@ -16,14 +15,18 @@ class EditAnnotation {
     this.end,
     this.points = const [],
     this.text = '',
-    this.color = const Color(0xFFFF3B30),
+    this.color = ScreenshotDefaults.strokeColor,
     this.strokeWidth = 3,
-    this.fontSize = 18,
+    this.fontSize = ScreenshotDefaults.fontSize,
   });
 
+  /// 文档内唯一 id；预览用临时值，提交后由文档分配。
   final String id;
+
+  /// 绘制与手势策略按 kind 分支。
   final AnnotationKind kind;
   // rect/mask/text 用 bounds；arrow 用 start/end；stroke 用 points。
+  /// 源图像素包围盒；文字框可拉伸后写回这里。
   final Rect bounds;
   final Offset? start;
   final Offset? end;
@@ -61,11 +64,15 @@ class EditAnnotation {
 
 /// 撤销/重做命令；只记录标注与裁剪差异，不克隆位图。
 abstract class _EditCommand {
+  /// document为目标文档；执行标注状态变更，无返回值。
   void apply(EditDocument document);
+  /// document为目标文档；恢复命令执行前标注状态，无返回值。
   void revert(EditDocument document);
 }
 
+/// 新增标注命令；执行添加同一标注，撤销按稳定标识删除。
 class _AddAnnotationCommand extends _EditCommand {
+  /// annotation为不可变标注；构造命令不立即修改文档。
   _AddAnnotationCommand(this.annotation);
 
   final EditAnnotation annotation;
@@ -78,7 +85,9 @@ class _AddAnnotationCommand extends _EditCommand {
       document._annotations.removeWhere((item) => item.id == annotation.id);
 }
 
+/// 修改标注命令；执行写入after，撤销恢复before。
 class _UpdateAnnotationCommand extends _EditCommand {
+  /// before/after为同id标注的前后状态；构造不立即修改文档。
   _UpdateAnnotationCommand(this.before, this.after);
 
   final EditAnnotation before;
@@ -261,6 +270,7 @@ class EditDocument extends ChangeNotifier {
     _paintAnnotation(canvas, annotation);
   }
 
+  /// command为编辑命令；执行并入撤销栈，清空重做栈并通知监听者，无返回值。
   void _push(_EditCommand command) {
     command.apply(this);
     _undo.add(command);
@@ -268,17 +278,20 @@ class EditDocument extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// annotation为既有id的新状态；找到时原位替换，找不到则不修改，无返回值。
   void _replaceAnnotation(EditAnnotation annotation) {
     final index = _annotations.indexWhere((item) => item.id == annotation.id);
     if (index < 0) return;
     _annotations[index] = annotation;
   }
 
+  /// 无参数；递增计数并返回文档内唯一标注id。
   String _allocateId() {
     _nextId += 1;
     return 'a$_nextId';
   }
 
+  /// crop为源图像素坐标候选框；返回夹紧到图像边界且至少1像素的框，不改变状态。
   Rect _clampCrop(Rect crop) {
     final left = crop.left.clamp(0, _width.toDouble()).toDouble();
     final top = crop.top.clamp(0, _height.toDouble()).toDouble();
@@ -287,6 +300,7 @@ class EditDocument extends ChangeNotifier {
     return Rect.fromLTRB(left, top, right, bottom);
   }
 
+  /// a/b为像素坐标裁剪框；返回四边差值是否均小于半像素，避免无意义通知。
   static bool _nearlySameRect(Rect a, Rect b) {
     return (a.left - b.left).abs() < 0.5 &&
         (a.top - b.top).abs() < 0.5 &&
@@ -294,6 +308,7 @@ class EditDocument extends ChangeNotifier {
         (a.bottom - b.bottom).abs() < 0.5;
   }
 
+  /// canvas为源图坐标目标，annotation为标注；按类型绘制导出像素，不改变文档，无返回值。
   static void _paintAnnotation(Canvas canvas, EditAnnotation annotation) {
     switch (annotation.kind) {
       case AnnotationKind.rectangle:
@@ -352,10 +367,17 @@ class EditDocument extends ChangeNotifier {
         }
         canvas.drawPath(path, paint);
       case AnnotationKind.text:
-        final builder = ui.ParagraphBuilder(
-          ui.ParagraphStyle(fontSize: annotation.fontSize),
-        )..pushStyle(ui.TextStyle(color: annotation.color, fontSize: annotation.fontSize))
-          ..addText(annotation.text.isEmpty ? ' ' : annotation.text);
+        final builder =
+            ui.ParagraphBuilder(
+                ui.ParagraphStyle(fontSize: annotation.fontSize),
+              )
+              ..pushStyle(
+                ui.TextStyle(
+                  color: annotation.color,
+                  fontSize: annotation.fontSize,
+                ),
+              )
+              ..addText(annotation.text.isEmpty ? ' ' : annotation.text);
         final paragraph = builder.build()
           ..layout(
             ui.ParagraphConstraints(
@@ -366,5 +388,6 @@ class EditDocument extends ChangeNotifier {
     }
   }
 
+  /// unit为单位方向；返回逆时针垂直向量，供箭头顶点计算，不改变输入。
   static Offset _perp(Offset unit) => Offset(-unit.dy, unit.dx);
 }

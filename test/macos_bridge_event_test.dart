@@ -1,13 +1,16 @@
+import 'package:translate_app/src/common/constants/selection_gesture_types.dart';
+import 'package:translate_app/src/common/constants/method_names.dart';
+import 'package:translate_app/src/common/constants/bridge_event_types.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/platform/macos_bridge_event.dart';
 
 void main() {
   test('parses selectionCaptured with sessionId', () {
     final event = MacosBridgeEvent.fromMap({
-      'type': 'selectionCaptured',
+      'type': BridgeEventTypes.selectionCaptured,
       'sessionId': 's1',
       'text': 'hello',
-      'gesture': 'drag',
+      'gesture': SelectionGestureTypes.drag,
       'x': 10,
       'y': 20,
     });
@@ -15,14 +18,14 @@ void main() {
     final captured = event as SelectionCaptured;
     expect(captured.sessionId, 's1');
     expect(captured.text, 'hello');
-    expect(captured.gesture, 'drag');
+    expect(captured.gesture, SelectionGestureTypes.drag);
     expect(captured.x, 10);
     expect(captured.y, 20);
   });
 
   test('parses escapePressed', () {
     final event = MacosBridgeEvent.fromMap({
-      'type': 'escapePressed',
+      'type': MethodNames.escapePressed,
       'sessionId': 's2',
     });
     expect(event, isA<EscapePressed>());

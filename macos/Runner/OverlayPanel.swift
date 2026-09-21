@@ -115,6 +115,7 @@ final class OverlayPanelController {
     }
 }
 
+/// 不可成为key或main的透明浮层窗口；显示译文时不夺取来源应用的键盘焦点。
 final class TranslationPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }

@@ -8,8 +8,8 @@ import FlutterMacOS
 
 /// Dart ↔ Swift 平台通道。不保存翻译状态，不实现 Provider。
 final class MacPlatformBridge: NSObject, FlutterStreamHandler {
-    static let methodChannelName = "translateapp/macos"
-    static let eventChannelName = "translateapp/macos/events"
+    static let methodChannelName = AppConstants.macosChannel
+    static let eventChannelName = AppConstants.macosEventsChannel
 
     private var eventSink: FlutterEventSink?
     private let overlay: OverlayPanelController
@@ -61,6 +61,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         return instance
     }
 
+    /// 已注册平台桥的进程共享入口；原生窗口与菜单转发请求，不持有另一份业务状态。
     enum Shared {
         static var instance: MacPlatformBridge?
     }
@@ -69,18 +70,18 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         switch call.method {
-        case "showOverlay":
+        case AppConstants.showOverlayMethod:
             guard let sessionId = args["sessionId"] as? String,
                   let x = args["x"] as? Double,
                   let y = args["y"] as? Double
             else {
-                result(FlutterError(code: "bad_args", message: "showOverlay 需要 sessionId/x/y", details: nil))
+                result(FlutterError(code: AppConstants.badArgsError, message: "showOverlay 需要 sessionId/x/y", details: nil))
                 return
             }
             guard currentSessionId == sessionId else { result(nil); return }
             guard let width = args["width"] as? Double, let height = args["height"] as? Double,
                   x.isFinite, y.isFinite, width.isFinite, height.isFinite, width > 0, height > 0 else {
-                result(FlutterError(code: "bad_args", message: "Overlay 坐标和尺寸必须有效", details: nil))
+                result(FlutterError(code: AppConstants.badArgsError, message: "Overlay 坐标和尺寸必须有效", details: nil))
                 return
             }
             // 显示前再次核对会话，失效后迟到的 Dart 指令不能重新弹窗。
@@ -90,16 +91,16 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 sessionId: sessionId
             )
             result(nil)
-        case "retainOverlay":
+        case AppConstants.retainOverlayMethod:
             guard let sessionId = args["sessionId"] as? String else {
-                result(FlutterError(code: "bad_args", message: "retainOverlay 需要 sessionId", details: nil)); return
+                result(FlutterError(code: AppConstants.badArgsError, message: "retainOverlay 需要 sessionId", details: nil)); return
             }
             // 展开由显式翻译触发，之后被动选区和前台变化只影响新的采集。
             if currentSessionId == sessionId { retainsResult = true }
             result(nil)
-        case "hideOverlay":
+        case AppConstants.hideOverlayMethod:
             guard let sessionId = args["sessionId"] as? String else {
-                result(FlutterError(code: "bad_args", message: "hideOverlay 需要 sessionId", details: nil))
+                result(FlutterError(code: AppConstants.badArgsError, message: "hideOverlay 需要 sessionId", details: nil))
                 return
             }
             guard currentSessionId == sessionId else { result(nil); return }
@@ -110,32 +111,32 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             retainsResult = false
             overlay.hide(sessionId: sessionId)
             result(nil)
-        case "setOverlaySize":
+        case AppConstants.setOverlaySizeMethod:
             guard let sessionId = args["sessionId"] as? String,
                   let width = args["width"] as? Double,
                   let height = args["height"] as? Double
             else {
-                result(FlutterError(code: "bad_args", message: "setOverlaySize 需要 sessionId/width/height", details: nil))
+                result(FlutterError(code: AppConstants.badArgsError, message: "setOverlaySize 需要 sessionId/width/height", details: nil))
                 return
             }
             guard currentSessionId == sessionId else { result(nil); return }
             guard width.isFinite, height.isFinite, width > 0, height > 0 else {
-                result(FlutterError(code: "bad_args", message: "Overlay 尺寸必须为正数", details: nil))
+                result(FlutterError(code: AppConstants.badArgsError, message: "Overlay 尺寸必须为正数", details: nil))
                 return
             }
             overlay.resize(sessionId: sessionId, size: NSSize(width: width, height: height))
             result(nil)
-        case "dragOverlay":
+        case AppConstants.dragOverlayMethod:
             guard let sessionId = args["sessionId"] as? String else {
-                result(FlutterError(code: "bad_args", message: "dragOverlay 需要 sessionId", details: nil))
+                result(FlutterError(code: AppConstants.badArgsError, message: "dragOverlay 需要 sessionId", details: nil))
                 return
             }
             // Flutter 区分拖动与点击，AppKit 负责实际移动且不激活应用。
             overlay.drag(sessionId: sessionId)
             result(nil)
-        case "readSelectionForTranslation":
+        case AppConstants.readSelectionForTranslationMethod:
             guard let sessionId = args["sessionId"] as? String else {
-                result(FlutterError(code: "bad_args", message: "读取选区需要 sessionId", details: nil)); return
+                result(FlutterError(code: AppConstants.badArgsError, message: "读取选区需要 sessionId", details: nil)); return
             }
             guard currentSessionId == sessionId, let pid = sourceProcessIdentifier else { result(nil); return }
             selectionReadTask?.cancel()
@@ -145,17 +146,24 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 guard let self, !Task.isCancelled, self.currentSessionId == sessionId else { result(nil); return }
                 result(selection.text)
             }
-        case "loadSettings":
-            var settings = UserDefaults.standard.dictionary(forKey: "preferences") ?? [:]
+        case AppConstants.isCurrentScreenshotMethod:
+            guard let id = args["id"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "核对截图需要 id", details: nil)); return
+            }
+            // 翻译结果落库前核对原生生命周期，关闭的截图不得产生历史。
+            // 只查询捕获身份，不向主引擎传输第二份截图数据。
+            result(screenshot.isCurrentCapture(id))
+        case AppConstants.loadSettingsMethod:
+            var settings = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
             settings["systemLanguage"] = Locale.preferredLanguages.first ?? "en"
-            settings["launchAtLogin"] = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
+            settings[AppConstants.launchAtLoginKey] = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
             // 截图目录历史上独立存储；设置分段页与截图导出共用同一键。
-            settings["screenshotSaveDirectory"] =
-                UserDefaults.standard.string(forKey: "screenshotSaveDirectory")
-                ?? (settings["screenshotSaveDirectory"] as? String)
+            settings[AppConstants.screenshotSaveDirectoryKey] =
+                UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey)
+                ?? (settings[AppConstants.screenshotSaveDirectoryKey] as? String)
                 ?? ""
             result(settings)
-        case "chooseScreenshotDirectory":
+        case AppConstants.chooseScreenshotDirectoryMethod:
             let panel = NSOpenPanel()
             panel.canChooseDirectories = true
             panel.canChooseFiles = false
@@ -169,19 +177,19 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 }
                 result(url.path)
             }
-        case "applySettings":
+        case AppConstants.applySettingsMethod:
             guard let settings = args["settings"] as? [String: Any],
                   let credentials = args["credentials"] as? [String: Any] else {
-                result(FlutterError(code: "bad_settings", message: "设置数据不完整。", details: nil)); return
+                result(FlutterError(code: AppConstants.badSettingsError, message: "设置数据不完整。", details: nil)); return
             }
             applySettings(settings, credentials: credentials, result: result)
-        case "readCredentials":
+        case AppConstants.readCredentialsMethod:
             guard let id = args["id"] as? String else {
-                result(FlutterError(code: "bad_args", message: "缺少服务标识。", details: nil)); return
+                result(FlutterError(code: AppConstants.badArgsError, message: "缺少服务标识。", details: nil)); return
             }
             do { result(try Self.readCredentials(id: id) ?? [:]) }
-            catch { result(FlutterError(code: "keychain_failed", message: error.localizedDescription, details: nil)) }
-        case "credentialIds":
+            catch { result(FlutterError(code: AppConstants.keychainFailedError, message: error.localizedDescription, details: nil)) }
+        case AppConstants.credentialIdsMethod:
             let ids = args["ids"] as? [String] ?? []
             var saved: [String] = []
             let context = LAContext()
@@ -197,48 +205,48 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 ]
                 let status = SecItemCopyMatching(query as CFDictionary, nil)
                 guard status == errSecSuccess || status == errSecItemNotFound || status == errSecInteractionNotAllowed else {
-                    result(FlutterError(code: "keychain_failed", message: "无法读取凭据状态，请检查钥匙串访问权限。", details: nil)); return
+                    result(FlutterError(code: AppConstants.keychainFailedError, message: "无法读取凭据状态，请检查钥匙串访问权限。", details: nil)); return
                 }
                 if status == errSecSuccess || status == errSecInteractionNotAllowed { saved.append(id) }
             }
             result(saved)
-        case "detectLanguage":
+        case AppConstants.detectLanguageMethod:
             guard let text = args["text"] as? String else {
-                result(FlutterError(code: "bad_args", message: "缺少待识别文本", details: nil)); return
+                result(FlutterError(code: AppConstants.badArgsError, message: "缺少待识别文本", details: nil)); return
             }
             let recognizer = NLLanguageRecognizer()
             recognizer.processString(text)
             let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first
             result(hypothesis.flatMap { $0.value >= 0.5 ? $0.key.rawValue : nil })
-        case "systemStatus":
+        case AppConstants.systemStatusMethod:
             result([
                 "accessibility": AccessibilitySelection.isTrusted(prompt: false),
                 "loginNeedsApproval": SMAppService.mainApp.status == .requiresApproval,
                 "screenAccess": ScreenCaptureService.isAuthorized(),
             ])
-        case "permissionWizardStatus":
+        case AppConstants.permissionWizardStatusMethod:
             result([
                 "accessibility": AccessibilitySelection.isTrusted(prompt: false),
                 "screenAccess": ScreenCaptureService.isAuthorized(),
-                "finishedOrSkipped": UserDefaults.standard.bool(forKey: "permissionWizardFinished"),
+                "finishedOrSkipped": UserDefaults.standard.bool(forKey: AppConstants.permissionWizardFinishedKey),
             ])
-        case "finishPermissionWizard":
-            UserDefaults.standard.set(true, forKey: "permissionWizardFinished")
+        case AppConstants.finishPermissionWizardMethod:
+            UserDefaults.standard.set(true, forKey: AppConstants.permissionWizardFinishedKey)
             result(nil)
-        case "closePermissionWizard":
+        case AppConstants.closePermissionWizardMethod:
             closePermissionWizard?()
             result(nil)
-        case "applicationSupportPath":
+        case AppConstants.applicationSupportPathMethod:
             let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             let dir = root.appendingPathComponent("TranslateApp", isDirectory: true)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             result(dir.path)
-        case "openHistory":
+        case AppConstants.openHistoryMethod:
             showHistory?()
             result(nil)
-        case "requestScreenAccess":
+        case AppConstants.requestScreenAccessMethod:
             Task { @MainActor in
-                let granted = await ScreenCaptureService.requestAccess()
+                let granted = await ScreenCaptureService.requestAccess(promoteToRegularApp: true)
                 if !granted {
                     ScreenCaptureService.openScreenRecordingSettings()
                 }
@@ -248,7 +256,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                     "loginNeedsApproval": SMAppService.mainApp.status == .requiresApproval,
                 ])
             }
-        case "openAccessibility":
+        case AppConstants.openAccessibilityMethod:
             // 已授权则只复用，不再弹系统提示。
             if AccessibilitySelection.isTrusted(prompt: false) {
                 result(nil)
@@ -257,10 +265,10 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             _ = AccessibilitySelection.isTrusted(prompt: true)
             AccessibilitySelection.openSettings()
             result(nil)
-        case "openLoginItems":
+        case AppConstants.openLoginItemsMethod:
             SMAppService.openSystemSettingsLoginItems()
             result(nil)
-        case "chooseExcludedApp":
+        case AppConstants.chooseExcludedAppMethod:
             let picker = NSOpenPanel()
             picker.allowedContentTypes = [.applicationBundle]
             picker.directoryURL = URL(fileURLWithPath: "/Applications")
@@ -269,21 +277,21 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             picker.begin { response in
                 guard response == .OK, let url = picker.url else { result(nil); return }
                 guard let id = Bundle(url: url)?.bundleIdentifier else {
-                    result(FlutterError(code: "bad_app", message: "该应用没有 Bundle ID。", details: nil)); return
+                    result(FlutterError(code: AppConstants.badAppError, message: "该应用没有 Bundle ID。", details: nil)); return
                 }
                 result(["id": id, "name": (FileManager.default.displayName(atPath: url.path) as NSString).deletingPathExtension])
             }
-        case "appReady":
+        case AppConstants.appReadyMethod:
             if let onReady {
                 onReady()
             } else {
                 pendingAppReady = true
             }
             result(nil)
-        case "probeEmitSelection":
+        case AppConstants.probeEmitSelectionMethod:
             emitProbeSelection()
             result(nil)
-        case "requestAccessibility":
+        case AppConstants.requestAccessibilityMethod:
             result(AccessibilitySelection.isTrusted(prompt: true))
         default:
             result(FlutterMethodNotImplemented)
@@ -292,15 +300,15 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
 
     /// settings 为 Dart 校验过的完整偏好；先完成系统副作用再落盘，结果通过 result 返回。
     private func applySettings(_ settings: [String: Any], credentials: [String: Any], result: @escaping FlutterResult) {
-        guard let automatic = settings["automatic"] as? Bool,
-              let keyCode = settings["shortcutKeyCode"] as? UInt32,
-              let modifiers = settings["shortcutModifiers"] as? UInt32,
-              let screenshotCode = settings["screenshotShortcutKeyCode"] as? UInt32,
-              let screenshotFlags = settings["screenshotShortcutModifiers"] as? UInt32,
-              let excluded = settings["excludedApps"] as? [String: String],
-              let login = settings["launchAtLogin"] as? Bool,
+        guard let automatic = settings[AppConstants.automaticKey] as? Bool,
+              let keyCode = settings[AppConstants.shortcutKeyCodeKey] as? UInt32,
+              let modifiers = settings[AppConstants.shortcutModifiersKey] as? UInt32,
+              let screenshotCode = settings[AppConstants.screenshotShortcutKeyCodeKey] as? UInt32,
+              let screenshotFlags = settings[AppConstants.screenshotShortcutModifiersKey] as? UInt32,
+              let excluded = settings[AppConstants.excludedAppsKey] as? [String: String],
+              let login = settings[AppConstants.launchAtLoginKey] as? Bool,
               credentials.values.allSatisfy({ $0 is NSNull || $0 is [String: String] }) else {
-            result(FlutterError(code: "bad_settings", message: "系统设置参数不完整。", details: nil)); return
+            result(FlutterError(code: AppConstants.badSettingsError, message: "系统设置参数不完整。", details: nil)); return
         }
         let previousLogin = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
         var previousCredentials: [String: [String: String]] = [:]
@@ -320,13 +328,16 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             }
             try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers, screenshotCode: screenshotCode, screenshotFlags: screenshotFlags)
             // 截图导出仍读独立键；保存设置时与 preferences 字典同步，避免双源互相覆盖。
-            if let directory = settings["screenshotSaveDirectory"] as? String, !directory.isEmpty {
-                UserDefaults.standard.set(directory, forKey: "screenshotSaveDirectory")
+            if let directory = settings[AppConstants.screenshotSaveDirectoryKey] as? String, !directory.isEmpty {
+                UserDefaults.standard.set(directory, forKey: AppConstants.screenshotSaveDirectoryKey)
             } else {
-                UserDefaults.standard.removeObject(forKey: "screenshotSaveDirectory")
+                UserDefaults.standard.removeObject(forKey: AppConstants.screenshotSaveDirectoryKey)
             }
             // 凭据与系统副作用成功后才保存不含密钥的偏好。
-            UserDefaults.standard.set(settings, forKey: "preferences")
+            UserDefaults.standard.set(settings, forKey: AppConstants.preferencesKey)
+            // 只有配置事务提交后广播外观，所有已打开引擎共享同一已保存快照。
+            NotificationCenter.default.post(name: AppConstants.appearanceChangedNotification, object: nil)
+            screenshot.toolbarPreferencesChanged()
             StatusBarController.shared.updateAutomatic(automatic)
             result(nil)
         } catch {
@@ -341,9 +352,9 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                     else { try SMAppService.mainApp.unregister() }
                 }
             } catch {
-                result(FlutterError(code: "rollback_failed", message: "设置未保存，无法恢复部分系统设置或凭据，请检查钥匙串与登录项。", details: nil)); return
+                result(FlutterError(code: AppConstants.rollbackFailedError, message: "设置未保存，无法恢复部分系统设置或凭据，请检查钥匙串与登录项。", details: nil)); return
             }
-            result(FlutterError(code: "settings_failed", message: originalError.localizedDescription, details: nil))
+            result(FlutterError(code: AppConstants.settingsFailedError, message: originalError.localizedDescription, details: nil))
         }
     }
 
@@ -404,7 +415,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
 
     /// text 为选中文字，gesture 为手势，x/y 为屏幕锚点，sourcePID 为来源进程；发送新会话，无返回值。
     func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat, sourcePID: pid_t) {
-        guard !retainsResult || gesture == "hotkey" else { return }
+        guard !retainsResult || gesture == SelectionGesture.hotkey.rawValue else { return }
         // 只有显式热键可以替换保留的结果；被动手势不打断阅读或正在进行的翻译。
         retainsResult = false
         // 结束被替换的会话，迟到命令仍由新旧 sessionId 隔离。
@@ -413,10 +424,12 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         currentSessionId = sessionId
         sourceProcessIdentifier = sourcePID
         emit([
-            "type": "selectionCaptured",
+            "type": AppConstants.selectionCapturedEvent,
             "sessionId": sessionId,
             "text": text,
             "gesture": gesture,
+            // 此刻的来源进程才对应原文；不保存 PID、窗口或选区坐标到历史。
+            "sourceAppName": (NSRunningApplication(processIdentifier: sourcePID)?.localizedName as Any?) ?? NSNull(),
             "x": x,
             "y": y,
         ])
@@ -426,7 +439,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     func emitProbeSelection() {
         let mouse = NSEvent.mouseLocation
         // 探测与真实事件使用相同的会话生命周期。
-        emitSelectionCaptured(text: "probe", gesture: "drag", x: mouse.x, y: mouse.y,
+        emitSelectionCaptured(text: "probe", gesture: SelectionGesture.drag.rawValue, x: mouse.x, y: mouse.y,
                               sourcePID: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? getpid())
     }
 
@@ -438,8 +451,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     }
 
     /// eventType 为失效或 Escape 类型；被动失效只关闭按钮，Escape 关闭所有状态，无返回值。
-    func invalidateSelection(eventType: String = "selectionInvalidated") {
-        guard !retainsResult || eventType == "escapePressed" else { return }
+    func invalidateSelection(eventType: String = AppConstants.selectionInvalidatedEvent) {
+        guard !retainsResult || eventType == AppConstants.escapePressedMethod else { return }
         selectionReadTask?.cancel()
         selectionReadTask = nil
         guard let sessionId = currentSessionId else { return }

@@ -4,25 +4,14 @@ import AppKit
 final class PinOverlayController {
     private var pins: [String: PinPanel] = [:]
 
-    /// png 为最终合成图，origin 为 AppKit 屏幕坐标（可选）；返回贴图 id。
+    /// png 为最终合成图，origin 为选区左下角的 AppKit 屏幕坐标。返回贴图 id。
     @discardableResult
-    func pin(png: Data, origin: NSPoint?) -> String {
+    func pin(png: Data, origin: NSPoint) -> String {
         let id = UUID().uuidString
         let panel = PinPanel(png: png, pinId: id) { [weak self] closedId in
             self?.pins.removeValue(forKey: closedId)
         }
-        if let origin {
-            panel.setFrameOrigin(origin)
-        } else if let screen = NSScreen.main {
-            let size = panel.frame.size
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(
-                NSPoint(
-                    x: visible.midX - size.width / 2,
-                    y: visible.midY - size.height / 2
-                )
-            )
-        }
+        panel.setFrameOrigin(origin)
         pins[id] = panel
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
         panel.orderFrontRegardless()
@@ -66,25 +55,28 @@ final class DraggablePinImageView: NSImageView {
     /// 无参数；图片层不抢按键，Esc 才能落到贴图窗口。
     override var acceptsFirstResponder: Bool { false }
 
-    /// event 为左键按下；单击拖动窗口，双击关闭贴图。
+    /// event 为首次点击；非活动来源下也直接交给图片，避免首次点击仅激活窗口。
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// event 为左键按下；单击拖动窗口，双击关闭。
     override func mouseDown(with event: NSEvent) {
-        // 双击关闭；单击必须 performDrag，不能依赖 window background 拖动。
         if event.clickCount >= 2 {
             onDoubleClick?()
             return
         }
         dragBeginCountForTesting += 1
-        // 选中后才能收 Esc；单击同时开始拖动。
-        window?.makeKeyAndOrderFront(nil)
+        // performDrag自行消费松开事件；拖前明确选中此贴图，让Esc可靠作用于它。
+        window?.makeKey()
         window?.performDrag(with: event)
     }
+
+
 }
 
 /// 无边框非激活贴图窗；可拖动、滚轮缩放，并提供明确关闭入口。
 final class PinPanel: NSPanel {
     private let rootView = NSView()
     private let imageView = DraggablePinImageView()
-    private let closeButton = NSButton()
     private let closeHandler: (String) -> Void
     let pinId: String
     private var baseSize: NSSize = .zero
@@ -96,7 +88,7 @@ final class PinPanel: NSPanel {
         self.closeHandler = onClose
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 150),
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -111,15 +103,15 @@ final class PinPanel: NSPanel {
         // 图片层自行 performDrag；保留该标志仅作无控件空隙的兜底。
         isMovableByWindowBackground = true
 
-        let image = NSImage(data: png) ?? NSImage(size: NSSize(width: 160, height: 120))
-        // Dart 重编码会丢掉 PNG DPI；按当前屏缩放把像素换成点，避免贴图放大发糊。
-        if let rep = image.representations.first {
-            let scale = max(NSScreen.main?.backingScaleFactor ?? 1, 1)
-            image.size = NSSize(
-                width: CGFloat(rep.pixelsWide) / scale,
-                height: CGFloat(rep.pixelsHigh) / scale
-            )
+        guard let image = NSImage(data: png), let rep = image.representations.first else {
+            preconditionFailure("贴图 PNG 无效")
         }
+        // Dart 重编码没有 DPI；用当前屏缩放把像素换成点。
+        let backing = max(NSScreen.main?.backingScaleFactor ?? 1, 1)
+        image.size = NSSize(
+            width: CGFloat(rep.pixelsWide) / backing,
+            height: CGFloat(rep.pixelsHigh) / backing
+        )
         baseSize = image.size
         imageView.image = image
         imageView.imageScaling = .scaleProportionallyUpOrDown
@@ -129,34 +121,15 @@ final class PinPanel: NSPanel {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.onDoubleClick = { [weak self] in self?.closeFromUserAction() }
 
-        // 明确关闭入口：右上角按钮；非激活窗也能点，不依赖成为 key。
-        closeButton.title = ""
-        closeButton.image = NSImage(
-            systemSymbolName: "xmark.circle.fill",
-            accessibilityDescription: "关闭贴图"
-        )
-        closeButton.bezelStyle = .inline
-        closeButton.isBordered = false
-        closeButton.imagePosition = .imageOnly
-        closeButton.target = self
-        closeButton.action = #selector(closeFromUserAction)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setButtonType(.momentaryChange)
-        closeButton.toolTip = "关闭贴图"
-
+        // 图片不叠加关闭控件，避免遮住内容；Escape与双击共用关闭路径。
         rootView.wantsLayer = true
         rootView.addSubview(imageView)
-        rootView.addSubview(closeButton)
         contentView = rootView
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: rootView.topAnchor),
             imageView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             imageView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-            closeButton.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 4),
-            closeButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -4),
-            closeButton.widthAnchor.constraint(equalToConstant: 22),
-            closeButton.heightAnchor.constraint(equalToConstant: 22),
         ])
         setContentSize(clampedSize(for: baseSize))
 
@@ -169,7 +142,7 @@ final class PinPanel: NSPanel {
 
     /// event 为按键；选中贴图后 Esc 只关这一张。
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
+        if event.keyCode == AppConstants.escapeKeyCode {
             closeFromUserAction()
             return
         }
@@ -193,13 +166,10 @@ final class PinPanel: NSPanel {
         super.close()
     }
 
-    /// 无参数；用户点关闭按钮或双击图片时关闭此贴图。
+    /// 无参数；用户按Escape或双击图片时关闭此贴图。
     @objc func closeFromUserAction() {
         close()
     }
-
-    /// 无参数；测试可直接触发与按钮相同的用户关闭路径。
-    var closeButtonForTesting: NSButton { closeButton }
 
     /// 无参数；返回可拖动图片层，供测试发送 mouseDown。
     var imageViewForTesting: DraggablePinImageView { imageView }

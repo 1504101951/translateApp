@@ -39,7 +39,8 @@ final class SelectionMonitor {
         }
         if hotKeyHandler == nil {
             var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-            let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+            // 必须挂在 dispatcher：Application 目标只在本 App 前台时收热键。
+            let status = InstallEventHandler(GetEventDispatcherTarget(), { _, event, context in
                 guard let event, let context else { return OSStatus(eventNotHandledErr) }
                 var identifier = EventHotKeyID()
                 GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &identifier)
@@ -79,7 +80,7 @@ final class SelectionMonitor {
                 var replacement: EventHotKeyRef?
                 let id = nextHotKeyId
                 nextHotKeyId += 1
-                let status = RegisterEventHotKey(code, flags, EventHotKeyID(signature: 0x5452414E, id: id), GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &replacement)
+                let status = RegisterEventHotKey(code, flags, EventHotKeyID(signature: 0x5452414E, id: id), GetEventDispatcherTarget(), OptionBits(kEventHotKeyExclusive), &replacement)
                 guard status == noErr, let replacement else {
                     throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [NSLocalizedDescriptionKey: "快捷键已被占用，请换一个组合。"])
                 }
@@ -230,7 +231,7 @@ final class SelectionMonitor {
             pendingKeySelection = nil
             captureTask?.cancel()
             stopObservingSelection()
-            bridge?.invalidateSelection(eventType: "escapePressed")
+            bridge?.invalidateSelection(eventType: AppConstants.escapePressedMethod)
             return
         }
         if automatic, type == .keyDown {

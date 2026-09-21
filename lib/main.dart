@@ -1,3 +1,8 @@
+import 'src/common/constants/selection_gesture_types.dart';
+import 'src/common/constants/method_names.dart';
+import 'src/common/constants/preference_keys.dart';
+import 'src/common/constants/error_codes.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -6,19 +11,20 @@ import 'package:flutter/services.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'src/history/history_app.dart';
+import 'src/common/widgets/native_glass.dart';
 import 'src/history/translation_history.dart';
 import 'src/overlay/translation_overlay.dart';
 import 'src/platform/macos_bridge_event.dart';
 import 'src/platform/macos_platform_bridge.dart';
 import 'src/selection/selection_session.dart';
 import 'src/screenshot/screenshot_app.dart';
+import 'src/screenshot/screenshot_translation.dart';
 import 'src/settings/app_settings.dart';
 import 'src/settings/permission_wizard_app.dart';
 import 'src/settings/settings_app.dart';
 import 'src/settings/service_config.dart';
 import 'src/translation/providers/api_translation_provider.dart';
 import 'src/translation/providers/unofficial_google_provider.dart';
-import 'src/translation/segmented_translation.dart';
 import 'src/translation/translation_types.dart';
 
 /// 无参数；初始化主 Dart 偏好、系统桥和翻译会话，无返回值。
@@ -58,7 +64,7 @@ Future<void> main() async {
   Future<Map<String, Object>> snapshot() async => {
     ...settings.toMap(),
     'revision': revision,
-    'credentialIds': await bridge.credentialIds(
+    MethodNames.credentialIds: await bridge.credentialIds(
       settings.services.map((e) => e.id).toList(),
     ),
     'error': ?settingsError,
@@ -88,15 +94,32 @@ Future<void> main() async {
 
   // 第二个 Flutter 引擎只展示表单；配置和连接测试通过同一队列访问主引擎。
   bridge.handleSettings((call) {
+    if (call.method == MethodNames.translatePlainText) {
+      final map = Map<Object?, Object?>.from(call.arguments as Map);
+      final captureId = map['id'] as String;
+      final activeProvider = providerFor(settings);
+      final activeLanguage = settings.direction;
+      // 截图请求使用配置快照，不占用设置队列；用户可在翻译期间关闭历史记录。
+      // 截图翻译只在完整成功且 captureId 仍有效时落库。
+      return translateScreenshotText(
+        text: map['text'] as String,
+        provider: activeProvider,
+        model: _historyModel(activeProvider),
+        language: activeLanguage,
+        detectLanguage: bridge.detectLanguage,
+        isCurrent: () => bridge.isCurrentScreenshot(captureId),
+        history: history,
+      );
+    }
     final operation = settingsQueue.then<Object?>((_) async {
       switch (call.method) {
-        case 'getSettings':
+        case MethodNames.getSettings:
           return snapshot();
-        case 'saveSettings':
+        case MethodNames.saveSettings:
           final map = Map<Object?, Object?>.from(call.arguments as Map);
           if (map['revision'] != revision) {
             throw PlatformException(
-              code: 'settings_conflict',
+              code: ErrorCodes.settingsConflict,
               message: '设置已在其他入口更新，请重新加载后再保存。',
             );
           }
@@ -110,24 +133,31 @@ Future<void> main() async {
             return await save(AppSettings.fromMap(map), drafts);
           } on FormatException catch (error) {
             throw PlatformException(
-              code: 'invalid_settings',
+              code: ErrorCodes.invalidSettings,
               message: error.message,
             );
           }
-        case 'toggleAutomatic':
+        case MethodNames.toggleAutomatic:
           return save(
             AppSettings.fromMap({
               ...settings.toMap(),
-              'automatic': !settings.automatic,
+              PreferenceKeys.automatic: !settings.automatic,
             }),
             {},
           );
-        case 'historyPage':
+        case MethodNames.historyPage:
           final map = Map<Object?, Object?>.from(call.arguments as Map? ?? {});
-          final offset = (map['offset'] as num?)?.toInt() ?? 0;
-          final limit = (map['limit'] as num?)?.toInt() ?? 10;
+          final cursor = map['before'] as Map?;
+          // 历史窗口一次读取固定 10 条；时间/ID 游标避免新记录挤动分页位置。
           return [
-            for (final row in history.page(offset: offset, limit: limit))
+            for (final row in history.page(
+              before: cursor == null
+                  ? null
+                  : (
+                      completedAt: cursor['completedAt'] as int,
+                      id: cursor['id'] as int,
+                    ),
+            ))
               {
                 'id': row.id,
                 'sourceText': row.sourceText,
@@ -137,43 +167,16 @@ Future<void> main() async {
                 'providerId': row.providerId,
                 'model': row.model,
                 'completedAt': row.completedAt,
+                'sourceLabel': row.sourceLabel,
               },
           ];
-        case 'historyRecording':
+        case MethodNames.historyRecording:
           return history.recordingEnabled;
-        case 'setHistoryRecording':
+        case MethodNames.setHistoryRecording:
           final map = Map<Object?, Object?>.from(call.arguments as Map);
           history.recordingEnabled = map['enabled'] == true;
           return null;
-        case 'translatePlainText':
-          final map = Map<Object?, Object?>.from(call.arguments as Map);
-          final text = map['text'] as String;
-          if (text.trim().isEmpty) {
-            throw PlatformException(code: 'ocr_empty', message: '没有可翻译的文字。');
-          }
-          final detected = await bridge.detectLanguage(text);
-          final direction = settings.direction.resolve(detected);
-          final buffer = StringBuffer();
-          await for (final event in translateSegmented(
-            providerFor(settings).translate,
-            TranslationRequest(
-              sourceText: text,
-              detectedLanguage: direction.detectedLanguage,
-              targetLanguage: direction.targetLanguage,
-            ),
-            usesSlidingContext: providerFor(settings).usesSlidingContext,
-          )) {
-            switch (event) {
-              case TranslationUpdate(:final addition):
-                buffer.write(addition);
-              case TranslationCompleted():
-                break;
-              case TranslationFailure(:final message):
-                throw PlatformException(code: 'translate_failed', message: message);
-            }
-          }
-          return buffer.toString();
-        case 'testService':
+        case MethodNames.testService:
           final map = Map<Object?, Object?>.from(call.arguments as Map);
           final config = ServiceConfig.fromMap(
             Map<Object?, Object?>.from(map['config'] as Map),
@@ -202,11 +205,17 @@ Future<void> main() async {
               case TranslationCompleted():
                 completed = true;
               case TranslationFailure(:final message):
-                throw PlatformException(code: 'test_failed', message: message);
+                throw PlatformException(
+                  code: ErrorCodes.testFailed,
+                  message: message,
+                );
             }
           }
           if (!completed) {
-            throw PlatformException(code: 'test_failed', message: '服务未返回完整译文。');
+            throw PlatformException(
+              code: ErrorCodes.testFailed,
+              message: '服务未返回完整译文。',
+            );
           }
           return result.toString();
         default:
@@ -245,12 +254,14 @@ void screenshotMain() {
   runApp(const ScreenshotApp());
 }
 
+/// 无参数；启动权限向导界面，由原生处理系统授权。
 @pragma('vm:entry-point')
 void permissionWizardMain() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const PermissionWizardApp());
 }
 
+/// 无参数；启动独立历史引擎，历史读写仍委托主引擎。
 @pragma('vm:entry-point')
 void historyMain() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -274,9 +285,12 @@ class TranslateApp extends StatefulWidget {
 }
 
 class _TranslateAppState extends State<TranslateApp> {
-  static const _triggerSize = TranslationOverlay.triggerSize;
+  static const _triggerSize = TranslationOverlay.triggerWindowSize;
   static const _resultSize = Size(720, 420);
   late final StreamSubscription<MacosBridgeEvent> _bridgeSubscription;
+
+  /// 来源在接受选区时冻结，不读取翻译完成后的前台应用。
+  String? _sourceAppName;
 
   /// 无参数；订阅原生事件与会话状态，无返回值。
   @override
@@ -302,23 +316,32 @@ class _TranslateAppState extends State<TranslateApp> {
         :final sessionId,
         :final text,
         :final gesture,
+        :final sourceAppName,
         :final x,
         :final y,
       ):
         // 被动捕获只更新小按钮，不能替换用户正在阅读的结果。
-        if (widget.session.isExpanded && gesture != 'hotkey') return;
+        if (widget.session.isExpanded &&
+            gesture != SelectionGestureTypes.hotkey) {
+          return;
+        }
+        _sourceAppName = sourceAppName;
         // 键盘选择先显示候选按钮；明确热键的空读取也必须进入可见失败状态。
         widget.session.begin(
           sessionId: sessionId,
           text: text,
           awaitSelection:
-              gesture == 'selectAll' ||
-              gesture == 'keyboard' ||
-              gesture == 'hotkey',
+              gesture == SelectionGestureTypes.selectAll ||
+              gesture == SelectionGestureTypes.keyboard ||
+              gesture == SelectionGestureTypes.hotkey,
         );
         if (widget.session.snapshot.phase == TranslationPhase.trigger) {
-          final size = gesture == 'hotkey' ? _resultSize : _triggerSize;
-          if (gesture == 'hotkey') unawaited(_activate(readSelection: false));
+          final size = gesture == SelectionGestureTypes.hotkey
+              ? _resultSize
+              : _triggerSize;
+          if (gesture == SelectionGestureTypes.hotkey) {
+            unawaited(_activate(readSelection: false));
+          }
           widget.bridge.showOverlay(
             sessionId: sessionId,
             x: x,
@@ -370,33 +393,52 @@ class _TranslateAppState extends State<TranslateApp> {
   /// readSelection 表示点击后补读格式；快捷键已完成读取；返回翻译结束或取消的 Future。
   Future<void> _activate({bool readSelection = true}) async {
     final id = widget.session.sessionId;
-    if (id == null) return;
+    final retry = widget.session.canRetry;
+    if (id == null ||
+        (!retry && widget.session.snapshot.phase != TranslationPhase.trigger)) {
+      return;
+    }
     // 先保留窗口，再开始异步补读；期间切 App 不会关闭加载或失败卡片。
     await widget.bridge.retainOverlay(sessionId: id);
-    if (widget.session.sessionId != id) return;
+    // 连续点击等待同一个原生响应时，只允许一次激活及一次成功记录。
+    if (widget.session.sessionId != id ||
+        (retry
+            ? !widget.session.canRetry
+            : widget.session.snapshot.phase != TranslationPhase.trigger)) {
+      return;
+    }
+    final activeProvider = retry
+        ? widget.session.activeProvider
+        : widget.session.provider;
+    final activeLanguage = retry
+        ? widget.session.activeLanguage
+        : widget.session.language;
+    final sourceLabel = _sourceAppName;
     // 读取与翻译共用会话取消边界，迟到的原文不能覆盖用户的新选区。
-    await widget.session.activate(
-      readSelection: readSelection
-          ? () => widget.bridge.readSelectionForTranslation(sessionId: id)
-          : null,
-    );
-    if (widget.session.snapshot.phase == TranslationPhase.completed) {
+    if (retry) {
+      // 原文、方向和服务都属于失败会话；重试不重新读取前台选区。
+      await widget.session.retry();
+    } else {
+      await widget.session.activate(
+        readSelection: readSelection
+            ? () => widget.bridge.readSelectionForTranslation(sessionId: id)
+            : null,
+      );
+    }
+    // 旧请求结束时新会话可能已经完成，必须核对 ID，不能重复记录新会话。
+    if (widget.session.sessionId == id &&
+        widget.session.snapshot.phase == TranslationPhase.completed) {
       widget.history.insert(
         sourceText: widget.session.snapshot.sourceText,
         translatedText: widget.session.snapshot.translatedText,
         detectedLanguage: widget.session.snapshot.detectedLanguage ?? '',
-        targetLanguage: widget.session.language.primaryCode,
-        providerId: widget.session.provider.id,
-        model: widget.session.provider is ApiTranslationProvider
-            ? ((widget.session.provider as ApiTranslationProvider)
-                      .config
-                      .model
-                      .isEmpty
-                  ? null
-                  : (widget.session.provider as ApiTranslationProvider)
-                      .config
-                      .model)
-            : null,
+        // 按本次检测结果解析激活时的方向，不能把次要语言错误记录成主要语言。
+        targetLanguage: activeLanguage
+            .resolve(widget.session.snapshot.detectedLanguage)
+            .targetLanguage,
+        providerId: activeProvider.id,
+        model: _historyModel(activeProvider),
+        sourceLabel: sourceLabel,
         completedAt: DateTime.now().millisecondsSinceEpoch,
       );
     }
@@ -415,8 +457,7 @@ class _TranslateAppState extends State<TranslateApp> {
   /// context 为 Flutter 构建上下文；返回当前会话对应的浮层界面。
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
+    return NativeGlassApp(
       home: TranslationOverlay(
         session: widget.session,
         onActivate: _activate,
@@ -429,4 +470,12 @@ class _TranslateAppState extends State<TranslateApp> {
       ),
     );
   }
+}
+
+/// provider 为本次请求实际使用的服务；返回可选模型名，普通翻译服务不记录空模型。
+String? _historyModel(TranslationProvider provider) {
+  if (provider is! ApiTranslationProvider || provider.config.model.isEmpty) {
+    return null;
+  }
+  return provider.config.model;
 }

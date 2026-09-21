@@ -1,5 +1,8 @@
+import '../common/constants/appearance_modes.dart';
+import '../common/constants/preference_keys.dart';
 import '../translation/language_direction.dart';
 import 'service_config.dart';
+import 'screenshot_toolbar_preferences.dart';
 
 /// Dart 持有完整偏好；平台只负责存储及热键、登录项等系统副作用。
 class AppSettings {
@@ -14,13 +17,18 @@ class AppSettings {
     this.screenshotShortcutLabel = 'S',
     this.screenshotShortcutModifiers = 6144,
     this.screenshotSaveDirectory = '',
+    this.glassAppearance = AppearanceModes.system,
+    this.glassOpacity = 0.8,
     this.launchAtLogin = false,
     Map<String, String>? excludedApps,
     this.defaultServiceId = ServiceConfig.builtinId,
     List<ServiceConfig>? services,
+    ScreenshotToolbarPreferences? screenshotToolbar,
   }) : excludedApps = excludedApps ?? {},
-       services = services ?? [];
+       services = services ?? [],
+       screenshotToolbar = screenshotToolbar ?? ScreenshotToolbarPreferences();
 
+  ScreenshotToolbarPreferences screenshotToolbar;
   String primaryLanguage;
   String? secondaryLanguage;
   bool automatic;
@@ -30,8 +38,13 @@ class AppSettings {
   int screenshotShortcutKeyCode;
   String screenshotShortcutLabel;
   int screenshotShortcutModifiers;
+
   /// 固定截图保存目录；空字符串表示每次保存时询问。
   String screenshotSaveDirectory;
+
+  /// 视觉偏好与业务设置一同提交，不单独保存第二份配置。
+  String glassAppearance;
+  double glassOpacity;
   bool launchAtLogin;
   final Map<String, String> excludedApps;
   String defaultServiceId;
@@ -64,32 +77,52 @@ class AppSettings {
       languageCode: map['systemLanguage'] as String?,
     );
     return AppSettings(
+      screenshotToolbar: ScreenshotToolbarPreferences.fromMap(map),
       primaryLanguage:
-          map['primaryLanguage'] as String? ?? language.primaryCode,
-      secondaryLanguage: map['secondaryLanguage'] as String?,
-      automatic: map['automatic'] as bool? ?? true,
+          map[PreferenceKeys.primaryLanguage] as String? ??
+          language.primaryCode,
+      secondaryLanguage: map[PreferenceKeys.secondaryLanguage] as String?,
+      automatic: map[PreferenceKeys.automatic] as bool? ?? true,
       defaultServiceId:
-          map['defaultServiceId'] as String? ?? ServiceConfig.builtinId,
-      services: (map['services'] as List? ?? [])
+          map[PreferenceKeys.defaultServiceId] as String? ??
+          ServiceConfig.builtinId,
+      services: (map[PreferenceKeys.services] as List? ?? [])
           .map(
             (e) => ServiceConfig.fromMap(Map<Object?, Object?>.from(e as Map)),
           )
           .toList(),
-      shortcutKeyCode: map['shortcutKeyCode'] as int? ?? 17,
-      shortcutLabel: map['shortcutLabel'] as String? ?? 'T',
-      shortcutModifiers: map['shortcutModifiers'] as int? ?? 6144,
-      screenshotShortcutKeyCode: map['screenshotShortcutKeyCode'] as int? ?? 1,
-      screenshotShortcutLabel: map['screenshotShortcutLabel'] as String? ?? 'S',
+      shortcutKeyCode: map[PreferenceKeys.shortcutKeyCode] as int? ?? 17,
+      shortcutLabel: map[PreferenceKeys.shortcutLabel] as String? ?? 'T',
+      shortcutModifiers: map[PreferenceKeys.shortcutModifiers] as int? ?? 6144,
+      screenshotShortcutKeyCode:
+          map[PreferenceKeys.screenshotShortcutKeyCode] as int? ?? 1,
+      screenshotShortcutLabel:
+          map[PreferenceKeys.screenshotShortcutLabel] as String? ?? 'S',
       screenshotShortcutModifiers:
-          map['screenshotShortcutModifiers'] as int? ?? 6144,
-      screenshotSaveDirectory: map['screenshotSaveDirectory'] as String? ?? '',
-      launchAtLogin: map['launchAtLogin'] as bool? ?? false,
-      excludedApps: Map<String, String>.from(map['excludedApps'] as Map? ?? {}),
+          map[PreferenceKeys.screenshotShortcutModifiers] as int? ?? 6144,
+      screenshotSaveDirectory:
+          map[PreferenceKeys.screenshotSaveDirectory] as String? ?? '',
+      glassAppearance:
+          map[PreferenceKeys.glassAppearance] as String? ??
+          AppearanceModes.system,
+      glassOpacity:
+          (map[PreferenceKeys.glassOpacity] as num?)?.toDouble() ?? 0.8,
+      launchAtLogin: map[PreferenceKeys.launchAtLogin] as bool? ?? false,
+      excludedApps: Map<String, String>.from(
+        map[PreferenceKeys.excludedApps] as Map? ?? {},
+      ),
     );
   }
 
   /// 无参数；校验可执行的语言方向及系统快捷键，非法配置抛 FormatException。
   void validate() {
+    screenshotToolbar.validate();
+    if (!AppearanceModes.values.contains(glassAppearance) ||
+        !glassOpacity.isFinite ||
+        glassOpacity < 0.2 ||
+        glassOpacity > 1) {
+      throw const FormatException('外观模式或玻璃透明度无效。');
+    }
     for (final service in services) {
       service.validate();
     }
@@ -133,21 +166,24 @@ class AppSettings {
 
   /// 无参数；返回可经 MethodChannel 和 UserDefaults 存储的标量字典。
   Map<String, Object> toMap() => {
-    'defaultServiceId': defaultServiceId,
-    'services': services.map((e) => e.toMap()).toList(),
-    'primaryLanguage': primaryLanguage,
+    ...screenshotToolbar.toMap(),
+    PreferenceKeys.defaultServiceId: defaultServiceId,
+    PreferenceKeys.services: services.map((e) => e.toMap()).toList(),
+    PreferenceKeys.primaryLanguage: primaryLanguage,
     // 完整偏好字典通过 UserDefaults 覆盖保存；省略未设置项，避免存储不支持的 null。
-    'secondaryLanguage': ?secondaryLanguage,
-    'automatic': automatic,
-    'shortcutKeyCode': shortcutKeyCode,
-    'shortcutLabel': shortcutLabel,
-    'shortcutModifiers': shortcutModifiers,
-    'screenshotShortcutKeyCode': screenshotShortcutKeyCode,
-    'screenshotShortcutLabel': screenshotShortcutLabel,
-    'screenshotShortcutModifiers': screenshotShortcutModifiers,
-    'screenshotSaveDirectory': screenshotSaveDirectory,
-    'launchAtLogin': launchAtLogin,
-    'excludedApps': excludedApps,
+    PreferenceKeys.secondaryLanguage: ?secondaryLanguage,
+    PreferenceKeys.automatic: automatic,
+    PreferenceKeys.shortcutKeyCode: shortcutKeyCode,
+    PreferenceKeys.shortcutLabel: shortcutLabel,
+    PreferenceKeys.shortcutModifiers: shortcutModifiers,
+    PreferenceKeys.screenshotShortcutKeyCode: screenshotShortcutKeyCode,
+    PreferenceKeys.screenshotShortcutLabel: screenshotShortcutLabel,
+    PreferenceKeys.screenshotShortcutModifiers: screenshotShortcutModifiers,
+    PreferenceKeys.screenshotSaveDirectory: screenshotSaveDirectory,
+    PreferenceKeys.glassAppearance: glassAppearance,
+    PreferenceKeys.glassOpacity: glassOpacity,
+    PreferenceKeys.launchAtLogin: launchAtLogin,
+    PreferenceKeys.excludedApps: excludedApps,
   };
 
   /// 无参数；返回当前主要/次要语言决定的翻译方向规则。

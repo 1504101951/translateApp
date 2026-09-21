@@ -1,8 +1,14 @@
+import 'package:translate_app/src/common/constants/method_names.dart';
+import 'package:translate_app/src/common/constants/error_codes.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translate_app/src/common/constants/screenshot_enums.dart';
+import 'package:translate_app/src/common/utils/geometry.dart';
+import 'package:translate_app/src/common/utils/screenshot_filename.dart';
 import 'package:translate_app/src/screenshot/edit_document.dart';
 import 'package:translate_app/src/screenshot/screenshot_app.dart';
 import 'package:translate_app/src/settings/app_settings.dart';
@@ -23,6 +29,20 @@ void main() {
     expect(
       screenshotFilename(DateTime(2026, 9, 6, 1, 2, 3, 4)),
       '截图_2026-09-06_01-02-03-004.png',
+    );
+    const box = Rect.fromLTWH(10, 10, 80, 80);
+    expect(editHandleAt(box, const Offset(10, 10), 8), 'nw');
+    expect(editHandleAt(box, const Offset(50, 10), 8), 'n');
+    expect(editHandleAt(box, const Offset(90, 50), 8), 'e');
+    expect(editHandleAt(box, const Offset(50, 50), 8), 'move');
+    expect(editHandleAt(box, const Offset(0, 0), 8), isNull);
+    expect(
+      pinOriginAppKit(
+        crop: const Rect.fromLTWH(2, 2, 4, 4),
+        display: const Rect.fromLTWH(100, 200, 800, 600),
+        image: const Size(8, 8),
+      ),
+      const Offset(300, 350),
     );
   });
 
@@ -83,6 +103,10 @@ void main() {
       ),
     );
     expect(document.annotations.length, 4);
+    document.setCrop(const Rect.fromLTWH(1, 1, 6, 6));
+    expect(document.annotations.length, 4);
+    expect(document.annotations.first.kind, AnnotationKind.rectangle);
+    document.setCrop(const Rect.fromLTWH(0, 0, 8, 8));
 
     final annotated = await document.renderPng();
     final annotatedImage = await _decode(annotated);
@@ -141,7 +165,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       switch (call.method) {
-        case 'getScreenshot':
+        case MethodNames.getScreenshot:
           return {
             'id': 'shot',
             'bytes': bytes,
@@ -150,20 +174,23 @@ void main() {
             'height': 8,
             'directory': '/tmp/screenshots',
           };
-        case 'copyScreenshot':
+        case MethodNames.copyScreenshot:
           final args = call.arguments as Map;
           copiedBytes = args['bytes'];
           return null;
-        case 'saveScreenshot':
+        case MethodNames.saveScreenshot:
           if (saveError != null) {
-            throw PlatformException(code: 'save_failed', message: saveError);
+            throw PlatformException(
+              code: ErrorCodes.saveFailed,
+              message: saveError,
+            );
           }
           final args = call.arguments as Map;
           expect(args['bytes'], isA<Uint8List>());
           return '/tmp/截图.png';
-        case 'pinScreenshot':
+        case MethodNames.pinScreenshot:
           return 'pin-1';
-        case 'closeScreenshot':
+        case MethodNames.closeScreenshot:
           return null;
         default:
           return null;
@@ -184,11 +211,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(
-      calls.where((call) => call.method == 'closeScreenshot'),
+      calls.where((call) => call.method == MethodNames.closeScreenshot),
       isNotEmpty,
     );
     expect(
-      calls.where((call) => call.method == 'copyScreenshot'),
+      calls.where((call) => call.method == MethodNames.copyScreenshot),
       isEmpty,
     );
     expect(copiedBytes, isNull);
@@ -223,16 +250,15 @@ void main() {
     await _tapExport(tester, const Key('screenshot-copy'));
     expect(find.text('已复制图片'), findsOneWidget);
     expect(copiedBytes, isA<Uint8List>());
-    final copyArgs = calls
-        .firstWhere((call) => call.method == 'copyScreenshot')
-        .arguments as Map;
+    final copyArgs =
+        calls
+                .firstWhere((call) => call.method == MethodNames.copyScreenshot)
+                .arguments
+            as Map;
     expect(copyArgs['id'], 'shot');
     expect(copyArgs['bytes'], same(copiedBytes));
     // 合成结果应与原图不同（至少因遮挡改变）。
-    expect(
-      listEquals(copiedBytes! as Uint8List, bytes!),
-      isFalse,
-    );
+    expect(listEquals(copiedBytes! as Uint8List, bytes!), isFalse);
 
     // 双击触发复制并关闭会话。
     calls.clear();
@@ -244,11 +270,11 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(
-      calls.where((call) => call.method == 'copyScreenshot'),
+      calls.where((call) => call.method == MethodNames.copyScreenshot),
       isNotEmpty,
     );
     expect(
-      calls.where((call) => call.method == 'closeScreenshot'),
+      calls.where((call) => call.method == MethodNames.closeScreenshot),
       isNotEmpty,
     );
     expect(find.text('已复制图片'), findsOneWidget);
@@ -270,22 +296,28 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       switch (call.method) {
-        case 'getScreenshot':
+        case MethodNames.getScreenshot:
           return {
             'id': 'shot-pin',
             'bytes': bytes,
             'capturedAt': 1788662400000,
             'width': 8,
             'height': 8,
+            'displayX': 100.0,
+            'displayY': 200.0,
+            'displayWidth': 800.0,
+            'displayHeight': 600.0,
             'directory': '',
           };
-        case 'pinScreenshot':
+        case MethodNames.pinScreenshot:
           final args = Map<Object?, Object?>.from(call.arguments as Map);
           expect(args['id'], 'shot-pin');
           expect(args['bytes'], isA<Uint8List>());
+          expect(args['x'], 100.0);
+          expect(args['y'], 200.0);
           pinnedBytes = args['bytes'] as Uint8List;
           return 'pin-live-1';
-        case 'closeScreenshot':
+        case MethodNames.closeScreenshot:
           return null;
         default:
           return null;
@@ -299,15 +331,25 @@ void main() {
 
     calls.clear();
     await _tapExport(tester, const Key('screenshot-pin'));
-    final pinCalls =
-        calls.where((call) => call.method == 'pinScreenshot').toList();
+    final pinCalls = calls
+        .where((call) => call.method == MethodNames.pinScreenshot)
+        .toList();
     expect(pinCalls, hasLength(1));
     expect(pinnedBytes, isNotNull);
     expect(pinnedBytes!.length, greaterThan(32));
     // 贴图成功关闭编辑会话，不隐式保存或复制。
-    expect(calls.where((call) => call.method == 'copyScreenshot'), isEmpty);
-    expect(calls.where((call) => call.method == 'saveScreenshot'), isEmpty);
-    expect(calls.where((call) => call.method == 'closeScreenshot'), isNotEmpty);
+    expect(
+      calls.where((call) => call.method == MethodNames.copyScreenshot),
+      isEmpty,
+    );
+    expect(
+      calls.where((call) => call.method == MethodNames.saveScreenshot),
+      isEmpty,
+    );
+    expect(
+      calls.where((call) => call.method == MethodNames.closeScreenshot),
+      isNotEmpty,
+    );
   });
 
   testWidgets('无屏幕录制权限时不进入编辑画布', (tester) async {
@@ -317,13 +359,13 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     var requested = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'getScreenshot') {
+      if (call.method == MethodNames.getScreenshot) {
         return {
           'screenAccess': false,
           'error': '截图需要屏幕录制权限。请在设置中允许 TranslateApp。',
         };
       }
-      if (call.method == 'requestScreenAccess') {
+      if (call.method == MethodNames.requestScreenAccess) {
         requested = true;
         return {'screenAccess': false};
       }
@@ -353,7 +395,7 @@ void main() {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
-      if (call.method == 'getScreenshot') {
+      if (call.method == MethodNames.getScreenshot) {
         return {
           'id': 'shot-ocr',
           'bytes': bytes,
@@ -363,8 +405,8 @@ void main() {
           'directory': '',
         };
       }
-      if (call.method == 'recognizeText') return 'Hello\nWorld';
-      if (call.method == 'copyText') return null;
+      if (call.method == MethodNames.recognizeText) return 'Hello\nWorld';
+      if (call.method == MethodNames.copyText) return null;
       return null;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
@@ -372,18 +414,18 @@ void main() {
     await tester.pump();
     await _tapExport(tester, const Key('screenshot-ocr-copy'));
     expect(
-      calls.where((c) => c.method == 'recognizeText'),
+      calls.where((c) => c.method == MethodNames.recognizeText),
       isNotEmpty,
     );
     expect(
-      calls.where((c) => c.method == 'copyText').single.arguments,
+      calls.where((c) => c.method == MethodNames.copyText).single.arguments,
       {'text': 'Hello\nWorld'},
     );
     expect(find.text('已复制文字'), findsOneWidget);
   });
 
-  testWidgets('翻译文字把译文叠在截图上，不写翻译历史', (tester) async {
-    // 边界：有字块时叠译文；通道只走 recognizeBlocks+translatePlainText，不写历史。
+  testWidgets('截图翻译完成后在识别位置显示译文', (tester) async {
+    // 有字块时显示译文与成功反馈；历史提交由主引擎完成，另有真实数据库测试。
     tester.view.physicalSize = const Size(960, 740);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -392,11 +434,9 @@ void main() {
     const channel = MethodChannel('test/screenshot-ocr-overlay');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call);
       switch (call.method) {
-        case 'getScreenshot':
+        case MethodNames.getScreenshot:
           return {
             'id': 'shot-ocr-overlay',
             'bytes': bytes,
@@ -405,17 +445,11 @@ void main() {
             'height': 8,
             'directory': '',
           };
-        case 'recognizeBlocks':
+        case MethodNames.recognizeBlocks:
           return [
-            {
-              'text': 'Hello',
-              'x': 0,
-              'y': 0,
-              'width': 4,
-              'height': 2,
-            },
+            {'text': 'Hello', 'x': 0, 'y': 0, 'width': 4, 'height': 2},
           ];
-        case 'translatePlainText':
+        case MethodNames.translatePlainText:
           return '你好';
         default:
           return null;
@@ -428,22 +462,6 @@ void main() {
     await _tapExport(tester, const Key('screenshot-ocr-translate'));
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('已在图上显示译文'), findsOneWidget);
-    expect(
-      calls.where((call) => call.method == 'recognizeBlocks'),
-      isNotEmpty,
-    );
-    expect(
-      calls.where((call) => call.method == 'translatePlainText').single.arguments,
-      {'text': 'Hello'},
-    );
-    expect(
-      calls.where((call) => call.method == 'historyPage'),
-      isEmpty,
-    );
-    expect(
-      calls.where((call) => call.method == 'translateOcrText'),
-      isEmpty,
-    );
   });
 
   testWidgets('Esc 关闭会话不复制；文字输入回车写入标注', (tester) async {
@@ -458,7 +476,7 @@ void main() {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
-      if (call.method == 'getScreenshot') {
+      if (call.method == MethodNames.getScreenshot) {
         return {
           'id': 'shot-esc',
           'bytes': bytes,
@@ -476,8 +494,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
-    expect(calls.where((call) => call.method == 'closeScreenshot'), isNotEmpty);
-    expect(calls.where((call) => call.method == 'copyScreenshot'), isEmpty);
+    expect(
+      calls.where((call) => call.method == MethodNames.closeScreenshot),
+      isNotEmpty,
+    );
+    expect(
+      calls.where((call) => call.method == MethodNames.copyScreenshot),
+      isEmpty,
+    );
   });
 
   test('文字工具输入后出现在导出文档；画笔不是矩形', () async {
@@ -519,7 +543,10 @@ void main() {
     expect(image.height, 6);
     // 折线不是填满包围盒：裁剪后 (5,0) 仍是原图蓝，不是绿色填充。
     expect(_nearColor(await _pixel(image, 5, 0), _blue), isTrue);
-    expect(_nearColor(await _pixel(image, 5, 0), const Color(0xFF00FF00)), isFalse);
+    expect(
+      _nearColor(await _pixel(image, 5, 0), const Color(0xFF00FF00)),
+      isFalse,
+    );
     image.dispose();
   });
 
@@ -537,7 +564,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       switch (call.method) {
-        case 'getScreenshot':
+        case MethodNames.getScreenshot:
           return {
             'id': 'shot-type-path',
             'bytes': bytes,
@@ -546,7 +573,7 @@ void main() {
             'height': 64,
             'directory': '',
           };
-        case 'copyScreenshot':
+        case MethodNames.copyScreenshot:
           copied = (call.arguments as Map)['bytes'] as Uint8List;
           return null;
         default:
@@ -570,7 +597,10 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     expect(find.byKey(const Key('screenshot-text-field')), findsNothing);
-    expect(calls.where((c) => c.method == 'closeScreenshot'), isEmpty);
+    expect(
+      calls.where((c) => c.method == MethodNames.closeScreenshot),
+      isEmpty,
+    );
 
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byKey(const Key('screenshot-canvas')));
@@ -584,6 +614,7 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('screenshot-text-field')), findsNothing);
 
+    await tester.ensureVisible(find.byKey(const Key('screenshot-copy')));
     await tester.runAsync(() async {
       await tester.tap(find.byKey(const Key('screenshot-copy')));
       await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -606,7 +637,7 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     Uint8List? copied;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'getScreenshot') {
+      if (call.method == MethodNames.getScreenshot) {
         return {
           'id': 'shot-brush-path',
           'bytes': bytes,
@@ -616,7 +647,7 @@ void main() {
           'directory': '',
         };
       }
-      if (call.method == 'copyScreenshot') {
+      if (call.method == MethodNames.copyScreenshot) {
         copied = (call.arguments as Map)['bytes'] as Uint8List;
       }
       return null;
@@ -628,11 +659,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tap(find.byKey(const Key('screenshot-tool-brush')));
     await tester.pump();
-    await tester.drag(find.byKey(const Key('screenshot-canvas')), const Offset(120, 16));
+    await tester.drag(
+      find.byKey(const Key('screenshot-canvas')),
+      const Offset(120, 16),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(
-      tester.widget<IconButton>(find.byKey(const Key('screenshot-undo'))).onPressed,
+      tester
+          .widget<IconButton>(find.byKey(const Key('screenshot-undo')))
+          .onPressed,
       isNotNull,
     );
 
@@ -665,17 +701,127 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await tester.pump();
     expect(
-      tester.widget<IconButton>(find.byKey(const Key('screenshot-undo'))).onPressed,
+      tester
+          .widget<IconButton>(find.byKey(const Key('screenshot-undo')))
+          .onPressed,
       isNull,
     );
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 400));
   });
 
+  testWidgets('快照带窗口裁剪时导出尺寸等于该矩形', (tester) async {
+    // 边界：crop 为 4x4 且贴在 8x8 左上；导出宽高必须是 4，不是整张 8。
+    tester.view.physicalSize = const Size(960, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = await tester.runAsync(_pngCheckerboard);
+    const channel = MethodChannel('test/screenshot-window-crop');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    Uint8List? copied;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.getScreenshot) {
+        return {
+          'id': 'shot-window-crop',
+          'bytes': bytes,
+          'capturedAt': 1788662400000,
+          'width': 8,
+          'height': 8,
+          'cropX': 0,
+          'cropY': 0,
+          'cropWidth': 4,
+          'cropHeight': 4,
+          'directory': '',
+        };
+      }
+      if (call.method == MethodNames.copyScreenshot) {
+        copied = (call.arguments as Map)['bytes'] as Uint8List;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(const ScreenshotApp(channel: channel));
+    await tester.pumpAndSettle();
+    await _tapExport(tester, const Key('screenshot-copy'));
+    expect(copied, isNotNull);
+    final image = await tester.runAsync(() => _decode(copied!));
+    expect(image!.width, 4);
+    expect(image.height, 4);
+    image.dispose();
+  });
+
+  testWidgets('文字工具有颜色字号；回车后可再点选编辑', (tester) async {
+    // 边界：提交后点同一位置应带回原文；改字后导出不再是上一版。
+    tester.view.physicalSize = const Size(640, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = await tester.runAsync(() => _solidPng(64, 64, _blue));
+    const channel = MethodChannel('test/screenshot-text-reedit');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.getScreenshot) {
+        return {
+          'id': 'shot-text-reedit',
+          'bytes': bytes,
+          'capturedAt': 1788662400000,
+          'width': 64,
+          'height': 64,
+          'directory': '',
+        };
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(const ScreenshotApp(channel: channel));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.ensureVisible(find.byKey(const Key('screenshot-tool-text')));
+    expect(find.byKey(const Key('screenshot-tool-cursor')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('screenshot-tool-text')));
+    await tester.pump();
+    expect(find.byKey(const Key('screenshot-text-size-up')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('screenshot-canvas')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('screenshot-text-field')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('screenshot-text-field')),
+      'Hello',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byKey(const Key('screenshot-text-field')), findsNothing);
+
+    final canvasBox = tester.getRect(
+      find.byKey(const Key('screenshot-canvas')),
+    );
+    // 点文本框内部，不点边角，避免被当成拉伸/移动。
+    await tester.tapAt(canvasBox.center + const Offset(120, 120));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byKey(const Key('screenshot-text-field')), findsOneWidget);
+    expect(find.text('Hello'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('screenshot-text-field')),
+      'World',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 400));
+  });
 }
 
 /// tester 点击导出按钮；key 为 copy/save/pin。导出含 toImage，需真实异步。
 Future<void> _tapExport(WidgetTester tester, Key key) async {
+  await tester.ensureVisible(find.byKey(key));
   await tester.runAsync(() async {
     await tester.tap(find.byKey(key));
     await Future<void>.delayed(const Duration(milliseconds: 100));

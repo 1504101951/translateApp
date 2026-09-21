@@ -1,5 +1,9 @@
+import '../common/constants/glass_metrics.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../common/widgets/native_glass.dart';
 
 import '../selection/selection_session.dart';
 import '../translation/translation_types.dart';
@@ -15,7 +19,9 @@ class TranslationOverlay extends StatefulWidget {
     required this.onDrag,
   });
 
-  static const triggerSize = Size(84, 36);
+  /// 视觉按钮84×30，透明命中窗口额外提供上下各1pt点击空间。
+  static const triggerSize = Size(84, 30);
+  static const triggerWindowSize = Size(84, 32);
   final SelectionSession session;
   final VoidCallback onActivate;
   final VoidCallback onDismiss;
@@ -26,6 +32,7 @@ class TranslationOverlay extends StatefulWidget {
   State<TranslationOverlay> createState() => _TranslationOverlayState();
 }
 
+/// 根据会话呈现触发按钮或结果；仅持有段落悬停状态，翻译由会话管理。
 class _TranslationOverlayState extends State<TranslationOverlay> {
   (String?, int)? _hoveredParagraph;
 
@@ -44,26 +51,38 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
         }
         if (snap.phase == TranslationPhase.trigger) {
           // 触发态整块区域就是按钮，拖动手势胜出时不会误发翻译请求。
-          return Material(
-            color: Colors.transparent,
+          return Center(
             child: GestureDetector(
               onPanStart: (_) => widget.onDrag(),
-              child: FilledButton.icon(
-                onPressed: widget.onActivate,
-                icon: const Icon(Icons.translate_rounded, size: 16),
-                label: const Text('翻译'),
-                style: FilledButton.styleFrom(
-                  foregroundColor: const Color(0xFF285FCB),
-                  backgroundColor: const Color(0xFFFAFBFE),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  // 保留主题字体，让中文和系统字体设置使用同一套字形回退。
-                  textStyle: Theme.of(context).textTheme.labelLarge!
-                      .copyWith(fontSize: 13, fontWeight: FontWeight.w600),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(9),
-                    side: const BorderSide(color: Color(0xFFDCE2ED)),
+              child: NativeGlassSurface(
+                material: true,
+                radius: GlassMetrics.primaryRadius,
+                child: FilledButton(
+                  onPressed: widget.onActivate,
+                  style: FilledButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.primary,
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: TranslationOverlay.triggerSize,
+                    fixedSize: TranslationOverlay.triggerSize,
+                    alignment: Alignment.center,
+                    visualDensity: VisualDensity.standard,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    // 保留主题字体，让中文和系统字体设置使用同一套字形回退。
+                    textStyle: Theme.of(context).textTheme.labelLarge!
+                        .copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(Icons.translate_rounded, size: 16),
+                      SizedBox(width: 6),
+                      Text('翻译', textAlign: TextAlign.center),
+                    ],
                   ),
                 ),
               ),
@@ -78,10 +97,9 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
           TranslationPhase.sizeLimited => snap.message ?? '选区过长',
           _ => '双语对照',
         };
-        return Material(
-          color: const Color(0xFFFAFBFE),
+        return NativeGlassSurface(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            padding: const EdgeInsets.all(GlassMetrics.pagePadding),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -100,10 +118,12 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                             child: SizedBox.expand(
                               child: Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.drag_indicator,
                                     size: 18,
-                                    color: Colors.black38,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                   ),
                                   const SizedBox(width: 8),
                                   if (busy)
@@ -120,9 +140,11 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                                   Expanded(
                                     child: Text(
                                       title,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.black54,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
                                       ),
                                     ),
                                   ),
@@ -132,11 +154,23 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                           ),
                         ),
                       ),
-                      IconButton(
-                        onPressed: widget.onDismiss,
-                        tooltip: '关闭',
-                        icon: const Icon(Icons.close, size: 16),
-                        visualDensity: VisualDensity.compact,
+                      if (widget.session.canRetry)
+                        NativeGlassSurface(
+                          material: true,
+                          child: TextButton.icon(
+                            onPressed: widget.onActivate,
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('重试'),
+                          ),
+                        ),
+                      NativeGlassSurface(
+                        material: true,
+                        child: IconButton(
+                          onPressed: widget.onDismiss,
+                          tooltip: '关闭',
+                          icon: const Icon(Icons.close, size: 16),
+                          visualDensity: VisualDensity.standard,
+                        ),
                       ),
                     ],
                   ),
@@ -154,21 +188,29 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                             Expanded(
                               child: Text(
                                 part.$1,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 12,
-                                  color: Color(0xFF687080),
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                 ),
                               ),
                             ),
-                            IconButton(
-                              tooltip: '复制${part.$1}',
-                              onPressed: part.$2.isEmpty
-                                  ? null
-                                  : () => Clipboard.setData(
-                                      ClipboardData(text: part.$2),
-                                    ),
-                              icon: const Icon(Icons.copy_rounded, size: 14),
-                              visualDensity: VisualDensity.compact,
+                            NativeGlassSurface(
+                              material: true,
+                              child: IconButton(
+                                tooltip: '复制${part.$1}',
+                                onPressed: part.$2.isEmpty
+                                    ? null
+                                    : () => Clipboard.setData(
+                                        ClipboardData(text: part.$2),
+                                      ),
+                                icon: const Icon(
+                                  Icons.copy_rounded,
+                                  size: GlassMetrics.icon,
+                                ),
+                                visualDensity: VisualDensity.standard,
+                              ),
                             ),
                           ],
                         ),
@@ -177,70 +219,90 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                 ),
                 const Divider(height: 1),
                 Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        // 每行共享已校验的配对边界；左右内容高度不同也不会错行。
-                        for (var index = 0; index < pairs.length; index++)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: MouseRegion(
-                                    key: ValueKey(
-                                      'translated-paragraph-$index',
-                                    ),
-                                    onEnter: (_) => setState(() {
-                                      _hoveredParagraph = (
-                                        widget.session.sessionId,
-                                        index,
-                                      );
-                                    }),
-                                    onExit: (_) => setState(() {
-                                      _hoveredParagraph = null;
-                                    }),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(8),
-                                      child: SelectableText(
-                                        pairs[index].translation,
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          height: 1.5,
-                                          color: Color(0xFF1C2434),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface
+                          .withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          // 每行共享已校验的配对边界；左右内容高度不同也不会错行。
+                          for (var index = 0; index < pairs.length; index++)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: MouseRegion(
+                                      key: ValueKey(
+                                        'translated-paragraph-$index',
+                                      ),
+                                      onEnter: (_) => setState(() {
+                                        _hoveredParagraph = (
+                                          widget.session.sessionId,
+                                          index,
+                                        );
+                                      }),
+                                      onExit: (_) => setState(() {
+                                        _hoveredParagraph = null;
+                                      }),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8),
+                                        child: SelectableText(
+                                          pairs[index].translation,
+                                          style: TextStyle(
+                                            fontSize: GlassMetrics.bodyFont,
+                                            height:
+                                                GlassMetrics.bodyLine /
+                                                GlassMetrics.bodyFont,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Container(
-                                    key: ValueKey('source-paragraph-$index'),
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          _hoveredParagraph ==
-                                              (widget.session.sessionId, index)
-                                          ? const Color(0xFFDFEBFF)
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: SelectableText(
-                                      pairs[index].source,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        height: 1.5,
-                                        color: Color(0xFF687080),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Container(
+                                      key: ValueKey('source-paragraph-$index'),
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color:
+                                            _hoveredParagraph ==
+                                                (
+                                                  widget.session.sessionId,
+                                                  index,
+                                                )
+                                            ? Theme.of(context)
+                                                  .colorScheme
+                                                  .primaryContainer
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: SelectableText(
+                                        pairs[index].source,
+                                        style: TextStyle(
+                                          fontSize: GlassMetrics.bodyFont,
+                                          height:
+                                              GlassMetrics.bodyLine /
+                                              GlassMetrics.bodyFont,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

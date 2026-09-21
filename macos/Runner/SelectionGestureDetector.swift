@@ -1,26 +1,10 @@
 import AppKit
 import Foundation
 
-enum SelectionGesture: String {
-    case drag
-    case doubleClick
-    case tripleClick
-    case selectAll
-    case keyboard
-    case hotkey
 
-    /// keyCode 为硬件键码，modifiers 为修饰键；返回创建文本选区的手势或 nil。
-    static func keyboardGesture(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> SelectionGesture? {
-        let flags = modifiers.intersection([.command, .shift, .option, .control])
-        if keyCode == 0, flags == .command { return .selectAll }
-        // Shift 配合方向/Home/End/Page 键覆盖按字、按词、按行及全文扩选。
-        let navigationKeys: Set<UInt16> = [115, 116, 119, 121, 123, 124, 125, 126]
-        if flags.contains(.shift), navigationKeys.contains(keyCode) { return .keyboard }
-        return nil
-    }
-}
-
+/// 单次指针事件；阶段、点击次数和坐标供手势识别器判定，不直接读取选中文字。
 struct MousePointerEvent {
+    /// 指针阶段：down初始化拖拽原点，dragged更新状态，up产生最终手势。
     enum Kind { case down, dragged, up }
     var kind: Kind
     var clickCount: Int
@@ -35,6 +19,7 @@ struct SelectionGestureDetector {
     private var originY: CGFloat?
     private var isDrag = false
 
+    /// event为指针事件；更新拖拽状态，仅在抬起时返回拖拽、双击或三击手势，其他情况返回nil。
     mutating func handle(_ event: MousePointerEvent) -> SelectionGesture? {
         switch event.kind {
         case .down:

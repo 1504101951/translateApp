@@ -32,6 +32,8 @@
 		A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C00000000000000000001 /* ScreenshotStorage.swift */; };
 		A15P00000000000000000002 /* PinOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15P00000000000000000001 /* PinOverlayController.swift */; };
 		A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16C00000000000000000001 /* ScreenCaptureService.swift */; };
+		A18C00000000000000000002 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18C00000000000000000001 /* Constants.swift */; };
+		A18C00000000000000000004 /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18C00000000000000000003 /* Utils.swift */; };
 		A17C00000000000000000002 /* AuxiliaryWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000001 /* AuxiliaryWindowController.swift */; };
 		A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000003 /* MacPlatformBridge.swift */; };
 		A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000005 /* AccessibilitySelection.swift */; };
@@ -41,6 +43,7 @@
 		A13A00000000000000000010 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A0000000000000000000F /* StatusBarController.swift */; };
 		A13A00000000000000000012 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000011 /* SettingsWindowController.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
+		A26000000000000000000002 /* NativeGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = A26000000000000000000001 /* NativeGlass.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,6 +92,8 @@
 		A14C00000000000000000001 /* ScreenshotStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotStorage.swift; sourceTree = "<group>"; };
 		A15P00000000000000000001 /* PinOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinOverlayController.swift; sourceTree = "<group>"; };
 		A16C00000000000000000001 /* ScreenCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureService.swift; sourceTree = "<group>"; };
+		A18C00000000000000000001 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		A18C00000000000000000003 /* Utils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils.swift; sourceTree = "<group>"; };
 		A17C00000000000000000001 /* AuxiliaryWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuxiliaryWindowController.swift; sourceTree = "<group>"; };
 		A13A00000000000000000003 /* MacPlatformBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPlatformBridge.swift; sourceTree = "<group>"; };
 		A13A00000000000000000005 /* AccessibilitySelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilitySelection.swift; sourceTree = "<group>"; };
@@ -106,6 +111,7 @@
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		A26000000000000000000001 /* NativeGlass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGlass.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,10 +195,21 @@
 			path = Flutter;
 			sourceTree = "<group>";
 		};
+		A18C00000000000000000005 /* Common */ = {
+			isa = PBXGroup;
+			children = (
+				A18C00000000000000000001 /* Constants.swift */,
+				A18C00000000000000000003 /* Utils.swift */,
+			);
+			path = Common;
+			sourceTree = "<group>";
+		};
 		33FAB671232836740065AC1E /* Runner */ = {
 			isa = PBXGroup;
 			children = (
+				A18C00000000000000000005 /* Common */,
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
+				A26000000000000000000001 /* NativeGlass.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				A13A00000000000000000001 /* OverlayPanel.swift */,
 				A14C00000000000000000003 /* ScreenshotWindowController.swift */,
@@ -395,11 +412,14 @@
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+				A26000000000000000000002 /* NativeGlass.swift in Sources */,
 				A13A00000000000000000002 /* OverlayPanel.swift in Sources */,
 				A14C00000000000000000004 /* ScreenshotWindowController.swift in Sources */,
 				A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */,
 				A15P00000000000000000002 /* PinOverlayController.swift in Sources */,
 				A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */,
+				A18C00000000000000000002 /* Constants.swift in Sources */,
+				A18C00000000000000000004 /* Utils.swift in Sources */,
 				A17C00000000000000000002 /* AuxiliaryWindowController.swift in Sources */,
 				A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */,
 				A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */,
@@ -523,7 +543,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -605,7 +625,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
@@ -655,7 +675,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
