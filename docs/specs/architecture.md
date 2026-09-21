@@ -1,0 +1,131 @@
+# 架构设计约束
+
+Codex-Thread: 01a0b9b5-7646-76b0-9028-2402885d401b
+Source: 用户确认的三类规格、既有Spec #1及关联规则
+Source-Spec: https://github.com/1504101951/translateApp/issues/68
+
+规格分类：功能与交互 https://github.com/1504101951/translateApp/issues/1；样式 https://github.com/1504101951/translateApp/issues/67；架构设计约束 https://github.com/1504101951/translateApp/issues/68。本地入口：[规格索引](README.md)。
+
+## 实现决策
+
+- 应用层采用 Flutter/Dart。macOS 系统能力使用 Swift，通过平台通道接入 Accessibility API、全局鼠标和键盘选区手势、非激活浮层、Keychain 和登录项。
+- 鼠标抬起、Command-A 或 Shift 导航扩选后读取前台选区；自动阶段仅查询 AX。键盘 AX 无文本时允许经过来源、权限及文本上下文检查的待确认按钮，只有显式点击才补读文字。全局翻译快捷键直接翻译。
+- Overlay 为非激活面板：不成为 Key Window，不激活本应用。AX 选区矩形不可信时，锚点改用鼠标位置。
+- 使用同一个可拖动 Translation Overlay 表示触发和结果状态。第一版采用固定结果尺寸与内部滚动，不实现极长结果专用阅读器。
+- Application Exclusion 持久化保存应用身份；应用自身、安全字段及文件树/表格不创建 Selection Session。鼠标采集要求 AX 可读文字；键盘候选显式补读为空时保留失败卡片，不发送请求。
+- 翻译模块只接收标准化请求，并异步输出 Translation Update、完成或 Translation Failure。调用方不读取第三方专属响应结构。该模块在 Dart 中实现。
+- 为 Unofficial Google、Official Google、OpenAI-compatible 和 Anthropic 分别实现 Dart 适配器。提供方选择、分段、历史和浮层状态均位于适配器边界之外。
+- 不自动切换提供方。失败重试继续使用当前 Selection Session 的同一提供方。
+- 密钥只存 Keychain（经 Swift 桥）。语言、排除项、默认配置、提示词、历史开关和登录启动等非机密设置由 Dart 本地持久化。
+- OpenAI-compatible Model Profile 包含名称、Base URL、模型、凭据引用和 Translation Prompt；Anthropic Model Profile 包含名称、模型、凭据引用和 Translation Prompt。
+- Translation Prompt 是模型系统指令而非模板。原文、检测语言、方向、当前分片和可选滑动上下文作为独立标准化字段发送。
+- 默认提示词要求只输出译文，保留段落、换行、URL、代码和标识符，遵循给定方向且不得回显上下文。
+- 在第三方请求前于设备本地确定 Detected Language。实现放在 Dart 应用层；需要系统 API 时经桥接。同一 Selection Session 的所有分片共享同一检测结果和方向。
+- 在任何第三方请求前执行 50,000 字符限制；纯空白或不可读取选区不提供翻译。
+- 分段目标为 4,000 字符，可为保持段落完整溢出到 6,000 字符。单段超过 6,000 时按句子边界拆分；单句仍超限时才硬切。
+- 分片按原文顺序串行处理，保留原始分隔符，并在同一 Translation Result State 中持续公开更新。
+- 模型提供方只接收紧邻前一片原文和译文各最后 1,000 字符。Google 适配器忽略可选上下文。
+- Segment Failure 保留已完成分片，展示失败位置，并从该片恢复。Escape、关闭按钮或全局快捷键显式替换取消剩余工作；被动选区或来源切换不取消。
+- 一次完整成功的选区翻译是一个历史事务；所有分片完成后才插入一条记录，不保存部分、取消或失败结果。
+- 历史使用 SQLite（Dart），不去重，按完成时间倒序查询，每批 10 条，接近列表末尾时加载下一批。
+- History Recording 默认启用；关闭后阻止未来插入但保留现有行。第一版不提供删除、清空、保留期限或归档。
+- 登录启动使用原生登录项能力（Swift 桥），默认关闭且只由用户明确操作改变。
+- 第一版独立实现，不复制或改编 Read Frog 的 GPLv3 代码。
+
+## 测试决策
+
+- 翻译、语言方向、分段、滑动上下文、历史和 Provider 契约测试写在 Dart。Swift 测试只覆盖平台桥。不增加第三套测试框架。
+- 翻译测试从标准化请求验证 Translation Update、完成、失败、取消和最终组装文本，不断言内部调用次数。
+- 语言方向测试覆盖主要语言、非主要语言和无法检测三种输入。
+- 分段测试覆盖 4,000 边界、6,000 段落溢出、整段移动、句子拆分、超长句硬切、分隔符保留和 50,000 限制。
+- 滑动上下文测试证明它只包含紧邻前一片且原文、译文分别不超过 1,000 字符。
+- 使用确定性的内存适配器验证有序输出、流式与一次性更新、分片失败、从失败片重试、取消和不写入部分历史。
+- 使用代表性的 Google JSON、OpenAI-compatible SSE 和 Anthropic 事件 fixture 做适配器契约测试。
+- 使用临时 SQLite 数据库验证成功插入、不去重、字段往返、最新优先、10 条分页、连续翻页及历史开关。
+- 真实提供方测试必须可选且由凭据显式启用，不进入默认测试套件。
+- 人工或小型集成冒烟验证辅助功能权限、代表性应用、鼠标选区、Command-A、Shift 导航扩选、文件树不触发、安全字段、浮层拖动、焦点、Escape、切应用结束会话、应用排除和多屏边界。
+
+
+## 模块边界与规范
+
+1. 平台下限macOS 26+；Flutter/Dart管理产品界面、翻译流程、Provider、设置与SQLite历史；Swift负责AX、系统事件、原生窗口、Keychain和原生材料。不增加未经授权的旧系统兼容分支。
+2. 通道名、方法名、偏好键、引擎入口、视图类型、错误码和共享枚举集中在common/constants；共享工具按模块职责放置，遵循docs/agents/coding-conventions.md。
+3. 当前实现说明见docs/architecture.md；截图编辑接口见docs/screenshot-editor-design.md。这些文档描述实现细节，不自行改变功能或样式规格。
+4. 截图复制、保存、贴图共用相同渲染结果；UI控制点和工具栏不进入像素。异步采集/导出按captureId与编辑版本隔离，迟到结果不影响新会话。
+5. 复用现有EditDocument编辑历史与Listenable通知。手势策略与流程状态机只承担既有职责，颜色和线宽不用另建工具继承层或逐工具策略类。
+
+## 共享绘制样式：组合设计
+
+1. 使用不可变绘制样式值DrawingStyle表达颜色和线宽，通过组合供工具/标注使用；名称是职责建议，实现可复用已有同等值对象，不能平行维护两套样式状态。
+2. ColorPicker只接收当前颜色、选择结果回调及明确的可用状态，提供预设色与调色盘；StrokeWidthPicker只接收当前线宽、已规格化范围/步长和结果回调。两者不持有画布、网络、历史存储或原生窗口。
+3. 用工具枚举与简单能力映射声明颜色/线宽/填充模式支持情况；无需求不添加插件注册表、工厂或多层继承。
+4. 编辑控制器确定修改后续绘制样式还是当前对象；已选对象修改通过既有编辑历史提交。调色盘或滑块连续预览不生成逐帧撤销记录，一次完整调整形成一次撤销动作。
+5. 每个标注创建时冻结样式值；预览与导出读取同一对象数据。UI使用pt，绘制数据按图像坐标保存，线宽显示值与导出像素在现有坐标变换入口统一换算，不在各工具重复换算。
+6. 纯色填充消费颜色，马赛克消费源图像；马赛克不读取颜色/线宽控制值。具体算法与块尺寸须遵循已发布的样式参数，不把随意常量写入渲染函数。
+7. 文本框保留现有颜色与字号能力，颜色选择复用同一共享控件；不把文字字号混进线宽语义。
+
+## 架构验收
+
+验证新建对象样式隔离、选择修改只影响目标对象、撤销/重做还原样式、不同工具的预览与导出一致，以及不支持属性不改变对象。验证采集来源到最终历史卡片的真实数据路径，禁止仅手工填sourceAppName就宣称来源缺陷已修复。
+
+## 不在范围内
+
+不重写翻译层，不引入新状态管理框架，不新增通用绘图插件系统；不为颜色和粗细重复构建Command或Strategy层。具体未确定API和参数不是可自行添加的产品需求。
+
+## `liquid_glass_widgets` 专项规则
+
+本节仅在明确采用该组件库时适用；它不要求原生材料路线引入此依赖。
+
+### 初始化与公开接口
+
+1. 只使用公开入口 `package:liquid_glass_widgets/liquid_glass_widgets.dart`，不从 `src/` 导入内部实现，不直接实例化内部 `LiquidGlass` 渲染器；使用公开的 `AdaptiveGlass` 或适用的高级组件。
+2. 每个使用该库的 Flutter 引擎入口按顺序执行绑定初始化、`await LiquidGlassWidgets.initialize()`、使用 `LiquidGlassWidgets.wrap()` 包裹应用，再运行界面。
+3. 在 `MaterialApp` 中为 `wrap()` 设置 `brightnessResolver: Theme.maybeBrightnessOf`，保证应用主题与材料明暗规则一致。不要强制把现有应用改成 `CupertinoApp`。
+4. 优先通过 `GlassThemeData.simple(...)` 定义共享样式；只有明暗主题确有不同设计时才分别配置 `GlassThemeData(light: ..., dark: ...)`。不要把外部示例中的数值当作项目验收要求。
+5. 保留 `respectSystemAccessibility` 对系统偏好的响应。`adaptiveQuality` 等性能自适应选项按已获授权的质量策略使用，不直接照搬示例开关。
+6. 具有玻璃导航栏的页面优先使用 `GlassScaffold` 管理层叠、边缘渐隐、内容明暗感知和安全区域。独立浮层及局部面板选择相应局部容器，不为接入材质新增不需要的移动端导航。
+7. 使用库的质量档位时：`standard` 用于一般控件与面板；`premium` 仅用于少量经过性能验证的关键导航或表面；`minimal` 表示无折射 shader 的轻量模糊效果，使用它须符合已确认的视觉与性能边界。
+
+### 组件选择与 API 约定
+
+以下是组件职责映射，不要求将每个现有控件机械替换成玻璃控件；嵌套与内容层规则优先。
+
+| 现有职责 | 对应组件 | 使用约束 |
+| --- | --- | --- |
+| 带玻璃导航的页面骨架 | `GlassScaffold` | 统一层叠、边缘渐隐、背景明暗与安全区域。 |
+| 顶部导航栏 | `GlassAppBar` | 操作通过 `actions` 列表提供，不使用 `trailing`。 |
+| 底部标签导航 | `GlassTabBar.bottom` | 仅在产品确有底部导航时采用。 |
+| 带搜索的标签导航 | `GlassTabBar.searchable` | 仅在产品需要标签导航与搜索组合时采用。 |
+| 随滚动收起的标签导航 | `GlassTabBar.minimizable` | 核对收起后的操作可达性及额外操作按钮。 |
+| 独立操作按钮 | `GlassButton` | 回调为 `onTap`。 |
+| 独立图标按钮 | `GlassIconButton` | 回调为 `onPressed`，保留提示和可访问名称。 |
+| 下拉操作或上下文菜单 | `GlassPullDownButton`、`GlassMenu` | 核对触发按钮、菜单位置和键盘焦点关系。 |
+| 分段选择 | `GlassSegmentedControl<T>` | 独立玻璃指示器不嵌套在另一个折射面板内。 |
+| 开关 | `GlassSwitch` | 独立使用时按 API 设置 `useOwnLayer: true`；组内避免重复材料层。 |
+| 滑块 | `GlassSlider` | 保留数值控制、键盘操作和可访问性。 |
+| 独立浮动卡片 | `GlassCard` | 内容保持清晰，内部不再套独立折射控件。 |
+| 设置列表分组 | `GlassGroupedSection` | 组内条目共享分组材料，不逐行重复折射。 |
+| 列表条目 | `GlassListTile` | 配合分组使用，按公开规则共享父材料。 |
+| 分隔线 | `GlassDivider` | 只用于实际的信息分组。 |
+| 输入框 | `GlassTextField` | 验证输入法、焦点、选字和提交行为。 |
+| 多档位浮动面板 | `GlassModalSheet.show` | `initialState`、`halfSize`、`peekSize` 按真实交互确定，不照搬手机页面示例。 |
+| 对话框 | `GlassDialog.show`、`GlassDialogAction` | 取消和破坏性操作明确区分；玻璃外观不代表系统原生对话框。 |
+| 短暂反馈 | `GlassToast` | 反馈应可见，失败信息不能仅依赖装饰动画。 |
+| 动态显隐 | `GlassMaterialize` | 以 `visible` 表示状态；减少动态效果时保持功能可用。 |
+| 标签/过滤条件 | `GlassChip` | `label` 接收 `String`，不是 `Widget`。 |
+
+### 导航变形与重点易错项
+
+1. 只有明确需要同一窗口内跨路由的导航栏变形时，才用 `GlassNavigationShell` 包裹对应 `Navigator`，并在页面使用 `GlassAppBar.pinned`。不同原生窗口之间不建立人为共享导航。
+2. `GlassAppBar.pinned` 的操作使用 `GlassBarItem` 数据描述；`GlassBarItem.icon` 的操作回调是 `onTap`，不是 `onPressed`。
+3. `GlassBarItem` 设置 `tintColor` 时，同时使用 `background: GlassBarItemBackground.separate`。让组件决定相应前景明暗，不再给子 `Icon` 强行固定颜色。
+4. 底部导航使用当前公开的 `GlassTabBar` 系列；不使用 `GlassBottomBar`、`GlassSearchableBottomBar`，也不创建同名兼容封装。
+5. 组件表中各回调名及参数类型不能互换。代码生成和审查时核对锁定版本的构造函数，而不是凭命名习惯猜测。
+
+
+## 执行工单
+
+- [ ] https://github.com/1504101951/translateApp/issues/69 — 缺陷：新翻译历史未显示来源应用
+- [ ] https://github.com/1504101951/translateApp/issues/70 — 功能：遮挡工具改为图形，支持纯色填充与马赛克
+- [ ] https://github.com/1504101951/translateApp/issues/71 — 功能：提取共享颜色控件，为绘图工具提供调色盘
+- [ ] https://github.com/1504101951/translateApp/issues/72 — 功能：提取共享粗细控件，为画笔、箭头和矩形调整线宽

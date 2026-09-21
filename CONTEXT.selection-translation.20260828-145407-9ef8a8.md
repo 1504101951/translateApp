@@ -2,7 +2,7 @@
 
 This context defines the user-facing language for translating text selected in another macOS application.
 
-**Current Platform Scope**: The product currently supports macOS 14 and later only. Android, iOS, and Windows are future platform directions and are not part of the current specification, tickets, or acceptance criteria.
+**Current Platform Scope**: The product currently supports macOS 26 and later only. Flutter owns UI and translation logic; AppKit supplies native Liquid Glass materials and system capabilities. Android, iOS, and Windows are future platform directions and are not part of the current specification, tickets, or acceptance criteria.
 
 _Avoid_: Current Cross-Platform Release, Four-Platform Delivery
 
@@ -54,7 +54,7 @@ _Avoid_: Global Pause, Editable-Field Exclusion
 
 _Avoid_: Floating Window, Popup
 
-**Translation Trigger State**: The collapsed state of the Translation Overlay, presented as one 84×36-point rounded translation button. Clicking starts translation; dragging moves the overlay while preserving the source application's keyboard focus.
+**Translation Trigger State**: The collapsed state of the Translation Overlay, presented as one 84×30-point rounded translation button. Clicking starts translation; dragging moves the overlay while preserving the source application's keyboard focus.
 
 _Avoid_: Translation Button
 
@@ -74,7 +74,7 @@ _Avoid_: Overlay History, History Panel
 
 _Avoid_: Private Mode, Clear History
 
-**Translation Record**: One entry in Translation History containing the source text, translated text, detected source language, target language, Translation Provider, optional model name, and completion time. Every successful translation creates a new Translation Record, including repeated source text; the record does not identify the source application or selection location.
+**Translation Record**: One entry in Translation History containing the source text, translated text, detected source language, actual target language, Translation Provider, optional model name, completion time, and source display label (application name or Screenshot). Every fully successful selection or screenshot-text translation creates a new Translation Record, including repeated source text. Cancelled, failed, incomplete, or stale screenshot results are absent. Records do not store selection locations, screenshot images, or credentials. A record without source metadata displays an explicit unknown-source label.
 
 _Avoid_: Request Log, Activity Record
 

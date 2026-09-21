@@ -1,6 +1,12 @@
 # Flutter macOS 架构
 
-当前只交付 macOS 14+。Flutter/Dart 是应用与业务主体，Swift 负责 macOS 启动壳和系统能力。
+本文描述当前实现。规范性技术边界见[架构设计约束](specs/architecture.md)，产品行为与数值分别见[功能规格](specs/functional.md)、[样式规格](specs/style.md)。共享绘制样式与调色盘/粗细是Spec约束的待实施需求，本文不据此宣称已实现。
+
+当前只交付 macOS 26+。Flutter/Dart 是应用与业务主体，Swift 负责 macOS 启动壳、系统能力和原生 Liquid Glass 材料。
+
+## 常量与工具
+
+通道名、方法名、UserDefaults 键、引擎入口名、错误码和状态机枚举只定义在 `lib/src/common/constants/` 与 `macos/Runner/Common/Constants.swift`。调用处引用常量。被两处及以上使用的无模块私有职责的方法放在 `lib/src/common/utils/` 与 `macos/Runner/Common/Utils.swift`。细则见 `docs/agents/coding-conventions.md`。
 
 ## 职责
 
@@ -31,7 +37,7 @@ flowchart TD
 
 ## 窗口与会话
 
-- 翻译窗口使用高于 floating 的 status-bar 层级，是不能成为 key/main 的非激活 NSPanel；触发态为 84×36pt 单按钮，结果态为 720×420pt 左右双栏卡片，左译文、右原文，悬停译段时高亮对应原段。
+- 翻译窗口使用高于 floating 的 status-bar 层级，是不能成为 key/main 的非激活 NSPanel；触发态的按钮尺寸与命中窗口见样式Spec，呈现为单按钮，结果态为 720×420pt 左右双栏卡片，左译文、右原文，悬停译段时高亮对应原段。
 - Flutter 区分点击和拖动；译文顶部 56pt 标题区支持拖动，关闭按钮和正文在拖动命中区之外。Swift 保存本窗口原始 mouseDown 事件，Flutter 确认 pan 后将原事件交给 AppKit performDrag。同一会话保留位置，显式新翻译重新锚定。
 - Swift 保存来源 PID、sessionId 及结果保留标记。Dart 激活时先发送 `retainOverlay`，再补读文字并进入翻译；保留后忽略被动失效和自动新选区，只允许 Escape/× 关闭或全局热键明确替换。旧 sessionId 的指令不能影响新会话。
 - 选区、失效事件和窗口命令携带 sessionId。系统设置命令不属于选区会话，使用独立方法和设置修订号。
@@ -60,7 +66,21 @@ AX 读取优先使用文本标记范围获取跨节点选区及矩形，再读�
 
 ## 后续工单
 
-长文本分段恢复（#7）、SQLite 历史（#8）尚未实现。只在对应工单实施时新增模块，不提前建立空接口。
+长文本失败片恢复由 #7 跟踪。
+
+## 原生玻璃材料
+
+`NativeGlassFactory` 在主引擎、设置引擎、截图引擎及辅助窗口引擎分别注册平台视图，创建 macOS 26+ 的 `NSGlassEffectView`。`NativeGlassSurface` 只把系统材料放在 Flutter 前景控件下面；材料不接受键盘焦点或拦截点击，复制/保存仍由独立文档渲染输出。各控制器明确使用透明 Flutter 背景，窗口层级和激活规则保持各自职责。
+
+五类界面共用 `NativeGlassTheme`，跟随系统明暗和高对比度模式。弹窗成为活动材料层时，下层页面保留同一控件树和表单草稿，使用普通内容底色避免重复折射。正文和密集历史条目使用非折射内容区域。玻璃接入直接使用现有 Swift 系统桥，不增加第三方运行时依赖。
+
+截图 Return 与小键盘 Enter 由本地路由及可消费的会话级事件拦截统一转发 `confirmScreenshot`，绑定当前 captureId；处理后的按键不再交给来源应用，避免同时提交来源表单或消息。文字输入与组词由 Dart 和原生输入法按状态处理，重复按键和保存面板确认不会重复导出。缺少事件拦截权限时明确提示，不使用仅旁听的全局确认。原生反馈回路使用独立剪贴板验证失焦情况下的事件消费、PNG 像素和窗口关闭。
+
+## 翻译历史实现
+
+主 Dart 引擎持有 `TranslationHistoryStore`，SQLite 位于 Application Support。独立 Flutter `historyMain` 窗口通过原生通道请求数据，Swift 不存储历史。卡片标题为来源应用名称或「截图」和本地完成日期，内容按译文、原文排列。分页按 `(completed_at, id)` 倒序，每批 10 条；游标避免新记录插入导致重复分页，刷新从最新记录开始。
+
+选区来源显示名在 Swift 捕获选区时随事件传入 Dart；成功记录使用激活时的服务和语言方向。截图由 `translateScreenshotText` 编排本地语言识别、分段翻译和写入；请求携带 captureId，网络请求前及完成后都核对原生截图身份。只有完整成功且未被取消的结果写入，每次独立保存，不去重。记录开关持久化于同一 SQLite，默认开启，关闭只阻止新写入。历史不存储图片、窗口坐标或密钥。
 
 ## 区域截图
 
@@ -69,3 +89,23 @@ Swift 的系统截图模块用本进程 ScreenCaptureKit 申请屏幕录制并�
 固定目录保存在 UserDefaults 的 `screenshotSaveDirectory`，只通过设置页修改。ScreenshotStorage 通过拒绝覆盖的实际写入和序号处理重名。翻译与截图热键由同一 Carbon 注册事务管理，已有组合交换用途时复用注册，全部新注册成功才更新配置。
 
 区域框选时暂停文本手势采集并隐藏翻译浮层，完成后只恢复仍有效的浮层。截图的复制与保存不经过翻译层；OCR 及统一文本请求由 #20 后续实现。
+
+## 视觉偏好与分片恢复
+
+视觉设置与普通偏好一起由主 Dart 引擎提交；Swift 提交后通知每个 NativeGlassFactory，各独立引擎通过 appearance 通道只接收视觉快照。NativeGlassApp 重建主题并保留业务页面，NativeGlassSurface 使用单材料作用域防止嵌套折射。普通窗口由 NativeReadingCanvas 绘制贯穿标题与正文的 sRGB 阅读底色，NativeGlassWindowPage 使用同色且无内部圆角；contentLayoutGuide仅用于避让系统交互安全区。
+
+TranslationProgress 只保存已完成分片、配对和上一片双尾；SelectionSession 持有冻结服务与方向，失败后通过 retry 重发失败片。翻译浮层仍消费统一 TranslationSnapshot，成功后的历史写入沿用主入口的完整结果边界。
+
+
+### 设置自动保存
+
+设置页对离散选择立即提交，对连续透明度调整在结束时提交。服务编辑器只在确认完整有效表单后提交配置与凭据。设置页保留当前草稿及编辑序号，通过现有主引擎版本事务串行保存；请求期间的后续编辑在上一事务完成后继续提交，旧回包和旧加载快照不覆盖最新草稿。失败保留编辑、显示重试，外部版本冲突要求显式重新加载。设置窗口使用正文之外的固定顶部导航、外置字段标题和共享连续圆角，控件材料不延伸到空白行。
+
+正常保存不显示进度或成功文字，不改变页面高度。截图工具顺序、显隐与快捷键由 `ScreenshotToolbarPreferences` 校验完整顶层动作排列、冲突和保留组合，随普通偏好事务提交；Swift 只广播工具配置，截图引擎保留图像、选区和标注。非激活截图面板在原生会话按键路由匹配已保存组合，消费命中事件并派发携带captureId的语义动作；文字输入状态通知也绑定captureId。按钮与键盘共用动作映射，隐藏只影响按钮展示；上下文动作保持固定位置且不响应自定义快捷键。光标工具优先命中文字，再处理截图区域；两者共用八点、边线与内部移动命中规则，拖动只更新当前对象。
+
+截图文字编辑状态通过 `screenshotTextInput` 同步到原生控制器；编辑期间普通字符、编辑快捷键和输入法回车交给 Flutter 文本系统。原生事件路由消费已处理的截图命令，不重放字符。贴图使用非激活面板并接收首次鼠标按下，在开始 AppKit 拖动前选中当前贴图，使 Escape 只关闭该贴图。
+
+
+### macOS 对角拉伸光标
+
+截图与文本框的命中规则由Dart统一计算。两种对角轴通过 `NativeResizeCursor` 的鼠标会话向当前截图引擎发送 `setResizeCursor`，AppKit使用 `NSCursor.frameResize(position:directions:)` 显示原生双向光标；轴为 `nwse` 或 `nesw`。水平、垂直、文本、移动和按钮光标继续由Flutter系统会话管理。离开区域由下一光标会话接管，关闭编辑器清除本会话原生光标，关闭后的迟到请求不生效。

@@ -8,7 +8,7 @@
 
 ## 辅助功能授权与签名
 
-打包会重新签封外层 App，再执行完整签名校验，使外层资源摘要与 Flutter 生成的 App.framework 一致。指定证书时先按相同身份签名嵌套框架。
+打包会重新签封外层 App，再执行完整签名校验，使外层资源摘要与 Flutter 生成的 App.framework 一致。使用固定身份先签名嵌套动态库和框架，再签名App。本地证书关闭时间戳，Developer ID身份启用安全时间戳。
 
 辅助功能由 macOS TCC 管理。Bundle ID 为 `com.coolyang.translateApp`；macOS 同时校验代码签名的 designated requirement。
 
@@ -21,7 +21,7 @@ TRANSLATEAPP_SIGN_IDENTITY='Developer ID Application: YOUR NAME (TEAMID)' ./scri
 ./scripts/install-macos.sh
 ```
 
-脚本从内到外签名 Flutter frameworks 和 App，验证成功后才输出产物；没有指定证书时使用本机 ad-hoc 构建。首次采用新的稳定身份仍需在系统设置重新授权一次。对其他 Mac 分发还需要相应签名及公证流程。
+脚本从内到外签名 Flutter frameworks 和 App，验证成功后才输出产物；默认使用 `TranslateApp Local Signing` 固定本地代码签名身份；证书/私钥不可用或显式指定ad-hoc时立即失败，不输出交付包。首次采用新的稳定身份仍需在系统设置重新授权一次。对其他 Mac 分发还需要相应签名及公证流程。
 
 可用身份和实际 requirement 可通过以下命令核验：
 
@@ -37,3 +37,12 @@ App 不修改 TCC 数据库，也不添加只匹配 Bundle ID 的宽松自定义
 打包脚本退出时清理本次暂存目录及 `build/macos/Build/Products/Release/translate_app.app`，交付目录只保留 ZIP。开发和原生测试产生的 Debug、Xcode DerivedData 及临时目录中的 `translate_app.app` 在验证结束后清理，仅删除经路径与 Bundle ID 核对的生成 App；不删除整个 DerivedData、源码或偏好文件。清理前确认目标副本没有运行。
 
 日常启动入口只保留 `/Applications/TranslateApp.app`；ZIP 归档不作为已安装应用登记。用户主目录下的 `~/Applications/TranslateApp.app` 在安装到「应用程序」后删除，避免两份副本抢 TCC。
+
+
+## 本机固定签名
+
+在登录钥匙串保留名为 `TranslateApp Local Signing` 的代码签名证书及其私钥；后续构建不得重新生成同名但不同私钥的证书。无需导出或提交私钥。运行 `./scripts/package-macos.sh` 默认使用该身份；证书不可用时先报错，不回退到临时签名。
+
+验收固定签名使用两个不同内容的构建：两者主可执行哈希可以不同，但 `codesign -d -r-` 的 designated requirement 应一致，且不得含内容绑定的 `cdhash` 条件；再执行 strict 验签。首次从临时签名切换后由用户重新授权一次；权限跨版本保持效果由用户验收，应用不修改TCC数据库。
+
+若 `security find-identity -p codesigning` 能列出该身份但标记 `CSSMERR_TP_NOT_TRUSTED`，说明证书与私钥已匹配；由用户在钥匙串访问的证书“信任”中仅设置“代码签名”为“始终信任”。不能据此判断私钥缺失，也不需要重新创建证书。有效身份应出现在 `security find-identity -v -p codesigning` 中。

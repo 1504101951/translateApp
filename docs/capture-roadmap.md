@@ -2,7 +2,7 @@
 
 Codex-Thread: 01a06fe3-df48-7fb0-983b-443d579db93e
 
-当前平台为 macOS 14+。区域框选、预览、PNG 复制与保存已实现，等待实机验收；OCR、翻译联动、录屏及其他图片工具为待实现规划。总体规格见 [#1](https://github.com/1504101951/translateApp/issues/1)。
+当前平台为 macOS 26+。区域框选、预览、PNG 复制与保存已实现，等待实机验收；OCR、翻译联动、录屏及其他图片工具为待实现规划。总体规格见 [#1](https://github.com/1504101951/translateApp/issues/1)。
 
 ## 原地编辑设计
 
