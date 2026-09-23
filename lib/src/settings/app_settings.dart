@@ -1,3 +1,4 @@
+import '../screenshot/drawing_preferences.dart';
 import '../common/constants/appearance_modes.dart';
 import '../common/constants/preference_keys.dart';
 import '../translation/language_direction.dart';
@@ -24,9 +25,13 @@ class AppSettings {
     this.defaultServiceId = ServiceConfig.builtinId,
     List<ServiceConfig>? services,
     ScreenshotToolbarPreferences? screenshotToolbar,
+    DrawingPreferences? drawing,
   }) : excludedApps = excludedApps ?? {},
        services = services ?? [],
-       screenshotToolbar = screenshotToolbar ?? ScreenshotToolbarPreferences();
+       screenshotToolbar = screenshotToolbar ?? ScreenshotToolbarPreferences(),
+       drawing = drawing ?? DrawingPreferences();
+
+  DrawingPreferences drawing;
 
   ScreenshotToolbarPreferences screenshotToolbar;
   String primaryLanguage;
@@ -78,6 +83,9 @@ class AppSettings {
     );
     return AppSettings(
       screenshotToolbar: ScreenshotToolbarPreferences.fromMap(map),
+      drawing: DrawingPreferences.fromMap(
+        map[PreferenceKeys.screenshotDrawing] as Map?,
+      ),
       primaryLanguage:
           map[PreferenceKeys.primaryLanguage] as String? ??
           language.primaryCode,
@@ -167,6 +175,7 @@ class AppSettings {
   /// 无参数；返回可经 MethodChannel 和 UserDefaults 存储的标量字典。
   Map<String, Object> toMap() => {
     ...screenshotToolbar.toMap(),
+    PreferenceKeys.screenshotDrawing: drawing.toMap(),
     PreferenceKeys.defaultServiceId: defaultServiceId,
     PreferenceKeys.services: services.map((e) => e.toMap()).toList(),
     PreferenceKeys.primaryLanguage: primaryLanguage,

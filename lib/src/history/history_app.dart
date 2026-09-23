@@ -34,6 +34,7 @@ class _HistoryAppState extends State<HistoryApp> {
   bool? _recording;
   bool _savingRecording = false;
   bool _loading = false;
+  int _requestVersion = 0;
   bool _done = false;
   String? _pageError;
   String? _recordingError;
@@ -42,6 +43,9 @@ class _HistoryAppState extends State<HistoryApp> {
   @override
   void initState() {
     super.initState();
+    widget.channel.setMethodCallHandler((call) async {
+      if (call.method == MethodNames.historyChanged) await _refresh();
+    });
     // 首屏与开关独立读取，开关失败不阻止历史浏览。
     _loadMore();
     _loadRecording();
@@ -85,14 +89,15 @@ class _HistoryAppState extends State<HistoryApp> {
   }
 
   /// 无参数；按末条游标追加最多 10 条，失败保留原游标，返回加载结束的 Future。
-  Future<void> _loadMore() async {
-    if (_loading || _done) return;
+  Future<void> _loadMore({bool reset = false}) async {
+    if (!reset && (_loading || _done)) return;
+    final version = reset ? ++_requestVersion : _requestVersion;
     setState(() {
       _loading = true;
       _pageError = null;
     });
     try {
-      final last = _items.lastOrNull;
+      final last = reset ? null : _items.lastOrNull;
       final page = await widget.channel.invokeListMethod<Map<Object?, Object?>>(
         MethodNames.historyPage,
         {
@@ -101,30 +106,31 @@ class _HistoryAppState extends State<HistoryApp> {
             'before': {'completedAt': last.completedAt, 'id': last.id},
         },
       );
-      if (!mounted) return;
+      if (!mounted || version != _requestVersion) return;
       // 完整解析后再追加，避免失败的一页留下部分记录。
       final records = page!.map(TranslationRecord.fromMap).toList();
       setState(() {
+        if (reset) _items.clear();
         _items.addAll(records);
         _done = records.length < 10;
       });
     } on PlatformException catch (error) {
-      if (!mounted) return;
+      if (!mounted || version != _requestVersion) return;
       setState(() => _pageError = error.message ?? '无法读取翻译历史');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && version == _requestVersion) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   /// 无参数；回到最新记录并重新加载首批，返回刷新完成的 Future。
-  Future<void> _refresh() async {
-    if (_loading) return;
-    setState(() {
-      _items.clear();
-      _done = false;
-    });
-    // 浏览期间的新增翻译由显式刷新展示，避免打断用户当前的阅读位置。
-    await _loadMore();
+  Future<void> _refresh() => _loadMore(reset: true);
+
+  @override
+  void dispose() {
+    widget.channel.setMethodCallHandler(null);
+    super.dispose();
   }
 
   /// 无参数；返回列表末尾的加载、重试、空列表或完成提示组件。
@@ -153,139 +159,143 @@ class _HistoryAppState extends State<HistoryApp> {
   /// context 为窗口上下文；返回来源/日期标题与译文优先的历史卡片。
   @override
   Widget build(BuildContext context) {
-    return NativeGlassApp(
-      home: NativeGlassWindowPage(
-        child: Scaffold(
-          appBar: AppBar(
-            title: const Text('翻译历史'),
-            actions: [
-              NativeGlassSurface(
-                material: true,
-                child: IconButton(
-                  tooltip: '刷新历史',
-                  onPressed: _loading ? null : _refresh,
-                  icon: const Icon(Icons.refresh),
-                ),
+    return NativeGlassApp(home: Builder(builder: _buildPage));
+  }
+
+  /// 内层context订阅当前主题，确保列表缓存的显式文本样式也随外观重建。
+  Widget _buildPage(BuildContext context) {
+    final theme = Theme.of(context);
+    return NativeGlassWindowPage(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('翻译历史'),
+          actions: [
+            NativeGlassSurface(
+              material: true,
+              child: IconButton(
+                tooltip: '刷新历史',
+                onPressed: _loading ? null : _refresh,
+                icon: const Icon(Icons.refresh),
               ),
-              const Text('记录历史'),
-              NativeGlassSwitch(
-                label: '记录翻译历史',
-                value: _recording ?? false,
-                onChanged: _recording == null || _savingRecording
-                    ? null
-                    : _setRecording,
-              ),
-              const SizedBox(width: 16),
-            ],
-          ),
-          body: Column(
-            children: [
-              if (_recordingError != null)
-                ListTile(
-                  title: Text(_recordingError!),
-                  trailing: NativeGlassSurface(
-                    material: true,
-                    child: TextButton(
-                      onPressed: _loadRecording,
-                      child: const Text('重新读取设置'),
-                    ),
+            ),
+            const SizedBox(width: 12),
+            const Text('记录历史'),
+            const SizedBox(width: 8),
+            NativeGlassSwitch(
+              label: '记录翻译历史',
+              value: _recording ?? false,
+              onChanged: _recording == null || _savingRecording
+                  ? null
+                  : _setRecording,
+            ),
+            const SizedBox(width: 16),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (_recordingError != null)
+              ListTile(
+                title: Text(_recordingError!),
+                trailing: NativeGlassSurface(
+                  material: true,
+                  child: TextButton(
+                    onPressed: _loadRecording,
+                    child: const Text('重新读取设置'),
                   ),
                 ),
-              if (_recording == false)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text('已暂停记录；已有历史仍保留。'),
-                ),
-              Expanded(
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (notification) {
-                    // 只响应外层列表；错误后由用户显式重试，避免无限失败重试。
-                    if (notification.depth == 0 &&
-                        notification.metrics.extentAfter < 160 &&
-                        _pageError == null) {
-                      _loadMore();
+              ),
+            if (_recording == false)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('已暂停记录；已有历史仍保留。'),
+              ),
+            Expanded(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  // 只响应外层列表；错误后由用户显式重试，避免无限失败重试。
+                  if (notification.depth == 0 &&
+                      notification.metrics.extentAfter < 160 &&
+                      _pageError == null) {
+                    _loadMore();
+                  }
+                  return false;
+                },
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(GlassMetrics.pagePadding),
+                  itemCount: _items.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == _items.length) {
+                      // 列表末项承载分页反馈，不遮挡已有结果。
+                      return Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Center(child: _buildFooter()),
+                      );
                     }
-                    return false;
+                    final item = _items[index];
+                    final date = DateTime.fromMillisecondsSinceEpoch(
+                      item.completedAt,
+                    );
+                    final timestamp =
+                        '${date.year}-'
+                        '${date.month.toString().padLeft(2, '0')}-'
+                        '${date.day.toString().padLeft(2, '0')} '
+                        '${date.hour.toString().padLeft(2, '0')}:'
+                        '${date.minute.toString().padLeft(2, '0')}';
+                    return Card(
+                      key: ValueKey('history-${item.id}'),
+                      margin: const EdgeInsets.only(
+                        bottom: GlassMetrics.groupGap,
+                      ),
+                      elevation: 0,
+                      child: Padding(
+                        padding: const EdgeInsets.all(
+                          GlassMetrics.panelPadding,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 16,
+                              runSpacing: 8,
+                              children: [
+                                Text(
+                                  item.sourceLabel ?? '未记录来源',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
+                                ),
+                                Text(
+                                  timestamp,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                            const Divider(height: 28),
+                            Text('译文', style: theme.textTheme.labelLarge),
+                            const SizedBox(height: 8),
+                            SelectableText(
+                              item.translatedText,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            // 译文与原文独立阅读，分隔线不进入可复制正文。
+                            const Divider(height: 21, thickness: 1),
+                            Text('原文', style: theme.textTheme.labelLarge),
+                            const SizedBox(height: 8),
+                            SelectableText(
+                              item.sourceText,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   },
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(GlassMetrics.pagePadding),
-                    itemCount: _items.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == _items.length) {
-                        // 列表末项承载分页反馈，不遮挡已有结果。
-                        return Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Center(child: _buildFooter()),
-                        );
-                      }
-                      final item = _items[index];
-                      final date = DateTime.fromMillisecondsSinceEpoch(
-                        item.completedAt,
-                      );
-                      final timestamp =
-                          '${date.year}-'
-                          '${date.month.toString().padLeft(2, '0')}-'
-                          '${date.day.toString().padLeft(2, '0')} '
-                          '${date.hour.toString().padLeft(2, '0')}:'
-                          '${date.minute.toString().padLeft(2, '0')}';
-                      return Card(
-                        key: ValueKey('history-${item.id}'),
-                        margin: const EdgeInsets.only(
-                          bottom: GlassMetrics.groupGap,
-                        ),
-                        elevation: 0,
-                        child: Padding(
-                          padding: const EdgeInsets.all(
-                            GlassMetrics.panelPadding,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Wrap(
-                                alignment: WrapAlignment.spaceBetween,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                spacing: 16,
-                                runSpacing: 8,
-                                children: [
-                                  Text(
-                                    item.sourceLabel ?? '未记录来源',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium,
-                                  ),
-                                  Text(
-                                    timestamp,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                ],
-                              ),
-                              const Divider(height: 28),
-                              Text(
-                                '译文',
-                                style: Theme.of(context).textTheme.labelLarge,
-                              ),
-                              const SizedBox(height: 8),
-                              SelectableText(item.translatedText),
-                              // 译文与原文独立阅读，分隔线不进入可复制正文。
-                              const Divider(height: 21, thickness: 1),
-                              Text(
-                                '原文',
-                                style: Theme.of(context).textTheme.labelLarge,
-                              ),
-                              const SizedBox(height: 8),
-                              SelectableText(item.sourceText),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

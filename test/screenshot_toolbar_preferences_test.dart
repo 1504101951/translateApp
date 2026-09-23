@@ -11,6 +11,43 @@ import 'package:translate_app/src/settings/screenshot_toolbar_preferences.dart';
 
 /// 覆盖真实配置状态、冲突边界及录制/排序后的结果，不检查下游调用次数。
 void main() {
+  test('合并旧矩形与遮挡保留顺序、绑定优先级及显隐意图', () {
+    final old = [...ScreenshotActions.icons.keys, ScreenshotActions.mask];
+    final migrated = ScreenshotToolbarPreferences.fromMap({
+      PreferenceKeys.screenshotToolbarOrder: old,
+      PreferenceKeys.screenshotToolbarShortcuts: {
+        ScreenshotActions.mask: {'keyId': 49, 'modifiers': 0},
+      },
+      PreferenceKeys.screenshotToolbarHidden: [ScreenshotActions.rect],
+    });
+    expect(migrated.order, ScreenshotActions.icons.keys.toList());
+    expect(migrated.shortcuts[ScreenshotActions.rect]!.keyId, 49);
+    expect(migrated.hidden, isNot(contains(ScreenshotActions.rect)));
+    final hidden = ScreenshotToolbarPreferences.fromMap({
+      PreferenceKeys.screenshotToolbarOrder: old,
+      PreferenceKeys.screenshotToolbarHidden: [
+        ScreenshotActions.rect,
+        ScreenshotActions.mask,
+      ],
+    });
+    expect(hidden.hidden, contains(ScreenshotActions.rect));
+    final oldWithoutRect = [...ScreenshotActions.icons.keys]
+      ..remove(ScreenshotActions.rect);
+    oldWithoutRect.insertAll(1, [
+      ScreenshotActions.palette,
+      ScreenshotActions.mask,
+    ]);
+    final relative = ScreenshotToolbarPreferences.fromMap({
+      PreferenceKeys.screenshotToolbarOrder: oldWithoutRect,
+    });
+    expect(relative.order[1], ScreenshotActions.rect);
+
+    expect(
+      hidden.toMap()[PreferenceKeys.screenshotToolbarOrder],
+      isNot(contains(ScreenshotActions.mask)),
+    );
+  });
+
   test('顶层工具顺序/快捷键持久化，重复和保留键拒绝', () {
     final order = ScreenshotActions.icons.keys.toList().reversed.toList();
     final first = ToolbarShortcut(LogicalKeyboardKey.digit1.keyId, 0);

@@ -16,3 +16,5 @@
 12. [screenshot_enums.dart](screenshot_enums.dart)：定义截图工具类型、绘制默认值与预设颜色。
 13. [selection_gesture_types.dart](selection_gesture_types.dart)：定义触发选区采集的鼠标和键盘手势标识。
 14. [translation_phase.dart](translation_phase.dart)：定义翻译会话的业务阶段。
+
+15. [drawing_metrics.dart](drawing_metrics.dart)：集中定义调色盘、线宽、马赛克及预设色的规格数值。

@@ -1,5 +1,11 @@
 /// 平台方法协议；与Swift对应值保持一致，调用方不重复定义。
 abstract final class MethodNames {
+  /// 历史写入完成及窗口重开时通知历史引擎刷新。
+  static const historyChanged = 'historyChanged';
+
+  /// 更新各工具独立的绘制偏好。
+  static const saveDrawingPreferences = 'saveDrawingPreferences';
+
   /// 激活截图引擎的原生对角拉伸光标。
   static const setResizeCursor = 'setResizeCursor';
   static const screenshotTextInput = 'screenshotTextInput';

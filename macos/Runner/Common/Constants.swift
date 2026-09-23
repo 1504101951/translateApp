@@ -3,6 +3,11 @@ import AppKit
 
 /// 原生侧通道名、方法名与偏好键；与 Dart `ChannelNames` / `MethodNames` 对齐。
 enum AppConstants {
+    static let saveDrawingPreferencesMethod = "saveDrawingPreferences"
+    static let screenshotDrawingKey = "screenshotDrawing"
+    static let historyChangedMethod = "historyChanged"
+    static let historyChangedNotification = Notification.Name("translateapp.historyChanged")
+
     /// 截图对角光标的受控协议轴，与Dart NativeResizeCursor一致。
     static let setResizeCursorMethod = "setResizeCursor"
     static let resizeNorthWestSouthEast = "nwse"

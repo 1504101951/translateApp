@@ -22,6 +22,9 @@ class MacosPlatformBridge {
         return MacosBridgeEvent.fromMap(map);
       });
 
+  /// 通知现有历史窗口重载；无参数，返回原生转发完成的Future。
+  Future<void> notifyHistoryChanged() => _methods.invokeMethod<void>(MethodNames.historyChanged);
+
   /// sessionId绑定会话，x/y为屏幕锚点，width/height为逻辑尺寸；请求显示定位，返回操作完成的Future。
   Future<void> showOverlay({
     required String sessionId,

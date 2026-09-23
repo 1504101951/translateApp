@@ -84,17 +84,51 @@ class ScreenshotToolbarPreferences {
     bool keep(String id) =>
         ScreenshotActions.icons.containsKey(id) ||
         !ScreenshotActions.labels.containsKey(id);
-    final result = ScreenshotToolbarPreferences(
-      hidden: (map[PreferenceKeys.screenshotToolbarHidden] as List?)
-          ?.cast<String>()
-          .toSet(),
-      order: storedOrder?.where(keep).toList(),
-      shortcuts: storedShortcuts?.map(
-        (key, value) => MapEntry(
-          key as String,
-          ToolbarShortcut.fromMap(Map<Object?, Object?>.from(value as Map)),
+    final rawHidden =
+        (map[PreferenceKeys.screenshotToolbarHidden] as List?)
+            ?.cast<String>()
+            .toSet() ??
+        <String>{};
+    final order = storedOrder?.where(keep).toList();
+    final hadMask = storedOrder?.contains(ScreenshotActions.mask) ?? false;
+    // 合并优先保留原矩形位置；旧遮挡的唯一绑定转给图形，不维持两个入口。
+    if (order != null &&
+        storedOrder!.contains(ScreenshotActions.mask) &&
+        !order.contains(ScreenshotActions.rect)) {
+      order.insert(
+        storedOrder
+            .takeWhile((id) => id != ScreenshotActions.mask)
+            .where(keep)
+            .length
+            .clamp(0, order.length),
+        ScreenshotActions.rect,
+      );
+    }
+    final shortcuts = <String, ToolbarShortcut>{};
+    for (final entry in (storedShortcuts ?? {}).entries) {
+      final key = entry.key as String;
+      if (keep(key) && key != ScreenshotActions.mask) {
+        shortcuts[key] = ToolbarShortcut.fromMap(
+          Map<Object?, Object?>.from(entry.value as Map),
+        );
+      }
+    }
+    if (!shortcuts.containsKey(ScreenshotActions.rect) &&
+        storedShortcuts?[ScreenshotActions.mask] != null) {
+      shortcuts[ScreenshotActions.rect] = ToolbarShortcut.fromMap(
+        Map<Object?, Object?>.from(
+          storedShortcuts![ScreenshotActions.mask] as Map,
         ),
-      )?..removeWhere((key, value) => !keep(key)),
+      );
+    }
+    final hidden = {...rawHidden}..remove(ScreenshotActions.mask);
+    if (hadMask && !rawHidden.contains(ScreenshotActions.mask)) {
+      hidden.remove(ScreenshotActions.rect);
+    }
+    final result = ScreenshotToolbarPreferences(
+      order: order,
+      shortcuts: shortcuts,
+      hidden: hidden,
     );
     result.validate();
     return result;

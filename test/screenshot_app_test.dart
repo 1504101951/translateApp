@@ -65,7 +65,7 @@ void main() {
     document.setCrop(const Rect.fromLTWH(0, 0, 8, 8));
     expect(document.cropRect, const Rect.fromLTWH(0, 0, 8, 8));
     document.addAnnotation(
-      const EditAnnotation(
+      EditAnnotation(
         id: '',
         kind: AnnotationKind.rectangle,
         bounds: Rect.fromLTWH(0, 0, 3, 3),
@@ -74,7 +74,7 @@ void main() {
       ),
     );
     document.addAnnotation(
-      const EditAnnotation(
+      EditAnnotation(
         id: '',
         kind: AnnotationKind.arrow,
         bounds: Rect.fromLTWH(0, 0, 3, 3),
@@ -85,7 +85,7 @@ void main() {
       ),
     );
     document.addAnnotation(
-      const EditAnnotation(
+      EditAnnotation(
         id: '',
         kind: AnnotationKind.text,
         bounds: Rect.fromLTWH(0, 0, 2, 2),
@@ -95,7 +95,7 @@ void main() {
       ),
     );
     document.addAnnotation(
-      const EditAnnotation(
+      EditAnnotation(
         id: '',
         kind: AnnotationKind.mask,
         bounds: Rect.fromLTWH(5, 5, 3, 3),
@@ -231,7 +231,9 @@ void main() {
 
     // 遮挡后再复制，通道必须收到合成 bytes，而非原始捕获。
     saveError = null;
-    await tester.tap(find.byKey(const Key('screenshot-tool-mask')));
+    await tester.tap(find.byKey(const Key('screenshot-tool-rect')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('screenshot-shape-filledRectangle')));
     await tester.pumpAndSettle();
     final canvas = find.byKey(const Key('screenshot-canvas'));
     // 在画布上拖出遮挡块；8x8 放大后需足够大的屏幕拖拽才能跨过 ≥1 源图像素。
@@ -510,7 +512,7 @@ void main() {
     document.loadCapture(source, 8, 8);
     document.setCrop(const Rect.fromLTWH(0, 0, 6, 6));
     document.addAnnotation(
-      const EditAnnotation(
+      EditAnnotation(
         id: '',
         kind: AnnotationKind.text,
         bounds: Rect.fromLTWH(0, 0, 8, 8),
@@ -526,7 +528,7 @@ void main() {
     expect(document.cropRect, const Rect.fromLTWH(0, 0, 6, 6));
 
     document.addAnnotation(
-      const EditAnnotation(
+      EditAnnotation(
         id: '',
         kind: AnnotationKind.stroke,
         bounds: Rect.fromLTWH(0, 0, 5, 5),

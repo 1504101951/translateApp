@@ -1,4 +1,8 @@
+import 'drawing_preferences.dart';
+import '../common/constants/preference_keys.dart';
+
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -14,6 +18,8 @@ import '../common/utils/screenshot_filename.dart';
 import '../common/widgets/native_glass.dart';
 import '../common/widgets/native_resize_cursor.dart';
 import 'edit_document.dart';
+import 'drawing_style.dart';
+import 'drawing_controls.dart';
 import 'screenshot_editor_layout.dart';
 import '../settings/screenshot_toolbar_preferences.dart';
 import '../common/constants/screenshot_actions.dart';
@@ -75,6 +81,24 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   final List<Offset> _strokePoints = [];
 
   Map<Object?, Object?> _capture = {};
+  final GlobalKey _editorKey = GlobalKey();
+  DrawingPreferences _drawing = DrawingPreferences();
+  Future<void> _drawingSave = Future.value();
+  DrawingStyle get _nextStyle => _drawing.styleFor(_styleTool);
+  set _nextStyle(DrawingStyle value) =>
+      _drawing = _drawing.copyWith(tool: _styleTool, style: value);
+  Color get _fillColor => _drawing.styleFor(ScreenshotTool.rect).color;
+  set _fillColor(Color value) => _drawing = _drawing.copyWith(
+    tool: ScreenshotTool.rect,
+    style: _drawing.styleFor(ScreenshotTool.rect).copyWith(color: value),
+  );
+  ShapeMode get _shapeMode => _drawing.brushMode;
+  ShapeVariant get _styleShape => _styleSelection?.shape ?? _drawing.shape;
+  String? _selectedShapeId;
+  bool _shapeSelecting = false;
+  bool _styleDialogOpen = false;
+  ui.Image? _sourceImage;
+
   ScreenshotTool _tool = ScreenshotTool.crop;
   bool _busy = false;
   bool _failed = false;
@@ -96,9 +120,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   EditAnnotation? _previewAnnotation;
 
   /// 文字工具当前颜色。
+  // 输入草稿与已选文字不写入工具默认值；只有编辑新文字的属性才更新偏好。
   Color _textColor = ScreenshotDefaults.strokeColor;
-
-  /// 文字工具当前字号。
   double _fontSize = ScreenshotDefaults.fontSize;
 
   /// 已提交且当前选中的文字标注 id。
@@ -124,7 +147,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     ScreenshotActions.rect: ScreenshotTool.rect,
     ScreenshotActions.arrow: ScreenshotTool.arrow,
     ScreenshotActions.text: ScreenshotTool.text,
-    ScreenshotActions.mask: ScreenshotTool.mask,
     ScreenshotActions.brush: ScreenshotTool.brush,
   };
   bool _cropSelected = false;
@@ -136,6 +158,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     _document.addListener(_onDocumentChanged);
     widget.channel.setMethodCallHandler((call) async {
       if (call.method == MethodNames.screenshotToolbarChanged) {
+        // 当前单一截图引擎是绘图属性的唯一编辑入口；旧保存回声不能回滚较新的本地输入。
+        // 新截图从完整快照恢复参数；若未来允许并行截图引擎，需改为按字段带版本合并。
         // 工具配置独立更新，不替换正在编辑的图片、裁剪和标注草稿。
         final next = ScreenshotToolbarPreferences.fromMap(
           Map<Object?, Object?>.from(call.arguments as Map),
@@ -158,6 +182,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         // 原生键路由与 Flutter 键盘共用确认语义，过期捕获不能触发导出。
         await _confirmScreenshot();
       } else if (call.method == MethodNames.escapePressed) {
+        if (_styleDialogOpen) {
+          Navigator.of(_editorKey.currentContext!).pop();
+          return;
+        }
         if (_textInputOpen) {
           _cancelText();
         } else {
@@ -206,13 +234,23 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   /// value 为原生截图快照；替换图片并清空上一张草稿，无返回值。
   void _replace(Map<Object?, Object?> value) {
     if (!mounted) return;
+    if (_styleDialogOpen) {
+      Navigator.of(_editorKey.currentContext!).pop();
+    }
     _copyFeedbackTimer?.cancel();
     final bytes = value['bytes'] as Uint8List?;
     final width = (value['width'] as num?)?.toInt() ?? 0;
     final height = (value['height'] as num?)?.toInt() ?? 0;
     setState(() {
+      _sourceImage?.dispose();
+      _sourceImage = null;
       _capture = value;
       _toolbar = ScreenshotToolbarPreferences.fromMap(value);
+      _drawing = DrawingPreferences.fromMap(
+        value[PreferenceKeys.screenshotDrawing] as Map?,
+      );
+      _textColor = _drawing.styles[ScreenshotTool.text]!.color;
+      _fontSize = _drawing.fontSize;
       _message = value['error'] as String?;
       _failed = _message != null;
       _savedPath = null;
@@ -227,12 +265,15 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _ocrOverlays = [];
       _tool = ScreenshotTool.crop;
       _selectedTextId = null;
+      _selectedShapeId = null;
+      _shapeSelecting = false;
       _editingTextId = null;
       _resizeHandle = null;
       _cropSelected = false;
       _previewCrop = null;
       if (bytes != null && width > 0 && height > 0) {
         _document.loadCapture(bytes, width, height);
+        _loadSourceImage(bytes, value['id']);
         final cropW = (value['cropWidth'] as num?)?.toDouble();
         final cropH = (value['cropHeight'] as num?)?.toDouble();
         if (cropW != null && cropH != null && cropW >= 1 && cropH >= 1) {
@@ -248,6 +289,221 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         }
       } else {
         _document.clear();
+      }
+    });
+  }
+
+  /// bytes为原图PNG、id为捕获身份；异步解码只更新同一会话的马赛克预览。
+  Future<void> _loadSourceImage(Uint8List bytes, Object? id) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    if (!mounted || _capture['id'] != id) {
+      frame.image.dispose();
+      return;
+    }
+    setState(() {
+      _sourceImage?.dispose();
+      _sourceImage = frame.image;
+    });
+  }
+
+  /// 返回当前被选中的标注；文字与非文字分别保留各自交互状态。
+  EditAnnotation? get _styleSelection => _document.annotations
+      .where((a) => a.id == (_selectedShapeId ?? _selectedTextId))
+      .firstOrNull;
+
+  /// 当前样式目标工具；选中标注优先于下一次绘制工具。
+  ScreenshotTool get _styleTool {
+    final selected = _styleSelection;
+    if (selected == null) return _tool;
+    return switch (selected.kind) {
+      AnnotationKind.rectangle => ScreenshotTool.rect,
+      AnnotationKind.arrow => ScreenshotTool.arrow,
+      AnnotationKind.stroke => ScreenshotTool.brush,
+      AnnotationKind.text => ScreenshotTool.text,
+      AnnotationKind.mask => ScreenshotTool.rect,
+    };
+  }
+
+  /// point为原图坐标；按绘制逆序命中形状，线条使用投影距离避免整块空白被选中。
+  EditAnnotation? _hitShape(Offset point) {
+    final tolerance = 6 * _pixelRatio;
+    for (final a in _document.annotations.reversed) {
+      if (a.kind == AnnotationKind.text) continue;
+      if (!a.bounds.inflate(tolerance + a.strokeWidth / 2).contains(point)) {
+        continue;
+      }
+      if (a.kind == AnnotationKind.mask) return a;
+      if (a.kind == AnnotationKind.rectangle) {
+        if (a.shape.circular) {
+          final distance = (point - a.bounds.center).distance;
+          final radius = a.bounds.width / 2;
+          if (a.shape.filled
+              ? distance <= radius
+              : (distance - radius).abs() <= tolerance + a.strokeWidth / 2) {
+            return a;
+          }
+        } else if (a.shape.filled ||
+            !a.bounds.deflate(tolerance + a.strokeWidth / 2).contains(point)) {
+          return a;
+        }
+        continue;
+      }
+      final points = a.kind == AnnotationKind.stroke
+          ? a.points
+          : [a.start!, a.end!];
+      for (var i = 1; i < points.length; i++) {
+        final delta = points[i] - points[i - 1];
+        final rel = point - points[i - 1];
+        final t = delta.distanceSquared == 0
+            ? 0.0
+            : ((rel.dx * delta.dx + rel.dy * delta.dy) / delta.distanceSquared)
+                  .clamp(0.0, 1.0);
+        if ((point - (points[i - 1] + delta * t)).distance <=
+            tolerance + a.strokeWidth / 2) {
+          return a;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// 弹出独立控件；返回前保持原生按键处于文字输入作用域，避免HEX数字触发工具。
+  Future<void> _editDrawingStyle({required bool color}) async {
+    final editingText = _textInputOpen;
+    final selected = editingText ? _previewAnnotation : _styleSelection;
+    final captureId = _capture['id'];
+    final tool = _styleTool;
+    final initialColor =
+        selected?.color ??
+        (tool == ScreenshotTool.rect && _styleShape.filled
+            ? _fillColor
+            : tool == ScreenshotTool.text
+            ? _textColor
+            : _nextStyle.color);
+    final initialWidth = selected == null
+        ? _nextStyle.strokeWidth
+        : selected.strokeWidth / _pixelRatio;
+    _styleDialogOpen = true;
+    _setTextInput(true);
+    final result = await showDialog<Object>(
+      context: _editorKey.currentContext!,
+      builder: (dialogContext) => Dialog(
+        child: color
+            ? ColorPicker(
+                initial: initialColor,
+                onApply: (value) => Navigator.pop(dialogContext, value),
+                onCancel: () => Navigator.pop(dialogContext),
+              )
+            : StrokeWidthPicker(
+                initial: initialWidth,
+                onApply: (value) => Navigator.pop(dialogContext, value),
+                onCancel: () => Navigator.pop(dialogContext),
+              ),
+      ),
+    );
+    _styleDialogOpen = false;
+    if (!mounted || captureId != _capture['id']) return;
+    _setTextInput(editingText);
+    if (editingText) {
+      _textFocus.requestFocus();
+    } else {
+      _focusNode.requestFocus();
+    }
+    if (result == null) return;
+    setState(() {
+      if (editingText && result is Color) {
+        _textColor = result;
+        _previewAnnotation = _previewAnnotation?.copyWith(color: result);
+        if (_editingTextId == null) {
+          _drawing = _drawing.copyWith(
+            tool: ScreenshotTool.text,
+            style: _drawing.styles[ScreenshotTool.text]!.copyWith(
+              color: result,
+            ),
+          );
+        }
+      } else if (selected != null) {
+        final current = _document.annotations
+            .where((a) => a.id == selected.id)
+            .firstOrNull;
+        if (current == null) return;
+        final style = current.style.copyWith(
+          color: result is Color ? result : null,
+          strokeWidth: result is double ? result * _pixelRatio : null,
+        );
+        if (style.color != current.color ||
+            style.strokeWidth != current.strokeWidth) {
+          _document.updateAnnotation(current.copyWith(style: style));
+        }
+      } else if (result is Color) {
+        if (tool == ScreenshotTool.rect && _styleShape.filled) {
+          _fillColor = result;
+        } else {
+          _nextStyle = _nextStyle.copyWith(color: result);
+          if (tool == ScreenshotTool.text) _textColor = result;
+        }
+      } else if (result is double) {
+        _nextStyle = _nextStyle.copyWith(strokeWidth: result);
+      }
+    });
+    if ((selected == null || editingText) && _editingTextId == null) {
+      _persistDrawing();
+    }
+  }
+
+  /// 显示图形模式选择；返回值在同一捕获内更新选中形状或后续绘制模式。
+  void _chooseShape(ShapeVariant value) {
+    final selected = _styleSelection;
+    if (selected?.kind == AnnotationKind.rectangle) {
+      final bounds = value.circular
+          ? _circleBounds(selected!.bounds)
+          : selected!.bounds;
+      _document.updateAnnotation(
+        selected.copyWith(shape: value, bounds: bounds),
+      );
+    } else {
+      setState(() => _drawing = _drawing.copyWith(shape: value));
+      _persistDrawing();
+    }
+  }
+
+  /// 模式作用于当前画笔对象或后续轨迹；确认时只产生一次编辑历史。
+  void _chooseBrush(ShapeMode value) {
+    final selected = _styleSelection;
+    if (selected?.kind == AnnotationKind.stroke) {
+      _document.updateAnnotation(selected!.copyWith(shapeMode: value));
+    } else {
+      setState(() => _drawing = _drawing.copyWith(brushMode: value));
+      _persistDrawing();
+    }
+  }
+
+  /// 原图外接矩形取短边为直径，保证圆形而不是椭圆。
+  Rect _circleBounds(Rect bounds) => Rect.fromLTWH(
+    bounds.left,
+    bounds.top,
+    math.min(bounds.width, bounds.height),
+    math.min(bounds.width, bounds.height),
+  );
+
+  /// 捕获独立快照串行保存到主设置引擎；失败可见，不静默丢弃偏好。
+  void _persistDrawing() {
+    final snapshot = _drawing.toMap();
+    _drawingSave = _drawingSave.then((_) async {
+      try {
+        await widget.channel.invokeMethod(
+          MethodNames.saveDrawingPreferences,
+          snapshot,
+        );
+      } on PlatformException catch (error) {
+        if (mounted) {
+          setState(() {
+            _message = error.message;
+            _failed = true;
+          });
+        }
       }
     });
   }
@@ -283,6 +539,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// 无参数；确认当前文字或复制并结束截图，返回该操作结束的 Future。
   Future<void> _confirmScreenshot() async {
+    if (_styleDialogOpen) return;
     if (_busy) return;
     if (_textInputOpen) {
       _commitText();
@@ -537,6 +794,23 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// imagePoint 为源图像素坐标；按当前工具开始拖拽或打开文本输入，无返回值。
   void _onDragStart(Offset imagePoint) {
+    if (_tool == ScreenshotTool.cursor &&
+        !_busy &&
+        !_textInputOpen &&
+        _hitText(imagePoint) == null) {
+      final shape = _hitShape(imagePoint);
+      if (shape != null) {
+        setState(() {
+          _selectedShapeId = shape.id;
+          _selectedTextId = null;
+          _cropSelected = false;
+          _shapeSelecting = true;
+        });
+        return;
+      }
+    }
+    _selectedShapeId = null;
+
     if (!_document.hasImage || _busy || _textInputOpen) return;
     if ((_tool == ScreenshotTool.text || _tool == ScreenshotTool.cursor) &&
         _startTextGesture(imagePoint)) {
@@ -586,6 +860,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// imagePoint 为拖拽中的源图像素坐标；只更新预览，不写历史，无返回值。
   void _onDragUpdate(Offset imagePoint) {
+    if (_shapeSelecting) return;
     if (_dragStart == null || _textInputOpen) return;
     setState(() {
       _dragCurrent = imagePoint;
@@ -621,6 +896,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// 无参数；结束拖拽并提交裁剪/标注，无返回值。
   void _onDragEnd() {
+    if (_shapeSelecting) {
+      _shapeSelecting = false;
+      return;
+    }
     if (_dragStart == null) return;
     final start = _dragStart!;
     final end = _dragCurrent ?? start;
@@ -686,6 +965,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           EditAnnotation(
             id: '',
             kind: AnnotationKind.stroke,
+            shapeMode: _shapeMode,
+            style: _nextStyle.copyWith(
+              strokeWidth: _nextStyle.strokeWidth * _pixelRatio,
+            ),
             bounds: boundsForPoints(_strokePoints),
             points: List<Offset>.from(_strokePoints),
           ),
@@ -704,6 +987,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       EditAnnotation(
         id: '',
         kind: preview.kind,
+        shapeMode: preview.shapeMode,
+        shape: preview.shape,
+        style: preview.style,
         bounds: preview.bounds,
         start: preview.start,
         end: preview.end,
@@ -870,6 +1156,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         return EditAnnotation(
           id: 'preview',
           kind: AnnotationKind.stroke,
+          shapeMode: _shapeMode,
+          style: _nextStyle.copyWith(
+            strokeWidth: _nextStyle.strokeWidth * _pixelRatio,
+          ),
           bounds: boundsForPoints(
             _strokePoints.isEmpty ? [start, end] : _strokePoints,
           ),
@@ -881,33 +1171,38 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         return EditAnnotation(
           id: 'preview',
           kind: AnnotationKind.rectangle,
-          bounds: bounds,
+          shape: _drawing.shape,
+          style: _nextStyle.copyWith(
+            color: _drawing.shape.filled ? _fillColor : _nextStyle.color,
+            strokeWidth: _nextStyle.strokeWidth * _pixelRatio,
+          ),
+          bounds: _drawing.shape.circular ? _circleBounds(bounds) : bounds,
         );
       case ScreenshotTool.arrow:
         return EditAnnotation(
           id: 'preview',
           kind: AnnotationKind.arrow,
+          style: _nextStyle.copyWith(
+            strokeWidth: _nextStyle.strokeWidth * _pixelRatio,
+          ),
           bounds: bounds,
           start: start,
           end: end,
-        );
-      case ScreenshotTool.mask:
-        return EditAnnotation(
-          id: 'preview',
-          kind: AnnotationKind.mask,
-          bounds: bounds,
-          color: const Color(0xFF000000),
         );
     }
   }
 
   /// point 为点击位置；bounds 为文本框，缺省用默认尺寸。打开就地输入。
   void _openTextInput(Offset point, {Rect? bounds}) {
+    _textColor = _drawing.styles[ScreenshotTool.text]!.color;
+    _fontSize = _drawing.fontSize;
     final box = _clampedTextBox(point, bounds: bounds);
     setState(() {
       _setTextInput(true);
       _cropSelected = false;
       _selectedTextId = null;
+      _selectedShapeId = null;
+      _shapeSelecting = false;
       _editingTextId = null;
       _textController.text = '';
       _dragStart = box.topLeft;
@@ -1016,6 +1311,18 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   void _onTextTap(Offset imagePoint) {
     if (!_document.hasImage || _busy || _textInputOpen) return;
     final hit = _hitText(imagePoint);
+    if (_tool == ScreenshotTool.cursor && hit == null) {
+      final shape = _hitShape(imagePoint);
+      if (shape != null) {
+        setState(() {
+          _selectedShapeId = shape.id;
+          _selectedTextId = null;
+          _cropSelected = false;
+        });
+        return;
+      }
+    }
+    _selectedShapeId = null;
     if (_tool == ScreenshotTool.cursor) {
       if (hit == null) {
         _onCropTap(imagePoint);
@@ -1060,6 +1367,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   /// 无参数；解除原生回调与文档监听，无返回值。
   @override
   void dispose() {
+    _sourceImage?.dispose();
     _copyFeedbackTimer?.cancel();
     _document.removeListener(_onDocumentChanged);
     _document.dispose();
@@ -1073,10 +1381,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   /// context 为编辑窗口上下文；返回无边框暗色叠加编辑界面。
   @override
   Widget build(BuildContext context) {
+    final renderedTool = _tool;
     _pixelRatio = MediaQuery.devicePixelRatioOf(context);
     final hasImage = _document.hasImage;
     return NativeGlassApp(
       home: Focus(
+        key: _editorKey,
         focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: (node, event) {
@@ -1139,7 +1449,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   previewCrop: _previewCrop,
                   pixelRatio: _pixelRatio,
                   busy: _busy,
-                  textInputOpen: _textInputOpen,
+                  textInputOpen: _textInputOpen && !_styleDialogOpen,
+                  sourceImage: _sourceImage,
+                  selectedShape: _selectedShapeId == null
+                      ? null
+                      : _styleSelection,
                   textController: _textController,
                   textFocus: _textFocus,
                   selectedText: _document.annotations
@@ -1148,7 +1462,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   onDragStart: _onDragStart,
                   onDragUpdate: _onDragUpdate,
                   onDragEnd: _onDragEnd,
-                  onTextTap: _onTextTap,
+                  // 工具切换会释放旧手势的待处理单击；不得把它当成新工具的输入。
+                  onTextTap: (point) {
+                    if (_tool == renderedTool) _onTextTap(point);
+                  },
                   onCropTap: _onCropTap,
                   cropSelected: _cropSelected,
                   activeHandle: _resizeHandle,
@@ -1168,9 +1485,20 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   },
                   onCommitText: _commitText,
                   toolbarBuilder: _buildToolbar,
+                  secondaryItemCount: _toolbarActions().keys
+                      .where(
+                        (id) =>
+                            id != ScreenshotActions.reveal &&
+                            !ScreenshotActions.icons.containsKey(id),
+                      )
+                      .length,
                   toolbarItemCount:
                       _toolbarActions().keys
-                          .where((id) => !_toolbar.hidden.contains(id))
+                          .where(
+                            (id) =>
+                                ScreenshotActions.icons.containsKey(id) &&
+                                !_toolbar.hidden.contains(id),
+                          )
                           .length +
                       (_busy ? 1 : 0),
                   toolbarHasMessage: _message != null,
@@ -1277,6 +1605,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// delta 为档位步进，-1 更小、+1 更大；字号只落在预设列表，并立刻作用到当前框。
   void _nudgeFontSize(int delta) {
+    final selected = _textInputOpen ? _previewAnnotation : _styleSelection;
+    if (selected?.kind == AnnotationKind.text) {
+      _textColor = selected!.color;
+      _fontSize = _nearestVisualFont(_toVisualFont(selected.fontSize));
+    }
     final sizes = ScreenshotDefaults.fontSizes;
     final index = sizes.indexOf(_fontSize);
     final next = (index < 0 ? 1 : index) + delta;
@@ -1285,6 +1618,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _fontSize = sizes[next];
       _applyStyleToCurrent();
     });
+    if (_selectedTextId == null && _editingTextId == null) {
+      _drawing = _drawing.copyWith(fontSize: _fontSize);
+      _persistDrawing();
+    }
   }
 
   /// 无参数；返回当前上下文可见动作及启用回调，鼠标与快捷键共用业务入口。
@@ -1297,9 +1634,28 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   item.id == _selectedTextId &&
                   item.kind == AnnotationKind.text,
             ));
+    final styleTool = _styleTool;
+    final brushMode = _styleSelection?.shapeMode ?? _shapeMode;
     final actions = <String, VoidCallback?>{
+      if (styleTool == ScreenshotTool.rect)
+        for (final shape in ShapeVariant.values)
+          '${ScreenshotActions.shapePrefix}${shape.name}': () =>
+              _chooseShape(shape),
+      if (styleTool == ScreenshotTool.brush)
+        for (final mode in ShapeMode.values)
+          '${ScreenshotActions.brushPrefix}${mode.name}': () =>
+              _chooseBrush(mode),
+      if (supportsDrawingColor(styleTool, brushMode))
+        ScreenshotActions.palette: () => _editDrawingStyle(color: true),
+      if (supportsStrokeWidth(styleTool) &&
+          !(styleTool == ScreenshotTool.rect && _styleShape.filled))
+        ScreenshotActions.width: () => _editDrawingStyle(color: false),
       for (final entry in _toolIds.entries)
-        entry.key: () => setState(() => _tool = entry.value),
+        entry.key: () => setState(() {
+          _tool = entry.value;
+          _selectedShapeId = null;
+          _selectedTextId = null;
+        }),
       ScreenshotActions.undo: _document.canUndo ? _document.undo : null,
       ScreenshotActions.redo: _document.canRedo ? _document.redo : null,
       ScreenshotActions.pin: _document.hasImage ? () => _export('pin') : null,
@@ -1309,12 +1665,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       ScreenshotActions.ocrTranslate: _document.hasImage ? _translateOcr : null,
       ScreenshotActions.close: _close,
       if (textControls) ...{
-        for (final color in ScreenshotDefaults.textColors)
-          '${ScreenshotActions.colorPrefix}${color.toARGB32()}': () =>
-              setState(() {
-                _textColor = color;
-                _applyStyleToCurrent();
-              }),
         ScreenshotActions.sizeDown: () => _nudgeFontSize(-1),
         ScreenshotActions.sizeUp: () => _nudgeFontSize(1),
       },
@@ -1329,97 +1679,155 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// axis为横/竖方向；按持久化顺序放置独立按钮，容器透明且可滚动。
   Widget _buildToolbar(BuildContext context, Axis axis) {
-    const icons = {
+    final actions = _toolbarActions();
+    final top = _toolbar.order
+        .where((id) => !_toolbar.hidden.contains(id))
+        .toList();
+    final attributes = actions.keys
+        .where(
+          (id) =>
+              id != ScreenshotActions.reveal &&
+              !ScreenshotActions.icons.containsKey(id),
+        )
+        .toList();
+    if (actions.containsKey(ScreenshotActions.reveal)) {
+      top.add(ScreenshotActions.reveal);
+    }
+    final colors = Theme.of(context).colorScheme;
+    final icons = <String, IconData>{
       ...ScreenshotActions.icons,
+      ScreenshotActions.palette: Icons.palette_outlined,
+      ScreenshotActions.width: Icons.line_weight,
       ScreenshotActions.sizeDown: Icons.text_decrease,
       ScreenshotActions.sizeUp: Icons.text_increase,
       ScreenshotActions.reveal: Icons.folder_open,
+      '${ScreenshotActions.shapePrefix}rectangle': Icons.crop_square,
+      '${ScreenshotActions.shapePrefix}circle': Icons.circle_outlined,
+      '${ScreenshotActions.shapePrefix}filledRectangle': Icons.square,
+      '${ScreenshotActions.shapePrefix}filledCircle': Icons.circle,
+      '${ScreenshotActions.brushPrefix}solid': Icons.brush,
+      '${ScreenshotActions.brushPrefix}mosaic': Icons.grid_on,
     };
-    final actions = _toolbarActions();
-    final controls = SingleChildScrollView(
-      scrollDirection: axis,
-      child: Padding(
-        padding: const EdgeInsets.all(GlassMetrics.toolbarPadding),
-        child: Flex(
-          direction: axis,
-          spacing: 4,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final id in [
-              ..._toolbar.order.where((id) => !_toolbar.hidden.contains(id)),
-              ...actions.keys.where(
-                (id) => !ScreenshotActions.icons.containsKey(id),
-              ),
-            ])
-              NativeGlassSurface(
-                material: true,
-                child: IconButton(
-                  key: Key(id),
-                  tooltip:
-                      '${ScreenshotActions.labels[id]}${_toolbar.shortcuts[id] == null ? '' : ' · ${_toolbar.shortcuts[id]!.label}'}',
-                  onPressed: actions[id],
-                  color: _toolIds[id] == _tool
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.onSurface,
-                  icon: id.startsWith(ScreenshotActions.colorPrefix)
-                      ? Icon(
-                          Icons.circle,
-                          size: 14,
-                          color: Color(
-                            int.parse(
-                              id.substring(
-                                ScreenshotActions.colorPrefix.length,
-                              ),
-                            ),
-                          ),
-                        )
-                      : Icon(icons[id], size: GlassMetrics.icon),
-                ),
-              ),
-            if (_busy) const Icon(Icons.hourglass_top, size: 14),
-          ],
+    // 模式按钮不产生hover层；普通操作保留主题反馈，属性不进入顶层排序。
+    Widget button(String id) {
+      final mode =
+          id.startsWith(ScreenshotActions.shapePrefix) ||
+          id.startsWith(ScreenshotActions.brushPrefix);
+      final selected =
+          _toolIds[id] == _tool ||
+          id == '${ScreenshotActions.shapePrefix}${_styleShape.name}' ||
+          id ==
+              '${ScreenshotActions.brushPrefix}${(_styleSelection?.shapeMode ?? _shapeMode).name}';
+      final child = SizedBox(
+        width: 32,
+        height: 32,
+        child: IconButton(
+          key: Key(id),
+          tooltip:
+              '${ScreenshotActions.labels[id]}${_toolbar.shortcuts[id] == null ? '' : ' ${_toolbar.shortcuts[id]!.label}'}',
+          onPressed: actions[id],
+          style: mode
+              ? ButtonStyle(
+                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                  backgroundColor: WidgetStatePropertyAll(
+                    selected
+                        ? NativeGlassTheme.selectionBlue
+                        : Colors.transparent,
+                  ),
+                  foregroundColor: WidgetStatePropertyAll(
+                    selected ? Colors.white : colors.onSurface,
+                  ),
+                  overlayColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.pressed)
+                        ? (Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white.withValues(alpha: .10)
+                              : Colors.black.withValues(alpha: .08))
+                        : Colors.transparent,
+                  ),
+                  shape: WidgetStatePropertyAll(
+                    RoundedSuperellipseBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                )
+              : null,
+          color: mode
+              ? null
+              : selected
+              ? colors.primary
+              : colors.onSurface,
+          icon: Icon(icons[id] ?? Icons.circle, size: 16),
         ),
-      ),
-    );
-    // 工具组保留8pt内边距，容器透明，只有各按钮自身绘制材料。
+      );
+      // 每个模式同样需要材料承载；外层工具栏保持透明。
+      return NativeGlassSurface(material: true, child: child);
+    }
+
+    // 每行独立滚动，第二行始终在主行下方，画布像素坐标不参与布局。
+    Widget row(List<String> ids, String key, {bool loading = false}) =>
+        SingleChildScrollView(
+          key: Key(key),
+          scrollDirection: axis,
+          child: Flex(
+            direction: axis,
+            mainAxisSize: MainAxisSize.min,
+            spacing: 4,
+            children: [
+              for (final id in ids) button(id),
+              if (loading)
+                const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: Icon(Icons.hourglass_top, size: 14),
+                ),
+            ],
+          ),
+        );
+    final rows = attributes.isEmpty
+        ? row(top, 'screenshot-tools-row', loading: _busy)
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 32,
+                child: row(top, 'screenshot-tools-row', loading: _busy),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 32,
+                child: row(attributes, 'screenshot-attributes-row'),
+              ),
+            ],
+          );
     return SizedBox(
       key: const Key('screenshot-toolbar'),
-      child: LayoutBuilder(
-        builder: (context, constraints) => Flex(
-          direction: axis,
-          children: [
-            Expanded(child: controls),
-            // 状态固定在工具栏尾部，不能随按钮滚动隐藏复制/保存错误。
-            if (_message != null)
-              SizedBox(
-                width: axis == Axis.horizontal
-                    ? constraints.maxWidth * 0.4
-                    : null,
-                height: axis == Axis.vertical
-                    ? constraints.maxHeight * 0.35
-                    : null,
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_message != null)
-                          SelectableText(
-                            _message!,
-                            style: TextStyle(
-                              color: _failed
-                                  ? Theme.of(context).colorScheme.error
-                                  : Theme.of(context).colorScheme.onSurface,
-                              fontSize: 12,
-                            ),
-                          ),
-                      ],
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Flex(
+            direction: axis,
+            children: [
+              Expanded(child: rows),
+              if (_message != null)
+                SizedBox(
+                  width: axis == Axis.horizontal
+                      ? constraints.maxWidth * .4
+                      : null,
+                  height: axis == Axis.vertical
+                      ? constraints.maxHeight * .35
+                      : null,
+                  child: SingleChildScrollView(
+                    child: Text(
+                      _message!,
+                      style: TextStyle(
+                        color: _failed ? colors.error : colors.onSurface,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1453,13 +1861,17 @@ class _EditorSurface extends StatelessWidget {
     required this.onCommitText,
     required this.toolbarBuilder,
     required this.toolbarItemCount,
+    this.secondaryItemCount = 0,
     required this.toolbarHasMessage,
     required this.copyFeedback,
     required this.ocrOverlays,
     this.selectedText,
+    this.sourceImage,
+    this.selectedShape,
   });
 
   final int toolbarItemCount;
+  final int secondaryItemCount;
   final bool toolbarHasMessage;
   final MethodChannel channel;
   final EditDocument document;
@@ -1474,6 +1886,8 @@ class _EditorSurface extends StatelessWidget {
   final TextEditingController textController;
   final FocusNode textFocus;
   final EditAnnotation? selectedText;
+  final ui.Image? sourceImage;
+  final EditAnnotation? selectedShape;
   final ValueChanged<Offset> onDragStart;
   final ValueChanged<Offset> onDragUpdate;
   final VoidCallback onDragEnd;
@@ -1503,8 +1917,10 @@ class _EditorSurface extends StatelessWidget {
           crop: document.cropRect,
           toolbarLength:
               16 +
-              toolbarItemCount * 32 +
-              math.max(0, toolbarItemCount - 1) * 4,
+              math.max(toolbarItemCount, secondaryItemCount) * 32 +
+              math.max(0, math.max(toolbarItemCount, secondaryItemCount) - 1) *
+                  4,
+          propertyRow: secondaryItemCount > 0,
         );
         final fitted = layout.canvas;
         Rect cropDisplay = mapRectToFitted(
@@ -1658,6 +2074,8 @@ class _EditorSurface extends StatelessWidget {
                       ),
                       CustomPaint(
                         painter: _OverlayPainter(
+                          sourceImage: sourceImage,
+                          selectedShape: selectedShape,
                           annotations: document.annotations,
                           previewAnnotation: previewAnnotation,
                           imageSize: imageSize,
@@ -1706,7 +2124,9 @@ class _EditorSurface extends StatelessWidget {
               ),
               // 拖动时不让工具栏遮住正在变化的选区；松开后按新选区重新定位。
               if ((dragStart == null || textInputOpen) &&
-                  (toolbarItemCount > 0 || toolbarHasMessage))
+                  (toolbarItemCount > 0 ||
+                      secondaryItemCount > 0 ||
+                      toolbarHasMessage))
                 Positioned.fromRect(
                   rect: layout.toolbar,
                   child: toolbarBuilder(context, layout.axis),
@@ -1984,11 +2404,15 @@ class _OverlayPainter extends CustomPainter {
     required this.annotations,
     required this.previewAnnotation,
     required this.imageSize,
+    this.sourceImage,
+    this.selectedShape,
   });
 
   final List<EditAnnotation> annotations;
   final EditAnnotation? previewAnnotation;
   final Size imageSize;
+  final ui.Image? sourceImage;
+  final EditAnnotation? selectedShape;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2004,10 +2428,27 @@ class _OverlayPainter extends CustomPainter {
           annotation.id == draggingId) {
         continue;
       }
-      EditDocument.paintAnnotation(canvas, annotation);
+      EditDocument.paintAnnotation(
+        canvas,
+        annotation,
+        sourceImage: sourceImage,
+      );
     }
     if (previewAnnotation != null) {
-      EditDocument.paintAnnotation(canvas, previewAnnotation!);
+      EditDocument.paintAnnotation(
+        canvas,
+        previewAnnotation!,
+        sourceImage: sourceImage,
+      );
+    }
+    if (selectedShape != null) {
+      canvas.drawRect(
+        selectedShape!.bounds.inflate(2),
+        Paint()
+          ..color = const Color(0xFF007AFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1 / scaleX,
+      );
     }
     canvas.restore();
   }

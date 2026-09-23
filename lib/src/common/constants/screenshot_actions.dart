@@ -4,6 +4,11 @@ import 'screenshot_enums.dart';
 
 /// 截图内局部动作的稳定ID及名称；同一注册表用于设置、布局与快捷键分派。
 abstract final class ScreenshotActions {
+  static const shapePrefix = 'screenshot-shape-';
+  static const brushPrefix = 'screenshot-brush-';
+  static const palette = 'screenshot-color-picker';
+  static const width = 'screenshot-stroke-width';
+  static const shapeMode = 'screenshot-shape-mode';
   static const cursor = 'screenshot-tool-cursor';
   static const crop = 'screenshot-tool-crop';
   static const rect = 'screenshot-tool-rect';
@@ -31,7 +36,6 @@ abstract final class ScreenshotActions {
     rect: Icons.crop_square,
     arrow: Icons.north_east,
     text: Icons.text_fields,
-    mask: Icons.hide_source,
     brush: Icons.brush,
     undo: Icons.undo,
     redo: Icons.redo,
@@ -45,12 +49,21 @@ abstract final class ScreenshotActions {
 
   /// 无参数；返回包括条件出现按钮的完整有序动作名称表。
   static final Map<String, String> labels = {
+    '${shapePrefix}rectangle': '矩形框',
+    '${shapePrefix}circle': '圆形框',
+    '${shapePrefix}filledRectangle': '矩形纯色填充',
+    '${shapePrefix}filledCircle': '圆形纯色填充',
+    '${brushPrefix}solid': '普通画笔',
+    '${brushPrefix}mosaic': '马赛克画笔',
+    palette: '颜色',
+    width: '粗细',
+    shapeMode: '图形模式',
     cursor: '光标',
     crop: '裁剪',
-    rect: '矩形',
+    rect: '图形',
     arrow: '箭头',
     text: '文字',
-    mask: '遮挡',
+    mask: '图形',
     brush: '画笔',
     undo: '撤销',
     redo: '重做',

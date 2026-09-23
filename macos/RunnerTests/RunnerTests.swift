@@ -101,6 +101,15 @@ class RunnerTests: XCTestCase {
         defer { controller.shutdown() }
         let png = try screenshotFixture(width: 80, height: 60, color: .white)
         controller.seedCaptureForTesting(png: png, id: "shortcut", width: 80, height: 60, showEditor: true)
+        // 实际UserDefaults到截图快照必须携带工具参数，否则重新截图后用户选择会丢失。
+        var preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)!
+        let drawing: [String: Any] = ["shape": "filledCircle", "brushMode": "mosaic", "tools": ["arrow": ["color": 0xFF007AFF, "width": 5]]]
+        preferences[AppConstants.screenshotDrawingKey] = drawing
+        UserDefaults.standard.set(preferences, forKey: AppConstants.preferencesKey)
+        var snapshot: [String: Any]?
+        controller.handle(FlutterMethodCall(methodName: AppConstants.getScreenshotMethod, arguments: nil)) { snapshot = $0 as? [String: Any] }
+        XCTAssertEqual(snapshot?[AppConstants.screenshotDrawingKey] as? NSDictionary, drawing as NSDictionary)
+
         // 49/50是逻辑字符1/2，18/19是ANSI物理键；真实event tap路径不直接给Flutter注入键。
         let one = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 18, keyDown: true))
         let two = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 19, keyDown: true))
@@ -387,12 +396,17 @@ class RunnerTests: XCTestCase {
             let expected = try XCTUnwrap(app.localizedName)
             XCTAssertFalse(expected.isEmpty)
             bridge.emitSelectionCaptured(text: "fixture", gesture: SelectionGesture.hotkey.rawValue,
-                                         x: 0, y: 0, sourcePID: app.processIdentifier)
+                                         x: 0, y: 0, sourcePID: app.processIdentifier, sourceAppName: expected)
             let event = try XCTUnwrap(payload)
             let codec = FlutterStandardMessageCodec.sharedInstance()
             let encoded = try XCTUnwrap(codec.encode(event))
             let decoded = try XCTUnwrap(codec.decode(encoded) as? [String: Any])
             XCTAssertEqual(decoded["sourceAppName"] as? String, expected)
+            // 捕获后来源进程消失，仍保留采集时的真实应用名，不从已失效PID重查。
+            bridge.emitSelectionCaptured(text: "fixture", gesture: SelectionGesture.hotkey.rawValue,
+                                         x: 0, y: 0, sourcePID: -1, sourceAppName: expected)
+            XCTAssertEqual(payload?["sourceAppName"] as? String, expected)
+
         }
     }
 
@@ -456,7 +470,7 @@ class RunnerTests: XCTestCase {
             let bridge = MacPlatformBridge(overlay: overlay, selectionMonitor: SelectionMonitor())
             var events: [[String: Any]] = []
             _ = bridge.onListen(withArguments: nil) { events.append($0 as! [String: Any]) }
-            bridge.emitSelectionCaptured(text: "Hello", gesture: SelectionGesture.drag.rawValue, x: 300, y: 500, sourcePID: 100)
+            bridge.emitSelectionCaptured(text: "Hello", gesture: SelectionGesture.drag.rawValue, x: 300, y: 500, sourcePID: 100, sourceAppName: "Fixture")
             let sessionId = events.last!["sessionId"] as! String
             let show = FlutterMethodCall(methodName: AppConstants.showOverlayMethod, arguments: [
                 "sessionId": sessionId, "x": 300.0, "y": 500.0, "width": 720.0, "height": 420.0,
@@ -469,7 +483,7 @@ class RunnerTests: XCTestCase {
             bridge.sourceApplicationChanged(to: 200)
             bridge.invalidateSelection()
             if retained {
-                bridge.emitSelectionCaptured(text: "Ignored", gesture: SelectionGesture.selectAll.rawValue, x: 500, y: 600, sourcePID: 200)
+                bridge.emitSelectionCaptured(text: "Ignored", gesture: SelectionGesture.selectAll.rawValue, x: 500, y: 600, sourcePID: 200, sourceAppName: "Other Fixture")
                 XCTAssertTrue(overlay.isPanelVisible)
                 XCTAssertEqual(overlay.frame, frame)
                 XCTAssertTrue(bridge.hasSelection)
@@ -492,10 +506,10 @@ class RunnerTests: XCTestCase {
         let bridge = MacPlatformBridge(overlay: overlay, selectionMonitor: SelectionMonitor())
         var events: [[String: Any]] = []
         _ = bridge.onListen(withArguments: nil) { events.append($0 as! [String: Any]) }
-        bridge.emitSelectionCaptured(text: "first", gesture: SelectionGesture.drag.rawValue, x: 300, y: 500, sourcePID: 100)
+        bridge.emitSelectionCaptured(text: "first", gesture: SelectionGesture.drag.rawValue, x: 300, y: 500, sourcePID: 100, sourceAppName: "Fixture")
         let oldId = events.last!["sessionId"] as! String
         bridge.handle(FlutterMethodCall(methodName: AppConstants.retainOverlayMethod, arguments: ["sessionId": oldId])) { _ in }
-        bridge.emitSelectionCaptured(text: "second", gesture: SelectionGesture.hotkey.rawValue, x: 300, y: 500, sourcePID: 100)
+        bridge.emitSelectionCaptured(text: "second", gesture: SelectionGesture.hotkey.rawValue, x: 300, y: 500, sourcePID: 100, sourceAppName: "Fixture")
         let newId = events.last!["sessionId"] as! String
         bridge.handle(FlutterMethodCall(methodName: AppConstants.showOverlayMethod, arguments: [
             "sessionId": newId, "x": 300.0, "y": 500.0, "width": 84.0, "height": 36.0,

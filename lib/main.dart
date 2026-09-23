@@ -36,6 +36,7 @@ Future<void> main() async {
   Directory(support).createSync(recursive: true);
   final history = TranslationHistoryStore(
     sqlite3.open('$support/translation_history.sqlite'),
+    onChanged: () => unawaited(bridge.notifyHistoryChanged()),
   );
 
   /// config 为偏好快照；返回当前默认服务，凭据仅在请求前从 Keychain 读取。
@@ -137,6 +138,14 @@ Future<void> main() async {
               message: error.message,
             );
           }
+        case MethodNames.saveDrawingPreferences:
+          return save(
+            AppSettings.fromMap({
+              ...settings.toMap(),
+              PreferenceKeys.screenshotDrawing: call.arguments,
+            }),
+            {},
+          );
         case MethodNames.toggleAutomatic:
           return save(
             AppSettings.fromMap({

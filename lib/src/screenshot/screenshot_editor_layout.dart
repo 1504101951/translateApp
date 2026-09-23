@@ -26,10 +26,11 @@ class ScreenshotEditorLayout {
     required Size image,
     required Rect crop,
     double toolbarLength = 640,
+    bool propertyRow = false,
   }) {
     const margin = 8.0;
     const gap = 8.0;
-    const thickness = GlassMetrics.toolbarThickness;
+    final thickness = propertyRow ? 84.0 : GlassMetrics.toolbarThickness;
     final canvas = Offset.zero & viewport;
     // 已提交选区决定布局，拖动预览不改变图片坐标系。
     final selection = mapRectToFitted(crop, image, canvas);
@@ -75,7 +76,8 @@ class ScreenshotEditorLayout {
         axis: Axis.horizontal,
       );
     }
-    if (selection.right + gap + thickness <= viewport.width - margin) {
+    if (!propertyRow &&
+        selection.right + gap + thickness <= viewport.width - margin) {
       return ScreenshotEditorLayout(
         canvas: canvas,
         toolbar: Rect.fromLTWH(
@@ -87,7 +89,7 @@ class ScreenshotEditorLayout {
         axis: Axis.vertical,
       );
     }
-    if (selection.left - gap - thickness >= margin) {
+    if (!propertyRow && selection.left - gap - thickness >= margin) {
       return ScreenshotEditorLayout(
         canvas: canvas,
         toolbar: Rect.fromLTWH(

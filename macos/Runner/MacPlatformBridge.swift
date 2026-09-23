@@ -241,6 +241,9 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             let dir = root.appendingPathComponent("TranslateApp", isDirectory: true)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             result(dir.path)
+        case AppConstants.historyChangedMethod:
+            NotificationCenter.default.post(name: AppConstants.historyChangedNotification, object: nil)
+            result(nil)
         case AppConstants.openHistoryMethod:
             showHistory?()
             result(nil)
@@ -413,8 +416,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         overlay.contains(point)
     }
 
-    /// text 为选中文字，gesture 为手势，x/y 为屏幕锚点，sourcePID 为来源进程；发送新会话，无返回值。
-    func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat, sourcePID: pid_t) {
+    /// text 为选中文字，gesture 为手势，x/y 为屏幕锚点，sourcePID 为来源进程、sourceAppName为采集时冻结的应用名；发送新会话，无返回值。
+    func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat, sourcePID: pid_t, sourceAppName: String?) {
         guard !retainsResult || gesture == SelectionGesture.hotkey.rawValue else { return }
         // 只有显式热键可以替换保留的结果；被动手势不打断阅读或正在进行的翻译。
         retainsResult = false
@@ -429,7 +432,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             "text": text,
             "gesture": gesture,
             // 此刻的来源进程才对应原文；不保存 PID、窗口或选区坐标到历史。
-            "sourceAppName": (NSRunningApplication(processIdentifier: sourcePID)?.localizedName as Any?) ?? NSNull(),
+            "sourceAppName": (sourceAppName as Any?) ?? NSNull(),
             "x": x,
             "y": y,
         ])
@@ -438,9 +441,11 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     /// 无参数；发送固定文本的探测选区，无返回值。
     func emitProbeSelection() {
         let mouse = NSEvent.mouseLocation
+        let source = NSWorkspace.shared.frontmostApplication ?? NSRunningApplication.current
         // 探测与真实事件使用相同的会话生命周期。
         emitSelectionCaptured(text: "probe", gesture: SelectionGesture.drag.rawValue, x: mouse.x, y: mouse.y,
-                              sourcePID: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? getpid())
+                              sourcePID: source.processIdentifier,
+                              sourceAppName: source.localizedName)
     }
 
     /// processIdentifier 为新前台进程；离开来源时只结束未展开的按钮，无返回值。

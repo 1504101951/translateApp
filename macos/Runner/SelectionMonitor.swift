@@ -265,6 +265,8 @@ final class SelectionMonitor {
               app.processIdentifier != getpid(),
               !excludedApps.contains(app.bundleIdentifier ?? "") else { return }
         let pid = app.processIdentifier
+        // 在原文采集开始时冻结来源名称，不在异步完成后重新按PID查询。
+        let sourceAppName = app.localizedName
         captureTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
             // 读取绑定手势来源，切换应用或新手势会取消本次读取。
@@ -282,7 +284,7 @@ final class SelectionMonitor {
             // AX 矩形可能覆盖整段或整页；异步读取完成后以最新鼠标位置统一定位。
             let anchor = NSEvent.mouseLocation
             MacPlatformBridge.Shared.instance?.emitSelectionCaptured(
-                text: text, gesture: gesture.rawValue, x: anchor.x, y: anchor.y, sourcePID: pid
+                text: text, gesture: gesture.rawValue, x: anchor.x, y: anchor.y, sourcePID: pid, sourceAppName: sourceAppName
             )
             // 选区通知覆盖程序清空与控件焦点变化，不需要轮询剪贴板。
             self?.watchSelection(sourcePID: pid, selectionElement: selection.element)

@@ -5,6 +5,7 @@ import FlutterMacOS
 final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
     private var engine: FlutterEngine?
     private var window: NSWindow?
+    private var historyObserver: NSObjectProtocol?
     private var channel: FlutterMethodChannel?
     private let engineName: String
     private let entrypoint: String
@@ -17,11 +18,24 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
         self.entrypoint = entrypoint
         self.title = title
         self.size = size
+        super.init()
+        if entrypoint == AppConstants.historyEntrypoint {
+            historyObserver = NotificationCenter.default.addObserver(forName: AppConstants.historyChangedNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.channel?.invokeMethod(AppConstants.historyChangedMethod, arguments: nil)
+            }
+        }
+    }
+
+    deinit {
+        if let historyObserver { NotificationCenter.default.removeObserver(historyObserver) }
     }
 
     /// 无参数；显示窗口，已存在则前置。
     func show() {
         if let window {
+            if entrypoint == AppConstants.historyEntrypoint {
+                channel?.invokeMethod(AppConstants.historyChangedMethod, arguments: nil)
+            }
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return

@@ -4,10 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../common/constants/screenshot_enums.dart';
+import 'drawing_style.dart';
+import '../common/constants/drawing_metrics.dart';
 
 /// 单条标注；坐标一律为源图像素，缩放只影响显示变换。
 class EditAnnotation {
-  const EditAnnotation({
+  EditAnnotation({
     required this.id,
     required this.kind,
     required this.bounds,
@@ -15,10 +17,13 @@ class EditAnnotation {
     this.end,
     this.points = const [],
     this.text = '',
-    this.color = ScreenshotDefaults.strokeColor,
-    this.strokeWidth = 3,
+    Color color = ScreenshotDefaults.strokeColor,
+    double strokeWidth = 3,
+    DrawingStyle? style,
+    this.shapeMode = ShapeMode.solid,
+    this.shape = ShapeVariant.rectangle,
     this.fontSize = ScreenshotDefaults.fontSize,
-  });
+  }) : style = style ?? DrawingStyle(color: color, strokeWidth: strokeWidth);
 
   /// 文档内唯一 id；预览用临时值，提交后由文档分配。
   final String id;
@@ -32,8 +37,11 @@ class EditAnnotation {
   final Offset? end;
   final List<Offset> points;
   final String text;
-  final Color color;
-  final double strokeWidth;
+  final DrawingStyle style;
+  Color get color => style.color;
+  double get strokeWidth => style.strokeWidth;
+  final ShapeMode shapeMode;
+  final ShapeVariant shape;
   final double fontSize;
 
   /// 返回替换字段后的新标注；历史只存不可变对象，避免共享可变引用。
@@ -46,6 +54,9 @@ class EditAnnotation {
     Color? color,
     double? strokeWidth,
     double? fontSize,
+    DrawingStyle? style,
+    ShapeMode? shapeMode,
+    ShapeVariant? shape,
   }) {
     return EditAnnotation(
       id: id,
@@ -55,8 +66,10 @@ class EditAnnotation {
       end: end ?? this.end,
       points: points ?? this.points,
       text: text ?? this.text,
-      color: color ?? this.color,
-      strokeWidth: strokeWidth ?? this.strokeWidth,
+      style:
+          style ?? this.style.copyWith(color: color, strokeWidth: strokeWidth),
+      shapeMode: shapeMode ?? this.shapeMode,
+      shape: shape ?? this.shape,
       fontSize: fontSize ?? this.fontSize,
     );
   }
@@ -66,6 +79,7 @@ class EditAnnotation {
 abstract class _EditCommand {
   /// document为目标文档；执行标注状态变更，无返回值。
   void apply(EditDocument document);
+
   /// document为目标文档；恢复命令执行前标注状态，无返回值。
   void revert(EditDocument document);
 }
@@ -184,7 +198,9 @@ class EditDocument extends ChangeNotifier {
             end: annotation.end,
             points: annotation.points,
             text: annotation.text,
-            color: annotation.color,
+            shapeMode: annotation.shapeMode,
+            shape: annotation.shape,
+            style: annotation.style,
             strokeWidth: annotation.strokeWidth,
             fontSize: annotation.fontSize,
           )
@@ -252,7 +268,7 @@ class EditDocument extends ChangeNotifier {
     canvas.clipRect(dst);
     canvas.translate(-srcRect.left, -srcRect.top);
     for (final annotation in _annotations) {
-      _paintAnnotation(canvas, annotation);
+      paintAnnotation(canvas, annotation, sourceImage: source);
     }
     canvas.restore();
     final picture = recorder.endRecording();
@@ -266,8 +282,13 @@ class EditDocument extends ChangeNotifier {
   }
 
   /// canvas 为绘制目标，annotation 为源图像素坐标下的标注；无返回值。
-  static void paintAnnotation(Canvas canvas, EditAnnotation annotation) {
-    _paintAnnotation(canvas, annotation);
+  static void paintAnnotation(
+    Canvas canvas,
+    EditAnnotation annotation, {
+    ui.Image? sourceImage,
+  }) {
+    // 统一渲染接缝让预览与导出使用相同原图马赛克算法。
+    _paintAnnotation(canvas, annotation, sourceImage: sourceImage);
   }
 
   /// command为编辑命令；执行并入撤销栈，清空重做栈并通知监听者，无返回值。
@@ -309,22 +330,88 @@ class EditDocument extends ChangeNotifier {
   }
 
   /// canvas为源图坐标目标，annotation为标注；按类型绘制导出像素，不改变文档，无返回值。
-  static void _paintAnnotation(Canvas canvas, EditAnnotation annotation) {
+  /// clip为需要遮蔽的源图轨迹；按固定12px网格采样，区域外像素不变。
+  static void _paintMosaic(
+    Canvas canvas,
+    ui.Image source,
+    Path clip,
+    Rect bounds,
+  ) {
+    final area = bounds.intersect(
+      Rect.fromLTWH(0, 0, source.width.toDouble(), source.height.toDouble()),
+    );
+    if (area.isEmpty) return;
+    const block = DrawingMetrics.mosaicPixels;
+    canvas.save();
+    canvas.clipPath(clip);
+    for (
+      var y = (area.top / block).floor() * block;
+      y < area.bottom;
+      y += block
+    ) {
+      for (
+        var x = (area.left / block).floor() * block;
+        x < area.right;
+        x += block
+      ) {
+        final tile = Rect.fromLTWH(x, y, block, block).intersect(
+          Rect.fromLTWH(
+            0,
+            0,
+            source.width.toDouble(),
+            source.height.toDouble(),
+          ),
+        );
+        canvas.drawImageRect(
+          source,
+          Rect.fromLTWH(
+            tile.center.dx.floorToDouble(),
+            tile.center.dy.floorToDouble(),
+            1,
+            1,
+          ),
+          tile,
+          Paint()
+            ..filterQuality = FilterQuality.none
+            ..isAntiAlias = false,
+        );
+      }
+    }
+    canvas.restore();
+  }
+
+  static void _paintAnnotation(
+    Canvas canvas,
+    EditAnnotation annotation, {
+    ui.Image? sourceImage,
+  }) {
     switch (annotation.kind) {
       case AnnotationKind.rectangle:
         final paint = Paint()
           ..color = annotation.color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = annotation.strokeWidth
-          ..isAntiAlias = false;
-        canvas.drawRect(annotation.bounds, paint);
+          ..style = annotation.shape.filled
+              ? PaintingStyle.fill
+              : PaintingStyle.stroke
+          ..strokeWidth = annotation.strokeWidth;
+        if (annotation.shape.circular) {
+          canvas.drawOval(annotation.bounds, paint);
+        } else {
+          canvas.drawRect(annotation.bounds, paint);
+        }
       case AnnotationKind.mask:
-        // 纯色遮挡必须不透明填充，导出后无法通过“去掉对象”恢复原像素。
-        final paint = Paint()
-          ..color = annotation.color.withValues(alpha: 1)
-          ..style = PaintingStyle.fill
-          ..isAntiAlias = false;
-        canvas.drawRect(annotation.bounds, paint);
+        if (annotation.shapeMode == ShapeMode.solid) {
+          canvas.drawRect(
+            annotation.bounds,
+            Paint()..color = annotation.color.withValues(alpha: 1),
+          );
+        } else if (sourceImage != null) {
+          _paintMosaic(
+            canvas,
+            sourceImage,
+            Path()..addRect(annotation.bounds),
+            annotation.bounds,
+          );
+        }
       case AnnotationKind.arrow:
         final start = annotation.start;
         final end = annotation.end;
@@ -353,6 +440,30 @@ class EditDocument extends ChangeNotifier {
         canvas.drawPath(path, tip);
       case AnnotationKind.stroke:
         if (annotation.points.length < 2) return;
+        if (annotation.shapeMode == ShapeMode.mosaic) {
+          if (sourceImage == null) return;
+          final clip = Path();
+          final radius = annotation.strokeWidth / 2;
+          // 圆端点与连接四边形同向，重叠区域不能因绕组抵消而露出原图。
+          for (final point in annotation.points) {
+            clip.addOval(Rect.fromCircle(center: point, radius: radius));
+          }
+          for (var i = 1; i < annotation.points.length; i++) {
+            final a = annotation.points[i - 1], b = annotation.points[i];
+            final delta = b - a;
+            if (delta.distance == 0) continue;
+            final normal =
+                Offset(-delta.dy, delta.dx) / delta.distance * radius;
+            clip.addPolygon([
+              a + normal,
+              a - normal,
+              b - normal,
+              b + normal,
+            ], true);
+          }
+          _paintMosaic(canvas, sourceImage, clip, clip.getBounds());
+          return;
+        }
         final paint = Paint()
           ..color = annotation.color
           ..strokeWidth = annotation.strokeWidth

@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:translate_app/src/common/constants/appearance_modes.dart';
 import 'package:translate_app/src/common/widgets/native_glass.dart';
 import 'package:translate_app/src/common/constants/method_names.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +18,22 @@ void main() {
 
   setUp(() {
     database = sqlite3.openInMemory();
-    store = TranslationHistoryStore(database);
+    store = TranslationHistoryStore(
+      database,
+      onChanged: () {
+        // 用原生转发的同一协议连接真实SQLite写入与历史窗口，不手工重建窗口。
+        unawaited(
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .handlePlatformMessage(
+                channel.name,
+                const StandardMethodCodec().encodeMethodCall(
+                  const MethodCall(MethodNames.historyChanged),
+                ),
+                (_) {},
+              ),
+        );
+      },
+    );
     // 仅替代原生转发层；查询、游标和开关均使用真实数据库结果。
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -65,6 +83,57 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
     database.close();
+  });
+
+  testWidgets('历史随外观切换保持来源和正文可读，收到新增事件自动刷新', (tester) async {
+    // 真实SQLite插入后由通知刷新，不重建窗口；两种主题检查实际卡片文本颜色。
+    store.insert(
+      sourceText: 'old source',
+      translatedText: 'old translation',
+      detectedLanguage: 'en',
+      targetLanguage: 'zh',
+      providerId: 'test',
+      completedAt: 1,
+      sourceLabel: 'Safari',
+    );
+    await tester.pumpWidget(const HistoryApp(channel: channel));
+    await tester.pumpAndSettle();
+    // Header三个控件分别保留12pt和8pt间距，不依赖文字本身留白。
+    final refresh = tester.getRect(find.byIcon(Icons.refresh));
+    final recording = tester.getRect(find.text('记录历史'));
+    final toggle = tester.getRect(find.byType(NativeGlassSwitch));
+    expect(recording.left - refresh.right, greaterThanOrEqualTo(12));
+    expect(toggle.left - recording.right, 8);
+
+    for (final mode in [AppearanceModes.dark, AppearanceModes.light]) {
+      GlassAppearance.current.value = GlassAppearance(mode: mode);
+      await tester.pumpAndSettle();
+      expect(
+        Theme.of(tester.element(find.text('Safari'))).brightness,
+        mode == AppearanceModes.light ? Brightness.light : Brightness.dark,
+      );
+      final title = tester.widget<Text>(find.text('Safari'));
+      final expected = mode == AppearanceModes.light
+          ? Colors.black
+          : Colors.white;
+      expect(title.style!.color, expected);
+      final content = tester.element(find.text('old translation'));
+      expect(DefaultTextStyle.of(content).style.color, expected);
+    }
+    store.insert(
+      sourceText: 'new source',
+      translatedText: 'new translation',
+      detectedLanguage: 'en',
+      targetLanguage: 'zh',
+      providerId: 'test',
+      completedAt: 2,
+      sourceLabel: 'Notes',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Notes'), findsOneWidget);
+    expect(find.text('new translation'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    GlassAppearance.current.value = const GlassAppearance();
   });
 
   testWidgets('来源与本地日期组成标题，译文在原文上方，滚动可读第三页', (tester) async {

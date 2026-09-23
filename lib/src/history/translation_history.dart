@@ -49,7 +49,7 @@ class TranslationRecord {
 
 /// SQLite 翻译历史；只在整篇成功后写入。database 由调用方提供以便测试用内存库。
 class TranslationHistoryStore {
-  TranslationHistoryStore(this.database) {
+  TranslationHistoryStore(this.database, {this.onChanged}) {
     database.execute('''
 CREATE TABLE IF NOT EXISTS translation_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +86,9 @@ CREATE TABLE IF NOT EXISTS history_meta (
   }
 
   final Database database;
+
+  /// 成功落库后的变更信号，不包含原文等隐私内容。
+  final void Function()? onChanged;
 
   /// 无参数；默认开启记录。
   bool get recordingEnabled {
@@ -129,6 +132,7 @@ CREATE TABLE IF NOT EXISTS history_meta (
         sourceLabel,
       ],
     );
+    onChanged?.call();
   }
 
   /// before 为上一页末条位置，首屏为空；limit 为正数；返回完成时间倒序记录。

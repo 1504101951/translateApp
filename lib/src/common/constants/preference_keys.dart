@@ -1,5 +1,7 @@
 /// 持久化偏好字段；与Swift对应值保持一致，调用方不重复定义。
 abstract final class PreferenceKeys {
+  /// 每工具独立绘图参数。
+  static const screenshotDrawing = 'screenshotDrawing';
   static const screenshotToolbarHidden = 'screenshotToolbarHidden';
   static const screenshotToolbarOrder = 'screenshotToolbarOrder';
   static const screenshotToolbarShortcuts = 'screenshotToolbarShortcuts';
