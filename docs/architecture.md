@@ -109,3 +109,13 @@ TranslationProgress 只保存已完成分片、配对和上一片双尾；Select
 ### macOS 对角拉伸光标
 
 截图与文本框的命中规则由Dart统一计算。两种对角轴通过 `NativeResizeCursor` 的鼠标会话向当前截图引擎发送 `setResizeCursor`，AppKit使用 `NSCursor.frameResize(position:directions:)` 显示原生双向光标；轴为 `nwse` 或 `nesw`。水平、垂直、文本、移动和按钮光标继续由Flutter系统会话管理。离开区域由下一光标会话接管，关闭编辑器清除本会话原生光标，关闭后的迟到请求不生效。
+
+## 绘制样式与来源身份
+
+DrawingStyle是标注组合的不可变样式，颜色与线宽控件只返回已确认的值；文档沿用现有命令历史。原生采集在取得前台应用时冻结显示名，与原文会话一起发送，不在异步完成后按PID重新查询。
+
+图形工具采用rect配置身份，四种图形和普通/马赛克画笔通过同一绘制方法服务预览与PNG导出；浮层选择框不进入像素。共享数值在common/constants/drawing_metrics.dart，控件在screenshot/drawing_controls.dart。
+
+DrawingPreferences按工具保存颜色、线宽、形状与画笔模式，主Dart设置队列验证并写入screenshotDrawing偏好。历史SQLite插入成功通知原生转发historyChanged，窗口内按请求版本重载；主题内层Builder驱动完整历史列表样式重建。
+
+绘图属性按具体图形模式、普通画笔与马赛克画笔隔离。DrawingPreferences.styleFor负责解析对应子工具的不可变样式；调整写入自己的variants槽，基础配置用于初始化未调整的子工具，不在子工具之间传播修改。
