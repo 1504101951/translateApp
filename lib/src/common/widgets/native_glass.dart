@@ -160,11 +160,13 @@ class _GlassButtonFeedback extends StatefulWidget {
     required this.radius,
     required this.enabled,
     this.inset = EdgeInsets.zero,
+    this.hoverFeedback = true,
   });
   final Widget child;
   final double radius;
   final bool enabled;
   final EdgeInsets inset;
+  final bool hoverFeedback;
   @override
   /// 无参数；创建按钮瞬时交互状态，不持有业务数据。
   State<_GlassButtonFeedback> createState() => _GlassButtonFeedbackState();
@@ -183,8 +185,10 @@ class _GlassButtonFeedbackState extends State<_GlassButtonFeedback> {
     final alpha = !widget.enabled
         ? 0.0
         : _pressed
-        ? GlassMetrics.pressedOpacity
-        : _hovered
+        ? (widget.hoverFeedback
+              ? GlassMetrics.pressedOpacity
+              : (Theme.of(context).brightness == Brightness.dark ? 0.10 : 0.08))
+        : _hovered && widget.hoverFeedback
         ? GlassMetrics.hoverOpacity
         : 0.0;
     return Focus(
@@ -652,9 +656,12 @@ class NativeGlassSegments<T> extends StatelessWidget {
                                 child: _GlassButtonFeedback(
                                   radius: radius,
                                   enabled: true,
+                                  hoverFeedback: false,
                                   child: TextButton(
                                     onPressed: () => onChanged(option.key),
                                     style: TextButton.styleFrom(
+                                      // 局部foregroundColor会生成Ink悬停层，反馈仅由外层按压状态负责。
+                                      overlayColor: Colors.transparent,
                                       // 反馈Stack会放松子约束；显式轮廓尺寸确保蓝底不缩为18pt文字行。
                                       minimumSize: Size(width, height),
                                       fixedSize: Size(width, height),

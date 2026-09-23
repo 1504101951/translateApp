@@ -340,42 +340,44 @@ class _SettingsPageState extends State<_SettingsPage>
     required String label,
     required bool screenshot,
   }) => [
-    Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-    const SizedBox(height: 8),
-    Align(
-      alignment: Alignment.centerLeft,
-      child: NativeGlassSurface(
-        material: true,
-        child: OutlinedButton.icon(
-          key: ValueKey(title),
-          onPressed: _recording
-              ? null
-              : () => _recordShortcut(screenshot: screenshot),
-          icon: const Icon(Icons.keyboard_outlined),
-          label: Text(
-            _recording
-                ? '请按下组合键，Esc 取消…'
-                : [
-                    if (code & 4096 != 0) '⌃',
-                    if (code & 2048 != 0) '⌥',
-                    if (code & 512 != 0) '⇧',
-                    if (code & 256 != 0) '⌘',
-                    label,
-                  ].join(' '),
+    // 同一行保留标题和录制命中区，不通过常驻说明增加页面高度。
+    ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
-        ),
+          const SizedBox(width: 12),
+          NativeGlassSurface(
+            material: true,
+            child: OutlinedButton.icon(
+              key: ValueKey(title),
+              onPressed: _recording
+                  ? null
+                  : () => _recordShortcut(screenshot: screenshot),
+              icon: const Icon(Icons.keyboard_outlined),
+              label: Text(
+                _recording
+                    ? '请按下组合键，Esc 取消…'
+                    : [
+                        if (code & 4096 != 0) '⌃',
+                        if (code & 2048 != 0) '⌥',
+                        if (code & 512 != 0) '⇧',
+                        if (code & 256 != 0) '⌘',
+                        label,
+                      ].join(' '),
+              ),
+            ),
+          ),
+        ],
       ),
     ),
-    if (screenshot) ...[
-      const SizedBox(height: 8),
-      Text(
-        '点击录制；录制完成后自动保存；检查系统保留组合和可识别的全局占用。',
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
-    ],
   ];
 
-  /// context 为窗口上下文；返回可滚动表单与保存反馈。
   @override
   Widget build(BuildContext context) {
     final settings = _settings;
@@ -502,16 +504,10 @@ class _SettingsPageState extends State<_SettingsPage>
                           ),
                         ],
                       ),
-                      if (settings.excludedApps.isEmpty)
-                        Text(
-                          '所有支持读取选区的应用均可翻译。',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
                       for (final app in settings.excludedApps.entries)
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(app.value),
-                          subtitle: Text(app.key),
                           trailing: NativeGlassSurface(
                             material: true,
                             child: IconButton(
@@ -543,13 +539,23 @@ class _SettingsPageState extends State<_SettingsPage>
                             child: const Text('在系统设置中允许登录项'),
                           ),
                         ),
+                    ],
+                  ),
+                  // 系统权限集中在一张卡片，登录启动单独成组。
+                  NativeGlassGroup(
+                    children: [
                       ListTile(
+                        minTileHeight: 56,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('辅助功能权限'),
-                        subtitle: Text(
-                          _status['accessibility'] == true
-                              ? '已授权'
-                              : '未授权，无法读取选中文字',
+                        title: Row(
+                          children: [
+                            const Text('辅助功能权限'),
+                            const SizedBox(width: 8),
+                            Text(
+                              _status['accessibility'] == true ? '已授权' : '未授权',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                         ),
                         trailing: NativeGlassSurface(
                           material: true,
@@ -561,18 +567,19 @@ class _SettingsPageState extends State<_SettingsPage>
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                  NativeGlassGroup(
-                    children: [
                       ListTile(
                         key: const ValueKey('屏幕录制权限'),
+                        minTileHeight: 56,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('屏幕录制权限'),
-                        subtitle: Text(
-                          _status['screenAccess'] == true
-                              ? '已授权，可截取屏幕'
-                              : '未授权；申请后 TranslateApp 会出现在系统屏幕录制列表',
+                        title: Row(
+                          children: [
+                            const Text('屏幕录制权限'),
+                            const SizedBox(width: 8),
+                            Text(
+                              _status['screenAccess'] == true ? '已授权' : '未授权',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                         ),
                         trailing: NativeGlassSurface(
                           material: true,
@@ -688,7 +695,6 @@ class _SettingsPageState extends State<_SettingsPage>
                         ),
                       NativeGlassSwitchTile(
                         title: '仅使用快捷键',
-                        subtitle: '关闭自动按钮后，只能通过快捷键唤醒翻译',
                         value: !settings.automatic,
                         onChanged: (v) => _edit(() => settings.automatic = !v),
                       ),

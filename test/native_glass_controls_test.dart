@@ -1,4 +1,6 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,69 @@ import 'package:translate_app/src/common/widgets/native_glass.dart';
 
 /// 验证Spec的尺寸与真实交互边界；使用实际布局，不检查配置文件字符串。
 void main() {
+  testWidgets('真实外观分段的绘制像素在鼠标悬停前后保持一致', (tester) async {
+    // 比较整段像素而非外层反馈容器，覆盖TextButton自身Ink高亮。
+    final boundary = GlobalKey();
+    await tester.pumpWidget(MaterialApp(
+      theme: NativeGlassTheme.data(Brightness.light),
+      home: Scaffold(body: RepaintBoundary(key: boundary, child:
+        NativeGlassSegments<String>(value: 'light', options: const {
+          'system': '跟随系统', 'light': '浅色', 'dark': '深色'}, onChanged: (_) {}))),
+    ));
+    await tester.pumpAndSettle();
+    Future<List<int>> pixels() async {
+      final image = await (boundary.currentContext!.findRenderObject() as RenderRepaintBoundary).toImage();
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      image.dispose();
+      return data!.buffer.asUint8List().toList();
+    }
+    final before = await tester.runAsync(pixels);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(700, 500));
+    await mouse.moveTo(tester.getCenter(find.text('跟随系统')));
+    await tester.pumpAndSettle();
+    expect(await tester.runAsync(pixels), before);
+    await mouse.removePointer();
+  });
+
+  testWidgets('分段按钮悬停无高亮，按下反馈且释放选择生效', (tester) async {
+    var selected = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NativeGlassTheme.data(Brightness.light),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, update) => NativeGlassSegments<int>(
+              value: selected,
+              options: const {0: '第一项', 1: '第二项'},
+              onChanged: (v) => update(() => selected = v),
+            ),
+          ),
+        ),
+      ),
+    );
+    // 对实际反馈层的颜色做对照，不能把鼠标进入误画成第二个已选项。
+    List<Color?> colors() => tester
+        .widgetList<AnimatedContainer>(find.byType(AnimatedContainer))
+        .map((w) => (w.decoration as ShapeDecoration?)?.color)
+        .toList();
+    final before = colors();
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    final target = tester.getCenter(find.text('第二项'));
+    await mouse.moveTo(target);
+    await tester.pumpAndSettle();
+    expect(colors(), before);
+    await mouse.down(target);
+    await tester.pumpAndSettle();
+    expect(colors(), isNot(before));
+    await mouse.up();
+    await tester.pumpAndSettle();
+    expect(selected, 1);
+    expect(colors(), before);
+    await mouse.removePointer();
+  });
+
   testWidgets('短按钮轮廓28pt且透明边缘可点击，输入32pt', (tester) async {
     // 32pt命中高度和28pt轮廓之间各2pt必须仍触发动作，不产生整行背景。
     var presses = 0;

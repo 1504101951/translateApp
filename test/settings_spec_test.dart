@@ -37,10 +37,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getRect(navigation), before);
     expect(find.text('辅助功能权限'), findsOneWidget);
+    expect(find.text('所有支持读取选区的应用均可翻译。'), findsNothing);
+    expect(find.text('已授权，可截取屏幕'), findsNothing);
     expect(find.text('屏幕录制权限'), findsOneWidget);
+    // 两项授权必须在同一卡片；登录启动不能混入权限组。
+    final accessibilityGroup = find.ancestor(
+      of: find.text('辅助功能权限'),
+      matching: find.byType(NativeGlassGroup),
+    );
+    final screenGroup = find.ancestor(
+      of: find.text('屏幕录制权限'),
+      matching: find.byType(NativeGlassGroup),
+    );
+    expect(tester.element(accessibilityGroup), tester.element(screenGroup));
+    expect(
+      find.descendant(of: accessibilityGroup, matching: find.text('登录时启动')),
+      findsNothing,
+    );
+
     await tester.tap(find.text('截图'));
     await tester.pumpAndSettle();
     expect(find.text('屏幕录制权限'), findsNothing);
+    final shortcutLabel = find.text('区域截图快捷键');
+    final shortcutButton = find.byKey(const ValueKey('区域截图快捷键'));
+    expect(
+      (tester.getCenter(shortcutLabel).dy - tester.getCenter(shortcutButton).dy)
+          .abs(),
+      lessThanOrEqualTo(1),
+    );
+    expect(find.textContaining('点击录制；录制完成'), findsNothing);
     await tester.tap(find.text('翻译'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('添加服务'), 150);
