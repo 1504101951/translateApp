@@ -1,5 +1,7 @@
 # macOS 安装
 
+串行打包并安装运行 `./scripts/package-and-install-macos.sh`。脚本先运行打包，成功后才运行安装；失败立即退出。运行前保存内容并退出 TranslateApp，安装脚本会拒绝覆盖运行中的应用。仍可分别运行两个原有脚本。
+
 ## 可直接启动的 App
 
 `scripts/package-macos.sh` 构建、签名并验证 Release App，生成 `dist/TranslateApp.zip`；`scripts/install-macos.sh` 在暂存目录解压并验签，安装到 `/Applications/TranslateApp.app`（访达「应用程序」）并注册 LaunchServices。可双击安装后的 App，或从 Spotlight 搜索 TranslateApp。

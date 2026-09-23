@@ -3,6 +3,44 @@
 Codex-Thread: 01a0b9b5-7646-76b0-9028-2402885d401b
 Source-Spec: https://github.com/1504101951/translateApp/issues/1
 
+## 规格整理与授权提交（2026-09-23）
+
+用户授权整理本地和GitHub Spec并提交当前所有相关改动，要求关联Issue、说明具体工作。已将子工具能力矩阵、对象与默认值边界、历史事件与主题重建、双行工具栏、固定签名串行交付收口进三类Spec；修正马赛克不读取线宽的冲突说明。GitHub #1/#67/#68正文已同步。当前验证为Flutter118通过、analyze无问题，脚本语法/索引覆盖/diffcheck通过；未修改应用源代码后重跑冗余测试。
+
+本轮按规格、设置交互、截图与历史、串行交付四组提交；提交使用Refs关联Issue，不关闭工单。用户反馈当前效果“看起来没问题”，保留在验收记录。未请求推送，提交保留在本地main；不得将本机提交误报成已发布远端代码。只读审计子智能体仍因模型服务404失败，由主智能体完成核对。
+
+## Xcode组件与串行脚本（2026-09-23）
+
+用户反馈本轮效果“看起来没问题”，询问更新组件及新增串行package/install脚本。已执行xcodebuild -runFirstLaunch -checkForNewerComponents：Install Succeeded，No new updates for 27A266a；CoreSimulator旧服务1051.54切换到1171.7。checkFirstLaunchStatus退出0，showdestinations正常列出macOS目标，CoreDevice缺符号与CoreSimulator版本错误未再出现。未升级Xcode/macOS、未重新安装或启动TranslateApp。检查日志/private/tmp/xcode-components-check.01a0b9b5-7646-76b0-9028-2402885d401b.log。
+
+新增可执行scripts/package-and-install-macos.sh，set -euo pipefail依次调用现有打包与安装脚本，打包失败不安装残留ZIP；继承现有运行进程检查、签名校验和回滚。README、macOS安装文档及目录索引同步，bash -n与diffcheck通过。未实际运行串行脚本（用户尚未退出当前应用），未提交或推送。
+
+## 子工具隔离与页面细节（2026-09-23）
+
+用户反馈打包报错、具体子工具配置隔离、权限合组、历史header间距及二级模式按钮玻璃。已修改DrawingPreferences以variants按四种图形和两种画笔独立存储，styleFor解析具体子模式；保留已有基础配置值。模式按钮统一使用NativeGlassSurface，32×32pt、r8、gap4；外壳透明。权限同卡片、登录启动独立，两项minTileHeight56。历史刷新/文字gap12、文字/开关gap8、右边16。三类本地及GitHubSpec已同步。
+
+完整Flutter118项通过、analyze无问题、diffcheck通过；未改原生代码，本轮不重复原生测试。未使用computer-use。原有字号测试点击被输入层遮挡，删去该无效点击，该段只验证已有文字调色不会污染默认颜色，不再把它视为字号修改验收。只读子智能体服务因gpt-5.6-luna不可用均失败，转本地执行。
+
+打包成功；Xcode CoreDevice缺少符号，CoreSimulator1051.54.0低于1171.7.0，是设备框架版本不匹配，本轮未改系统环境。日志/private/tmp/subtools-{full-test,analyze,package}.01a0b9b5-7646-76b0-9028-2402885d401b.log。新ZIP SHA256 b1cdb6e188f72d26a8b35c91926b9cb2b56ae922bede82383b8ba9db92039ddc，固定签名TranslateApp Local Signing；解包/private/tmp/subtools-verify.m7zfox4j/TranslateApp.app，沙盒外deep/strict通过。尚未安装；当前/Applications应用进程92204仍运行，须用户保存退出。未提交/推送，不能关闭Issue。评论脚本/private/tmp/subtools-comments.01a0b9b5-7646-76b0-9028-2402885d401b.py已成功为#69/#73/#74/#75/#76/#66补记当前结果；开放工单标待验收，未修改关闭状态，重复执行先按标记查重。
+
+## 外观、历史与绘图属性验收修复（2026-09-22）
+
+用户确认来源存在，实际不可见原因是浅色文字颜色；#69改为此缺陷。新增#73外观hover、#74历史自动刷新、#75图形合并/画笔马赛克、#76第二行及按工具保存属性。禁止computer-use；未提交或推送，不能关闭Issue。
+
+NativeGlassSegments局部TextButton明确禁用默认overlay，实际像素hover回归通过。HistoryApp在实际主题Builder下重建缓存文字样式；成功写入经原生通知刷新历史，版本号排除迟到响应。图形支持矩形/圆形描边和填充，画笔支持普通/马赛克，绘图属性通过主引擎settings队列持久化。第二行32pt、间距4pt、双行总高84pt；每工具独立颜色/线宽，文字草稿与默认值独立，编辑已有文字不覆盖未来默认值。DrawingPreferences新增目录索引，旧工具排序/快捷键/显隐合并。
+
+最终Flutter117项通过，analyze无问题；原生25通过、1因测试进程未获录屏权限跳过。索引38目录192文件与spec链接检查通过。产物dist/TranslateApp.zip固定签名TranslateApp Local Signing，deep/strict和ZIP完整性校验通过，SHA256 e5dd040a908bbf811dcb06ae889cadb7315aa2057bb0095b91a5ab61b4cd354e。日志/private/tmp/refine.01a0b9b5-7646-76b0-9028-2402885d401b/。尚未安装，当前已安装进程31529在运行，需要用户保存退出。本地spec完整；最终GitHub同步及验收评论重试均遭遇EOF，系统curl的IPv4/TLS1.2也失败。初始spec和Issue创建已成功，最终补充尚未同步；网络恢复后运行publish-spec.py和comment-delivery.py（评论带去重标记），不得声称最终同步或待验收标签已完成。
+
+## 紧凑设置与 #69–#72（2026-09-22）
+
+用户授权先更新Spec再实现分段按钮无hover、按下反馈、快捷键同排及删除相关底部说明，并实施#69–#72。禁止computer-use，用户效果验收；本轮未提交或推送。
+
+本地及GitHub #1/#67/#68已同步数值。新增不可变DrawingStyle、独立ColorPicker与StrokeWidthPicker；图形默认黑色填充或12px马赛克，线宽1–20pt默认3步长1，调色盘含色域、色相、8预设和6位HEX。选中修改沿用文档撤销；PNG/预览同绘制器；文字草稿调色保留输入，旧工具延迟单击不能变成新工具输入。
+
+#69在原文采集开始时从同一NSRunningApplication冻结名称和PID，异步完成不重查PID。真实名称与失效PID事件编码测试通过；这修复一个丢失路径，但用户现场新记录空值根因未复现，仍需新构建人工验收。不得用strings缺少完整sourceAppName宣称混合二进制，Swift短字符串可能拆分成指令立即数。
+
+最终v8 Flutter111项通过，analyze无问题；原生25通过1因屏幕录制权限跳过。38目录191文件索引覆盖与diff check通过。日志/private/tmp/drawing.01a0b9b5-7646-76b0-9028-2402885d401b。#69–#72评论并标待验收，#66追加设置说明，没有关闭Issue。固定签名Release已生成dist/TranslateApp.zip，证书TranslateApp Local Signing（BC17D788EC4AB832B46614F9198FAA3A80A5402A），ZIP SHA256 f7d495f53da23116b69634e43ca5f4b3ab114f9bcf8f663549439f4e8f3087c3；解包deep/strict验证通过。尚未安装，/Applications/TranslateApp.app进程834仍运行，安装前需用户保存退出。
+
 ## 目录索引与提交（2026-09-21）
 
 用户授权为维护目录新增逐项一句话index.md、汉化AGENTS.md并提交全部相关改动。已生成38个目录索引，覆盖152个原有维护文件及直接子目录；排除Git元数据、依赖缓存、构建输出和个人工作区。索引覆盖与链接检查通过，规则明确后续新增/删除/重命名文件同步维护索引。
