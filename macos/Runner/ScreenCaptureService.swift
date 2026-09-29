@@ -9,6 +9,8 @@ import Vision
 enum ScreenCaptureService {
     /// 指针所在显示器的冻结帧，包含PNG像素、像素尺寸、AppKit显示坐标及可选前台窗口裁剪框。
     struct FreezeFrame {
+        let displayID: CGDirectDisplayID
+        let scale: CGFloat
         let png: Data
         let pixelWidth: Int
         let pixelHeight: Int
@@ -70,10 +72,12 @@ enum ScreenCaptureService {
         }
     }
 
-    /// 无参数；捕获指针所在屏的冻结帧。失败抛出可展示错误，不改剪贴板或文件。
-    static func captureActiveDisplay() async throws -> FreezeFrame {
+    /// displayID明确目标屏，空值使用指针所在屏；返回冻结帧，目标消失时抛错，不切换到其他屏幕。
+    static func captureActiveDisplay(displayID: CGDirectDisplayID? = nil) async throws -> FreezeFrame {
         let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+        let screen = displayID == nil
+            ? (NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main)
+            : NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID }
         guard let screen else {
             throw NSError(
                 domain: "TranslateApp",
@@ -85,7 +89,6 @@ enum ScreenCaptureService {
             .uint32Value
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let display = content.displays.first { screenNumber != nil && $0.displayID == screenNumber }
-            ?? content.displays.first
         guard let display else {
             throw NSError(
                 domain: "TranslateApp",
@@ -114,6 +117,8 @@ enum ScreenCaptureService {
         )
         let png = try pngData(from: image, scale: scale)
         return FreezeFrame(
+            displayID: display.displayID,
+            scale: scale,
             png: png,
             pixelWidth: image.width,
             pixelHeight: image.height,

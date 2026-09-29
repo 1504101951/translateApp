@@ -41,7 +41,7 @@ final class NativeGlassFactory: NSObject, FlutterPlatformViewFactory {
         }
     }
 
-    /// controller为Flutter内容，window为普通窗口；背景贯穿红绿灯与正文，交互内容避开系统标题安全区。
+    /// controller为Flutter内容，window为面板或结果窗口；背景贯穿窗口，交互内容遵守视图安全区域。
     static func installContent(_ controller: FlutterViewController, in window: NSWindow) {
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
@@ -52,8 +52,8 @@ final class NativeGlassFactory: NSObject, FlutterPlatformViewFactory {
         let view = controller.view
         view.translatesAutoresizingMaskIntoConstraints = false
         content.view.addSubview(view)
-        // 使用系统布局指南而非固定标题高度，缩放/屏幕变化不会盖住红绿灯或产生空条。
-        let guide = window.contentLayoutGuide as! NSLayoutGuide
+        // 无标题面板也有视图安全区域；系统在标题栏和窗口尺寸改变时维护其边界。
+        let guide = content.view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: content.view.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: content.view.trailingAnchor),

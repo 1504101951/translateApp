@@ -342,7 +342,9 @@ void main() {
 
     await tester.pumpWidget(const ScreenshotApp(channel: channel));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('screenshot-attributes-row')), findsNothing);
+    // 默认截图组显示采集入口；绘图属性仅在切到对应绘图工具后出现。
+    expect(find.byKey(const Key(ScreenshotActions.record)), findsOneWidget);
+    expect(find.byKey(const Key(ScreenshotActions.palette)), findsNothing);
     await tap(ScreenshotActions.rect);
     expect(
       tester.getRect(find.byKey(const Key('screenshot-attributes-row'))).top,

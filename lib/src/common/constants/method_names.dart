@@ -1,5 +1,19 @@
 /// 平台方法协议；与Swift对应值保持一致，调用方不重复定义。
 abstract final class MethodNames {
+  /// 媒体采集协议，与Swift AppConstants逐项对应。
+  static const getCaptureState = 'getCaptureState';
+  static const captureStateChanged = 'captureStateChanged';
+  static const prepareCapture = 'prepareCapture';
+  static const setScreenshotMenuOpen = 'setScreenshotMenuOpen';
+  static const confirmCaptureRegion = 'confirmCaptureRegion';
+  static const stopCapture = 'stopCapture';
+  static const setCapturePaused = 'setCapturePaused';
+  static const cancelCapture = 'cancelCapture';
+  static const saveRecording = 'saveRecording';
+  static const previewRecording = 'previewRecording';
+  static const exportRecordingGIF = 'exportRecordingGIF';
+  static const cancelGIFExport = 'cancelGIFExport';
+
   /// 历史写入完成及窗口重开时通知历史引擎刷新。
   static const historyChanged = 'historyChanged';
 

@@ -26,3 +26,7 @@ macOS应用生命周期、系统能力与窗口控制器。
 22. [StatusBarController.swift](StatusBarController.swift)：管理菜单栏入口、菜单状态和用户操作回调。
 23. [TextSelectionContext.swift](TextSelectionContext.swift)：判断辅助功能对象是否属于允许翻译的文本上下文。
 24. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
+25. [CaptureWindowController.swift](CaptureWindowController.swift)：协调采集选区、实时阴影、统一采集悬浮条、媒体结果和系统保存面板。
+26. [MediaCaptureService.swift](MediaCaptureService.swift)：管理屏幕流、录制会话、手动滚动采集及临时资源生命周期。
+27. [GIFExporter.swift](GIFExporter.swift)：逐帧解码本地MP4并以原子文件操作发布有界GIF。
+28. [ScrollStitcher.swift](ScrollStitcher.swift)：识别垂直位移和上下固定带并生成保持原始像素的长图。

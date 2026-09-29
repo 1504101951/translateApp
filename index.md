@@ -20,3 +20,5 @@
 14. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
 15. [pubspec.lock](pubspec.lock)：锁定Dart与Flutter依赖的具体解析版本。
 16. [pubspec.yaml](pubspec.yaml)：声明Flutter应用版本、运行约束和依赖。
+
+17. [CONTEXT.capture-tools.01a0db40-8de9-76f2-91d6-674a344135ee.md](CONTEXT.capture-tools.01a0db40-8de9-76f2-91d6-674a344135ee.md)：定义采集工具、选区、状态条与媒体结果的领域关系。

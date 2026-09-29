@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'src/history/history_app.dart';
+import 'src/capture/capture_app.dart';
 import 'src/common/widgets/native_glass.dart';
 import 'src/history/translation_history.dart';
 import 'src/overlay/translation_overlay.dart';
@@ -261,6 +262,13 @@ void settingsMain() {
 void screenshotMain() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ScreenshotApp());
+}
+
+/// 无参数；采集引擎只管理录制、GIF 与长截图界面，原生持有媒体资源。
+@pragma('vm:entry-point')
+void captureMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const CaptureApp());
 }
 
 /// 无参数；启动权限向导界面，由原生处理系统授权。

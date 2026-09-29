@@ -75,7 +75,30 @@ class AppDelegate: FlutterAppDelegate {
         permissionWizard.notifyPermissionStatusChanged()
     }
 
-    /// notification 为 App 退出通知；不遗留系统框选进程或临时 PNG，无返回值。
+    /// sender为退出请求；已有采集结果先明确丢弃，等待原生资源清理后退出。
+    override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let capture = MacPlatformBridge.Shared.instance?.capture else { return .terminateNow }
+        if capture.hasPendingCapture {
+            let alert = NSAlert()
+            alert.messageText = "退出并丢弃当前采集？"
+            alert.informativeText = "未保存的录制或长图将被删除。已经保存的文件会保留。"
+            alert.addButton(withTitle: "返回采集")
+            alert.addButton(withTitle: "退出并丢弃")
+            guard alert.runModal() == .alertSecondButtonReturn else {
+                // 用户返回正在进行的采集或结果，直接恢复该窗口，不重新发起选区。
+                capture.present(force: true)
+                return .terminateCancel
+            }
+        }
+        Task { @MainActor in
+            // 不能在进程退出后期待流、编码器和临时目录的清理回调执行。
+            await capture.shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    /// notification 为 App 退出通知；关闭截图窗口及贴图，无返回值。
     override func applicationWillTerminate(_ notification: Notification) {
         MacPlatformBridge.Shared.instance?.screenshot.shutdown()
     }

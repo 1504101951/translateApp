@@ -22,6 +22,7 @@
 
 /* Begin PBXBuildFile section */
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
+		A2800000000000000000000A /* CaptureMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000009 /* CaptureMediaTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
 		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
 		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
@@ -30,6 +31,10 @@
 		A13A00000000000000000002 /* OverlayPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000001 /* OverlayPanel.swift */; };
 		A14C00000000000000000004 /* ScreenshotWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C00000000000000000003 /* ScreenshotWindowController.swift */; };
 		A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C00000000000000000001 /* ScreenshotStorage.swift */; };
+		A28000000000000000000008 /* CaptureWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000007 /* CaptureWindowController.swift */; };
+		A28000000000000000000006 /* MediaCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000005 /* MediaCaptureService.swift */; };
+		A28000000000000000000004 /* GIFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000003 /* GIFExporter.swift */; };
+		A28000000000000000000002 /* ScrollStitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000001 /* ScrollStitcher.swift */; };
 		A15P00000000000000000002 /* PinOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15P00000000000000000001 /* PinOverlayController.swift */; };
 		A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16C00000000000000000001 /* ScreenCaptureService.swift */; };
 		A18C00000000000000000002 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18C00000000000000000001 /* Constants.swift */; };
@@ -79,6 +84,7 @@
 /* Begin PBXFileReference section */
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
+		A28000000000000000000009 /* CaptureMediaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureMediaTests.swift; sourceTree = "<group>"; };
 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
 		335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = GeneratedPluginRegistrant.swift; sourceTree = "<group>"; };
 		33CC10ED2044A3C60003C045 /* translate_app.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "translate_app.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -90,6 +96,10 @@
 		A13A00000000000000000001 /* OverlayPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayPanel.swift; sourceTree = "<group>"; };
 		A14C00000000000000000003 /* ScreenshotWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotWindowController.swift; sourceTree = "<group>"; };
 		A14C00000000000000000001 /* ScreenshotStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotStorage.swift; sourceTree = "<group>"; };
+		A28000000000000000000007 /* CaptureWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindowController.swift; sourceTree = "<group>"; };
+		A28000000000000000000005 /* MediaCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCaptureService.swift; sourceTree = "<group>"; };
+		A28000000000000000000003 /* GIFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GIFExporter.swift; sourceTree = "<group>"; };
+		A28000000000000000000001 /* ScrollStitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollStitcher.swift; sourceTree = "<group>"; };
 		A15P00000000000000000001 /* PinOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinOverlayController.swift; sourceTree = "<group>"; };
 		A16C00000000000000000001 /* ScreenCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureService.swift; sourceTree = "<group>"; };
 		A18C00000000000000000001 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
@@ -137,6 +147,7 @@
 			isa = PBXGroup;
 			children = (
 				331C80D7294CF71000263BE5 /* RunnerTests.swift */,
+				A28000000000000000000009 /* CaptureMediaTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -214,6 +225,10 @@
 				A13A00000000000000000001 /* OverlayPanel.swift */,
 				A14C00000000000000000003 /* ScreenshotWindowController.swift */,
 				A14C00000000000000000001 /* ScreenshotStorage.swift */,
+				A28000000000000000000007 /* CaptureWindowController.swift */,
+				A28000000000000000000005 /* MediaCaptureService.swift */,
+				A28000000000000000000003 /* GIFExporter.swift */,
+				A28000000000000000000001 /* ScrollStitcher.swift */,
 				A15P00000000000000000001 /* PinOverlayController.swift */,
 				A16C00000000000000000001 /* ScreenCaptureService.swift */,
 				A17C00000000000000000001 /* AuxiliaryWindowController.swift */,
@@ -403,6 +418,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */,
+				A2800000000000000000000A /* CaptureMediaTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -416,6 +432,10 @@
 				A13A00000000000000000002 /* OverlayPanel.swift in Sources */,
 				A14C00000000000000000004 /* ScreenshotWindowController.swift in Sources */,
 				A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */,
+				A28000000000000000000008 /* CaptureWindowController.swift in Sources */,
+				A28000000000000000000006 /* MediaCaptureService.swift in Sources */,
+				A28000000000000000000004 /* GIFExporter.swift in Sources */,
+				A28000000000000000000002 /* ScrollStitcher.swift in Sources */,
 				A15P00000000000000000002 /* PinOverlayController.swift in Sources */,
 				A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */,
 				A18C00000000000000000002 /* Constants.swift in Sources */,

@@ -2,6 +2,7 @@ import AppKit
 import FlutterMacOS
 
 /// 菜单栏入口，提供设置、仅使用快捷键开关、辅助功能授权和退出操作。
+@MainActor
 final class StatusBarController: NSObject, NSMenuDelegate {
     static let shared = StatusBarController()
 
@@ -9,6 +10,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var installed = false
     private var automaticItem: NSMenuItem?
     private var accessItem: NSMenuItem?
+    private var stopCaptureItem: NSMenuItem?
     var showSettings: (() -> Void)?
     var refreshSettings: (() -> Void)?
     var showHistory: (() -> Void)?
@@ -41,13 +43,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let trusted = AccessibilitySelection.isTrusted(prompt: false)
         let menu = NSMenu()
         menu.delegate = self
+        menu.autoenablesItems = false
         let settings = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
 
+        menu.addItem(.separator())
+        // 截图编辑工具栏承载媒体工具，菜单栏保留普通截图和采集停止。
         let screenshot = NSMenuItem(title: "区域截图…", action: #selector(captureScreenshot), keyEquivalent: "")
         screenshot.target = self
         menu.addItem(screenshot)
+        let stop = NSMenuItem(title: "停止采集", action: #selector(stopCapture), keyEquivalent: "")
+        stop.target = self
+        stop.isEnabled = MacPlatformBridge.Shared.instance?.capture.canStop == true
+        stopCaptureItem = stop
+        menu.addItem(stop)
+        menu.addItem(.separator())
         let history = NSMenuItem(title: "翻译历史…", action: #selector(openHistory), keyEquivalent: "")
         history.target = self
         menu.addItem(history)
@@ -80,6 +91,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     /// menu 为即将展示的菜单；即时读取权限状态，无返回值。
     func menuWillOpen(_ menu: NSMenu) {
+        stopCaptureItem?.isEnabled = MacPlatformBridge.Shared.instance?.capture.canStop == true
         let trusted = AccessibilitySelection.isTrusted(prompt: false)
         accessItem?.title = trusted ? "辅助功能已开启" : "授予辅助功能权限…"
         accessItem?.isEnabled = !trusted
@@ -95,6 +107,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func captureScreenshot() {
         DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture() }
     }
+
+    /// active 为实际连续采集占用；菜单栏文字保持可见的录制状态。
+    func setCaptureActive(_ active: Bool) {
+        statusItem?.button?.title = active ? "● 采集中" : "选区翻译"
+        stopCaptureItem?.isEnabled = MacPlatformBridge.Shared.instance?.capture.canStop == true
+    }
+
+    /// 无参数；请求当前采集正常结束，编码完成前不发布文件。
+    @objc private func stopCapture() { MacPlatformBridge.Shared.instance?.capture.stop() }
 
     /// 无参数；经主 Dart 修改全局开关，成功后刷新设置窗口，无返回值。
     @objc private func toggleAutomatic() {

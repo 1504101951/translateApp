@@ -18,3 +18,4 @@
 14. [translation_phase.dart](translation_phase.dart)：定义翻译会话的业务阶段。
 
 15. [drawing_metrics.dart](drawing_metrics.dart)：集中定义调色盘、线宽、马赛克及预设色的规格数值。
+16. [capture_phase.dart](capture_phase.dart)：定义录屏、GIF与滚动长截图共享的资源阶段协议。

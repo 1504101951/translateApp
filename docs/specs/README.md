@@ -20,9 +20,6 @@ Codex-Thread: 01a0b9b5-7646-76b0-9028-2402885d401b
 
 ## 本轮执行工单
 
-1. [历史来源缺陷](https://github.com/1504101951/translateApp/issues/69)，关联#8，#8由用户手动关闭。
-2. [图形与画笔的基础绘制能力](https://github.com/1504101951/translateApp/issues/70)。
-3. [共享颜色与调色盘](https://github.com/1504101951/translateApp/issues/71)，完整接入图形模式依赖图形工单。
-4. [共享线宽](https://github.com/1504101951/translateApp/issues/72)，无执行工单硬阻塞，复用同一绘制样式模型。
-
-相关执行工单：[#73 外观悬停](https://github.com/1504101951/translateApp/issues/73)、[#74 历史自动刷新](https://github.com/1504101951/translateApp/issues/74)、[#75 图形与画笔归类](https://github.com/1504101951/translateApp/issues/75)、[#76 独立属性与第二行](https://github.com/1504101951/translateApp/issues/76)。
+1. [屏幕录制](https://github.com/1504101951/translateApp/issues/21)：显示器、窗口或区域的无声MP4录制及本地预览保存。
+2. [GIF导出](https://github.com/1504101951/translateApp/issues/23)：从已完成录制中选择片段、帧率和宽度并导出GIF。
+3. [手动滚动长截图](https://github.com/1504101951/translateApp/issues/28)：手动向下滚动、上下固定区去重、结束直接进入已有截图编辑流程。

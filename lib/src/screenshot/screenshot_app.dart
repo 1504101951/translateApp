@@ -76,6 +76,7 @@ class ScreenshotApp extends StatefulWidget {
 class _ScreenshotAppState extends State<ScreenshotApp> {
   final EditDocument _document = EditDocument();
   final FocusNode _focusNode = FocusNode();
+  final MenuController _recordingMenu = MenuController();
   final FocusNode _textFocus = FocusNode();
   final TextEditingController _textController = TextEditingController();
   final List<Offset> _strokePoints = [];
@@ -182,6 +183,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         // 原生键路由与 Flutter 键盘共用确认语义，过期捕获不能触发导出。
         await _confirmScreenshot();
       } else if (call.method == MethodNames.escapePressed) {
+        if (_recordingMenu.isOpen) {
+          _recordingMenu.close();
+          return;
+        }
         if (_styleDialogOpen) {
           Navigator.of(_editorKey.currentContext!).pop();
           return;
@@ -228,12 +233,14 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// 无参数；文档变更时刷新叠加层，无返回值。
   void _onDocumentChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
   }
 
   /// value 为原生截图快照；替换图片并清空上一张草稿，无返回值。
   void _replace(Map<Object?, Object?> value) {
     if (!mounted) return;
+    if (_recordingMenu.isOpen) _recordingMenu.close();
     if (_styleDialogOpen) {
       Navigator.of(_editorKey.currentContext!).pop();
     }
@@ -524,6 +531,52 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
   }
 
+  /// open为录制菜单显隐状态；通知原生把菜单按键交给Flutter，返回通道完成的Future。
+  Future<void> _setRecordingMenuOpen(bool open) =>
+      widget.channel.invokeMethod<void>(MethodNames.setScreenshotMenuOpen, {
+        'id': _capture['id'],
+        'open': open,
+      });
+
+  /// kind为region/display/window，scrolling指定长截图；录屏复用选区确认，长截图直接提交并锁定当前选区，失败保留文档。
+  Future<void> _prepareCapture(String kind, {bool scrolling = false}) async {
+    if (_busy || _capture['canCaptureMedia'] != true) return;
+    final id = _capture['id'];
+    setState(() => _busy = true);
+    try {
+      final state = await widget.channel.invokeMapMethod<Object?, Object?>(
+        MethodNames.prepareCapture,
+        {
+          'id': id,
+          'kind': kind,
+          'scrolling': scrolling,
+          if (scrolling) ...{
+            'x': _document.cropRect.left.floorToDouble(),
+            'y': _document.cropRect.top.floorToDouble(),
+            'width': _document.cropRect.width.floorToDouble(),
+            'height': _document.cropRect.height.floorToDouble(),
+          },
+        },
+      );
+      if (!mounted || _capture['id'] != id) return;
+      // 只合并原生准备状态；重新载入PNG会丢失用户当前裁剪和标注草稿。
+      setState(() {
+        _capture = {..._capture, ...?state};
+        _message = null;
+        _failed = false;
+      });
+    } on PlatformException catch (error) {
+      if (mounted && _capture['id'] == id) {
+        setState(() {
+          _message = error.message;
+          _failed = true;
+        });
+      }
+    } finally {
+      if (mounted && _capture['id'] == id) setState(() => _busy = false);
+    }
+  }
+
   /// message 为复制成功文案；显示一秒浮层，返回 void；连续成功重新计时。
   void _showCopyFeedback(String message) {
     _copyFeedbackTimer?.cancel();
@@ -537,10 +590,36 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     });
   }
 
-  /// 无参数；确认当前文字或复制并结束截图，返回该操作结束的 Future。
+  /// 无参数；确认当前文字、开始选区采集或复制截图，返回该操作结束的 Future。
   Future<void> _confirmScreenshot() async {
-    if (_styleDialogOpen) return;
+    if (_styleDialogOpen || _recordingMenu.isOpen) return;
     if (_busy) return;
+    if (_capture['selectionOnly'] == true) {
+      final crop = _document.cropRect;
+      setState(() => _busy = true);
+      try {
+        await widget.channel.invokeMethod<void>(
+          MethodNames.confirmCaptureRegion,
+          {
+            'id': _capture['id'],
+            'x': crop.left.floorToDouble(),
+            'y': crop.top.floorToDouble(),
+            'width': crop.width.floorToDouble(),
+            'height': crop.height.floorToDouble(),
+          },
+        );
+      } on PlatformException catch (error) {
+        if (mounted) {
+          setState(() {
+            _message = error.message;
+            _failed = true;
+          });
+        }
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+      return;
+    }
     if (_textInputOpen) {
       _commitText();
       return;
@@ -551,6 +630,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// action 为 copy/save/pin；先在 Dart 合成 PNG，再把 bytes 交给原生，无返回值。
   Future<void> _export(String action, {bool closeAfterCopy = false}) async {
+    // 区域采集复用截图选框；确认不触发剪贴板或图片导出。
+    if (_capture['selectionOnly'] == true) {
+      await _confirmScreenshot();
+      return;
+    }
     final id = _capture['id'];
     if (id == null || !_document.hasImage || _busy) return;
     setState(() {
@@ -1392,6 +1476,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         onKeyEvent: (node, event) {
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
           if (event.logicalKey == LogicalKeyboardKey.escape) {
+            if (_recordingMenu.isOpen) {
+              _recordingMenu.close();
+              return KeyEventResult.handled;
+            }
             if (_textInputOpen) {
               _cancelText();
             } else {
@@ -1492,15 +1580,16 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                             !ScreenshotActions.icons.containsKey(id),
                       )
                       .length,
-                  toolbarItemCount:
-                      _toolbarActions().keys
-                          .where(
-                            (id) =>
-                                ScreenshotActions.icons.containsKey(id) &&
-                                !_toolbar.hidden.contains(id),
-                          )
-                          .length +
-                      (_busy ? 1 : 0),
+                  toolbarItemCount: _capture['selectionOnly'] == true
+                      ? 2
+                      : _toolbarActions().keys
+                                .where(
+                                  (id) =>
+                                      ScreenshotActions.icons.containsKey(id) &&
+                                      !_toolbar.hidden.contains(id),
+                                )
+                                .length +
+                            (_busy ? 1 : 0),
                   toolbarHasMessage: _message != null,
                   copyFeedback: _copyFeedback,
                   ocrOverlays: _ocrOverlays,
@@ -1626,6 +1715,13 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// 无参数；返回当前上下文可见动作及启用回调，鼠标与快捷键共用业务入口。
   Map<String, VoidCallback?> _toolbarActions() {
+    // 媒体框选只确认坐标，不允许误触图片导出、OCR或标注。
+    if (_capture['selectionOnly'] == true) {
+      return {
+        ScreenshotActions.copy: _confirmScreenshot,
+        ScreenshotActions.close: _close,
+      };
+    }
     final textControls =
         _tool == ScreenshotTool.text ||
         (_selectedTextId != null &&
@@ -1637,6 +1733,14 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final styleTool = _styleTool;
     final brushMode = _styleSelection?.shapeMode ?? _shapeMode;
     final actions = <String, VoidCallback?>{
+      if (_tool == ScreenshotTool.crop) ...{
+        ScreenshotActions.record: _capture['canCaptureMedia'] == true
+            ? () => _prepareCapture('region')
+            : null,
+        ScreenshotActions.scrolling: _capture['canCaptureMedia'] == true
+            ? () => _prepareCapture('region', scrolling: true)
+            : null,
+      },
       if (styleTool == ScreenshotTool.rect)
         for (final shape in ShapeVariant.values)
           '${ScreenshotActions.shapePrefix}${shape.name}': () =>
@@ -1679,6 +1783,30 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// axis为横/竖方向；按持久化顺序放置独立按钮，容器透明且可滚动。
   Widget _buildToolbar(BuildContext context, Axis axis) {
+    if (_capture['selectionOnly'] == true) {
+      final crop = _document.cropRect;
+      final valid = crop.width >= 32 && crop.height >= 64;
+      return Padding(
+        padding: const EdgeInsets.all(GlassMetrics.toolbarPadding),
+        child: Flex(
+          direction: axis,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: valid ? '开始录制' : '至少选择32×64像素区域',
+              onPressed: _busy || !valid ? null : _confirmScreenshot,
+              icon: const Icon(Icons.fiber_manual_record),
+            ),
+            const SizedBox(width: 4, height: 4),
+            IconButton(
+              tooltip: '取消选区',
+              onPressed: _busy ? null : _close,
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
+      );
+    }
     final actions = _toolbarActions();
     final top = _toolbar.order
         .where((id) => !_toolbar.hidden.contains(id))
@@ -1696,6 +1824,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final colors = Theme.of(context).colorScheme;
     final icons = <String, IconData>{
       ...ScreenshotActions.icons,
+      ScreenshotActions.record: Icons.videocam_outlined,
+      ScreenshotActions.scrolling: Icons.unfold_more,
       ScreenshotActions.palette: Icons.palette_outlined,
       ScreenshotActions.width: Icons.line_weight,
       ScreenshotActions.sizeDown: Icons.text_decrease,
@@ -1718,7 +1848,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           id == '${ScreenshotActions.shapePrefix}${_styleShape.name}' ||
           id ==
               '${ScreenshotActions.brushPrefix}${(_styleSelection?.shapeMode ?? _shapeMode).name}';
-      final child = SizedBox(
+      Widget child = SizedBox(
         width: 32,
         height: 32,
         child: IconButton(
@@ -1759,11 +1889,77 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           icon: Icon(icons[id] ?? Icons.circle, size: 16),
         ),
       );
+      if (id == ScreenshotActions.record) {
+        // 目标类型在截图按钮下展开；区域沿用当前裁剪，屏幕和窗口继续使用实时目标菜单。
+        // 菜单是第三级独立材料层；仅给触发按钮包材料，不能让Overlay继承按钮的材料作用域。
+        return MenuAnchor(
+          controller: _recordingMenu,
+          onOpen: () => _setRecordingMenuOpen(true),
+          onClose: () => _setRecordingMenuOpen(false),
+          style: const MenuStyle(
+            padding: WidgetStatePropertyAll(EdgeInsets.zero),
+            backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+            elevation: WidgetStatePropertyAll(0),
+          ),
+          menuChildren: [
+            NativeGlassSurface(
+              material: true,
+              radius: GlassMetrics.menuRadius,
+              child: SizedBox(
+                width: GlassMetrics.menuMinWidth,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final target in const {
+                        'region': '当前选区',
+                        'window': '窗口…',
+                        'display': '全屏…',
+                      }.entries)
+                        MenuItemButton(
+                          onPressed: () => _prepareCapture(target.key),
+                          style: const ButtonStyle(
+                            minimumSize: WidgetStatePropertyAll(
+                              Size(0, GlassMetrics.hitSize),
+                            ),
+                            padding: WidgetStatePropertyAll(
+                              EdgeInsets.symmetric(horizontal: 10),
+                            ),
+                          ),
+                          child: Text(target.value),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          builder: (context, controller, child) => NativeGlassSurface(
+            material: true,
+            child: SizedBox(
+              width: GlassMetrics.hitSize,
+              height: GlassMetrics.hitSize,
+              child: IconButton(
+                key: Key(id),
+                tooltip: ScreenshotActions.labels[id],
+                onPressed: actions[id] == null
+                    ? null
+                    : () => controller.isOpen
+                          ? controller.close()
+                          : controller.open(),
+                icon: Icon(icons[id], size: 16),
+              ),
+            ),
+          ),
+        );
+      }
       // 每个模式同样需要材料承载；外层工具栏保持透明。
       return NativeGlassSurface(material: true, child: child);
     }
 
-    // 每行独立滚动，第二行始终在主行下方，画布像素坐标不参与布局。
+    // 每组沿工具栏方向独立滚动；横栏分为两行，竖栏分为两列，画布像素不参与布局。
     Widget row(List<String> ids, String key, {bool loading = false}) =>
         SingleChildScrollView(
           key: Key(key),
@@ -1785,16 +1981,21 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         );
     final rows = attributes.isEmpty
         ? row(top, 'screenshot-tools-row', loading: _busy)
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        : Flex(
+            direction: axis == Axis.horizontal
+                ? Axis.vertical
+                : Axis.horizontal,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(
-                height: 32,
+                width: axis == Axis.vertical ? 32 : null,
+                height: axis == Axis.horizontal ? 32 : null,
                 child: row(top, 'screenshot-tools-row', loading: _busy),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(width: 4, height: 4),
               SizedBox(
-                height: 32,
+                width: axis == Axis.vertical ? 32 : null,
+                height: axis == Axis.horizontal ? 32 : null,
                 child: row(attributes, 'screenshot-attributes-row'),
               ),
             ],

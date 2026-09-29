@@ -76,8 +76,7 @@ class ScreenshotEditorLayout {
         axis: Axis.horizontal,
       );
     }
-    if (!propertyRow &&
-        selection.right + gap + thickness <= viewport.width - margin) {
+    if (selection.right + gap + thickness <= viewport.width - margin) {
       return ScreenshotEditorLayout(
         canvas: canvas,
         toolbar: Rect.fromLTWH(
@@ -89,7 +88,7 @@ class ScreenshotEditorLayout {
         axis: Axis.vertical,
       );
     }
-    if (!propertyRow && selection.left - gap - thickness >= margin) {
+    if (selection.left - gap - thickness >= margin) {
       return ScreenshotEditorLayout(
         canvas: canvas,
         toolbar: Rect.fromLTWH(

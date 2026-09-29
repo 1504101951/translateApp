@@ -31,6 +31,7 @@ abstract final class GlassMetrics {
   static const sliderTrack = 6.0;
   static const sliderThumbRadius = 8.0;
   static const pagePadding = 22.0;
+  static const videoPreviewHeight = 320.0;
   static const panelPadding = 16.0;
   static const groupGap = 20.0;
   static const rowHeight = 40.0;

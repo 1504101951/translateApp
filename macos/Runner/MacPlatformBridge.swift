@@ -15,6 +15,20 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     private let overlay: OverlayPanelController
     private let selectionMonitor: SelectionMonitor
     let screenshot = ScreenshotWindowController()
+    private var screenshotActive = false
+    private var mediaActive = false
+    /// 一个采集控制器持有当前媒体会话，菜单与独立窗口共享资源状态。
+    @MainActor lazy var capture: CaptureWindowController = {
+        let controller = CaptureWindowController(screenshot: screenshot)
+        controller.onActiveChanged = { [weak self] active in
+            guard let self else { return }
+            self.mediaActive = active
+            // 合并截图与连续采集占用，避免一个结束时提前恢复选区监听。
+            self.updateCaptureActivity()
+            StatusBarController.shared.setCaptureActive(active)
+        }
+        return controller
+    }()
     private var methods: FlutterMethodChannel?
     var onReady: (() -> Void)? {
         didSet {
@@ -40,10 +54,24 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         self.overlay = overlay
         self.selectionMonitor = selectionMonitor
         super.init()
-        screenshot.onCapturingChanged = { [weak self] active in
-            self?.selectionMonitor.isCapturingScreenshot = active
-            self?.overlay.setCaptureHidden(active)
+        screenshot.onPrepareCapture = { [weak self] kind, scrolling, region in
+            guard let self else { return }
+            // 截图工具栏的目标交给同一个媒体会话，截图控制器不持有录制资源。
+            try self.capture.prepare(kind: kind, scrolling: scrolling, region: region)
         }
+        screenshot.onCapturingChanged = { [weak self] active in
+            guard let self else { return }
+            self.screenshotActive = active
+            // 汇总两个采集入口；设置菜单仍可操作，自动翻译暂时挂起。
+            self.updateCaptureActivity()
+        }
+    }
+
+    /// 无参数；同步正在采集的资源占用到翻译监听与浮层可见性，无返回值。
+    private func updateCaptureActivity() {
+        let active = screenshotActive || mediaActive
+        selectionMonitor.isCapturingScreenshot = active
+        overlay.setCaptureHidden(active)
     }
 
     /// messenger 为主引擎通道，overlay 为浮层，selectionMonitor 为输入监听；返回已注册的平台桥。
@@ -341,7 +369,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             // 只有配置事务提交后广播外观，所有已打开引擎共享同一已保存快照。
             NotificationCenter.default.post(name: AppConstants.appearanceChangedNotification, object: nil)
             screenshot.toolbarPreferencesChanged()
-            StatusBarController.shared.updateAutomatic(automatic)
+            // 菜单由主执行器管理，偏好事务完成后在其执行器上刷新可见状态。
+            DispatchQueue.main.async { StatusBarController.shared.updateAutomatic(automatic) }
             result(nil)
         } catch {
             let originalError = error

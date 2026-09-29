@@ -31,3 +31,4 @@ Dart业务逻辑和Flutter界面行为回归测试。
 27. [unofficial_google_provider_test.dart](unofficial_google_provider_test.dart)：验证零配置Google翻译的解析与失败处理。
 
 28. [drawing_style_test.dart](drawing_style_test.dart)：验证马赛克像素、样式隔离、撤销及调色盘与粗细的提交边界。
+29. [capture_app_test.dart](capture_app_test.dart)：验证独立三级菜单与长截图直启选区、三按钮暂停恢复与放弃确认、GIF草稿。
