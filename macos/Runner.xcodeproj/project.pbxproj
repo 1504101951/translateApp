@@ -21,6 +21,7 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		A79000000000000000000002 /* ApplicationRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79000000000000000000001 /* ApplicationRecorder.swift */; };
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		A2800000000000000000000A /* CaptureMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000009 /* CaptureMediaTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
@@ -82,6 +83,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A79000000000000000000001 /* ApplicationRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationRecorder.swift; sourceTree = "<group>"; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		A28000000000000000000009 /* CaptureMediaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureMediaTests.swift; sourceTree = "<group>"; };
@@ -227,6 +229,7 @@
 				A14C00000000000000000001 /* ScreenshotStorage.swift */,
 				A28000000000000000000007 /* CaptureWindowController.swift */,
 				A28000000000000000000005 /* MediaCaptureService.swift */,
+				A79000000000000000000001 /* ApplicationRecorder.swift */,
 				A28000000000000000000003 /* GIFExporter.swift */,
 				A28000000000000000000001 /* ScrollStitcher.swift */,
 				A15P00000000000000000001 /* PinOverlayController.swift */,
@@ -434,6 +437,7 @@
 				A14C00000000000000000002 /* ScreenshotStorage.swift in Sources */,
 				A28000000000000000000008 /* CaptureWindowController.swift in Sources */,
 				A28000000000000000000006 /* MediaCaptureService.swift in Sources */,
+				A79000000000000000000002 /* ApplicationRecorder.swift in Sources */,
 				A28000000000000000000004 /* GIFExporter.swift in Sources */,
 				A28000000000000000000002 /* ScrollStitcher.swift in Sources */,
 				A15P00000000000000000002 /* PinOverlayController.swift in Sources */,

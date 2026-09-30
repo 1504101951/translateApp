@@ -30,3 +30,4 @@ macOS应用生命周期、系统能力与窗口控制器。
 26. [MediaCaptureService.swift](MediaCaptureService.swift)：管理屏幕流、录制会话、手动滚动采集及临时资源生命周期。
 27. [GIFExporter.swift](GIFExporter.swift)：逐帧解码本地MP4并以原子文件操作发布有界GIF。
 28. [ScrollStitcher.swift](ScrollStitcher.swift)：识别垂直位移和上下固定带并生成保持原始像素的长图。
+29. [ApplicationRecorder.swift](ApplicationRecorder.swift)：将所选应用在全部显示器上的可见窗口合成为固定黑底画布并编码视频。

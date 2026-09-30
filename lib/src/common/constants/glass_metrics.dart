@@ -31,7 +31,6 @@ abstract final class GlassMetrics {
   static const sliderTrack = 6.0;
   static const sliderThumbRadius = 8.0;
   static const pagePadding = 22.0;
-  static const videoPreviewHeight = 320.0;
   static const panelPadding = 16.0;
   static const groupGap = 20.0;
   static const rowHeight = 40.0;
@@ -43,6 +42,8 @@ abstract final class GlassMetrics {
   static const captionLine = 17.0;
   static const toolbarPadding = 8.0;
   static const toolbarThickness = hitSize + toolbarPadding * 2;
+  // 视频结果的右侧纵向操作间距，按Spec #67与原生承载尺寸保持一致。
+  static const captureResultActionGap = 12.0;
   static const toastGap = 8.0;
   static const copyFeedbackDuration = Duration(milliseconds: 1000);
   static const transition = Duration(milliseconds: 120);

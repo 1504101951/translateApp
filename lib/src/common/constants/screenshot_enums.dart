@@ -45,3 +45,6 @@ enum ShapeVariant {
   bool get filled => this == filledRectangle || this == filledCircle;
   bool get circular => this == circle || this == filledCircle;
 }
+
+/// 录制目标协议；name与原生CaptureTarget逐项对应，应用包含全部可见窗口。
+enum CaptureTarget { region, application, display }

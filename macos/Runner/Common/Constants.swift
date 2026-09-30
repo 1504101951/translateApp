@@ -2,6 +2,9 @@ import Foundation
 import AppKit
 
 /// 连续采集的公开阶段；原始值与Dart CapturePhase一致。
+/// 采集目标协议；rawValue与Dart CaptureTarget.name逐项对应。
+enum CaptureTarget: String { case region, application, display }
+
 enum CapturePhase: String {
     case idle, preparing, recording, pausing, paused, finalizing, videoReady, scrolling, imageReady, converting, failed
 }
@@ -13,16 +16,20 @@ enum AppConstants {
     static let captureEntrypoint = "captureMain"
     static let captureVideoPreview = "translateapp/capture_video_preview"
     /// Spec #67中的采集工具尺寸，单位为屏幕逻辑点。
-    static let captureControlSize = NSSize(width: 320, height: 48)
+    static let captureControlSize = NSSize(width: 320, height: 84)
     static let captureShadeOpacity: CGFloat = 0.6
-    static let captureResultSize = NSSize(width: 560, height: 720)
-    static let captureResultMinimumSize = NSSize(width: 320, height: 320)
     static let captureControlGap: CGFloat = 8
+    /// 右侧四个32pt按钮、12pt间距和8pt内边距；与Dart工具栏尺寸一致。
+    static let captureResultToolbarWidth: CGFloat = 48
+    static let captureResultToolbarHeight: CGFloat = 180
+    /// 录制结果使用系统窗口控制；标题栏尺寸由AppKit按此样式实际计算。
+    static let captureResultWindowStyle: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
     static let getCaptureStateMethod = "getCaptureState"
     static let captureStateChangedMethod = "captureStateChanged"
     static let prepareCaptureMethod = "prepareCapture"
-    static let setScreenshotMenuOpenMethod = "setScreenshotMenuOpen"
-    static let confirmCaptureRegionMethod = "confirmCaptureRegion"
+    /// 截图准备阶段的显示器与应用窗口预览协议。
+    static let previewCaptureTargetMethod = "previewCaptureTarget"
+    static let captureSourcesMethod = "captureSources"
     static let stopCaptureMethod = "stopCapture"
     static let setCapturePausedMethod = "setCapturePaused"
     static let cancelCaptureMethod = "cancelCapture"

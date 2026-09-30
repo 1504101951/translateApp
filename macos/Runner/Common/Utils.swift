@@ -1,6 +1,19 @@
 import AppKit
 import CoreGraphics
 import Darwin
+import OSLog
+
+/// 录制启动的本地耗时记录；只记录固定步骤与时长，不包含图像、窗口标题或输出路径。
+enum CaptureStartupLog {
+    private static let logger = Logger(subsystem: "TranslateApp", category: "CaptureStartup")
+
+    /// stage为固定步骤名，start为该步骤的单调时钟起点；向系统日志写入毫秒耗时，无返回值。
+    static func record(_ stage: String, since start: ContinuousClock.Instant) {
+        let duration = start.duration(to: .now).components
+        let milliseconds = Double(duration.seconds) * 1000 + Double(duration.attoseconds) / 1_000_000_000_000_000
+        logger.notice("stage=\(stage, privacy: .public) duration_ms=\(milliseconds, privacy: .public)")
+    }
+}
 
 /// 窗口列表与显示器坐标换算；截图默认选区用。
 enum CaptureGeometry {

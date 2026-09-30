@@ -54,10 +54,19 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         self.overlay = overlay
         self.selectionMonitor = selectionMonitor
         super.init()
-        screenshot.onPrepareCapture = { [weak self] kind, scrolling, region in
+        screenshot.onPrepareCapture = { [weak self] source, scrolling, region in
             guard let self else { return }
             // 截图工具栏的目标交给同一个媒体会话，截图控制器不持有录制资源。
-            try self.capture.prepare(kind: kind, scrolling: scrolling, region: region)
+            try self.capture.prepare(source: source, scrolling: scrolling, region: region)
+        }
+        screenshot.onCaptureSources = { [weak self] preferred in
+            guard let self else { throw CancellationError() }
+            // 同一媒体资源层提供应用清单，截图控制器只隔离截图身份。
+            return try await self.capture.sources(preferredApplicationID: preferred)
+        }
+        screenshot.onPrepareCaptureControls = { [weak self] in
+            // prepareControls在用户选择录制目标期间预初始化并复用隐藏界面。
+            self?.capture.prepareControls()
         }
         screenshot.onCapturingChanged = { [weak self] active in
             guard let self else { return }

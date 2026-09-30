@@ -82,6 +82,48 @@ void main() {
     }
   });
 
+  test('三四行工具栏在全屏贴边与横竖布局中保持屏幕内且不改变画布', () {
+    // 3/4行厚度120/156pt；源图倍率1/2及负原点显示器归一化后的视口使用相同局部几何。
+    for (final size in [const Size(960, 740), const Size(320, 600)]) {
+      for (final rows in [3, 4]) {
+        for (final scale in [1.0, 2.0]) {
+          for (final crop in [
+            Offset.zero & size,
+            Rect.fromLTWH(0, 0, size.width - 190, size.height),
+          ]) {
+            final layout = ScreenshotEditorLayout.place(
+              viewport: size,
+              image: Size(size.width * scale, size.height * scale),
+              crop: Rect.fromLTRB(
+                crop.left * scale,
+                crop.top * scale,
+                crop.right * scale,
+                crop.bottom * scale,
+              ),
+              rowCount: rows,
+              toolbarLength: 1200,
+            );
+            expect(layout.canvas, Offset.zero & size);
+            expect(
+              (Offset.zero & size).contains(layout.toolbar.topLeft),
+              isTrue,
+            );
+            expect(
+              (Offset.zero & size).contains(layout.toolbar.bottomRight),
+              isTrue,
+            );
+            expect(
+              layout.axis == Axis.horizontal
+                  ? layout.toolbar.height
+                  : layout.toolbar.width,
+              16 + rows * 32 + (rows - 1) * 4,
+            );
+          }
+        }
+      }
+    }
+  });
+
   testWidgets('默认窗口仅预览可重新框选，手动选区八点和边框可拉伸', (tester) async {
     // 初始窗口预览不能拦截新框选；用户框选后才显示八点和边线拉伸光标。
     tester.view.physicalSize = const Size(960, 740);

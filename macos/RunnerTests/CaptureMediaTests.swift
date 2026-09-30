@@ -1,6 +1,7 @@
 import AVFoundation
 import Cocoa
 import CoreGraphics
+import CoreImage
 import CoreVideo
 import FlutterMacOS
 import ImageIO
@@ -46,36 +47,371 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(inside.alphaComponent, 0, accuracy: 1.0 / 255)
         XCTAssertEqual(outside.alphaComponent, 0.6, accuracy: 1.0 / 255)
         XCTAssertEqual(outside.redComponent, 0, accuracy: 1.0 / 255)
+        // 两个重叠窗口必须构成透明并集；不能因奇偶填充让重叠区域变暗。
+        shade.selection = shade.bounds
+        shade.contentRects = [NSRect(x: 16, y: 16, width: 64, height: 64),
+                              NSRect(x: 48, y: 48, width: 64, height: 64)]
+        graphics.cgContext.clear(shade.bounds)
+        shade.draw(shade.bounds)
+        XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: 64, y: 64)).alphaComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: 8, y: 8)).alphaComponent, 0.6, accuracy: 1.0 / 255)
+
     }
 
-    /// 无参数；320×48无标题采集面板应完整承载内容，切换结果尺寸后仍保留有效布局。
+    /// 无参数；320×84采集面板切换到带标题栏结果窗后，同一Flutter内容须避开系统按钮且保留完整高度。
     @MainActor
     func testCapturePanelLayoutSupportsControlAndResultModes() throws {
         let engine = FlutterEngine(name: "capture-layout-test", project: nil, allowHeadlessExecution: true)
         let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
-        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: AppConstants.captureControlSize),
-                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        defer { panel.close(); engine.shutDownEngine() }
+        let panel = CaptureWindowController.makeWindow(compact: true)
+        let result = CaptureWindowController.makeWindow(compact: false)
+        defer { panel.close(); result.close(); engine.shutDownEngine() }
         // 使用录屏和长截图共有的安装入口复现无标题窗口布局，不能只验证普通窗口。
         NativeGlassFactory.installContent(flutter, in: panel)
         // 与采集控制器的present一致，在安装内容后提交最终控制尺寸再进行布局。
         panel.setContentSize(AppConstants.captureControlSize)
         panel.contentView?.layoutSubtreeIfNeeded()
         XCTAssertEqual(flutter.view.frame.width, 320, accuracy: 0.01)
-        XCTAssertEqual(flutter.view.frame.height, 48, accuracy: 0.01)
-        // 同一个面板切换为结果窗口；布局须随真实内容尺寸更新。
-        panel.styleMask = [.titled, .closable, .resizable, .nonactivatingPanel, .fullSizeContentView]
-        panel.setContentSize(AppConstants.captureResultSize)
-        panel.contentView?.layoutSubtreeIfNeeded()
-        XCTAssertEqual(flutter.view.frame.width, 560, accuracy: 0.01)
-        XCTAssertGreaterThan(flutter.view.frame.height, 0)
-        XCTAssertLessThanOrEqual(flutter.view.frame.height, 720)
+        XCTAssertEqual(flutter.view.frame.height, 84, accuracy: 0.01)
+        // 检查项目材料/Flutter承载后的真实命中叶，不能让透明装饰吞掉首次鼠标。
+        let hit = try XCTUnwrap(panel.contentView?.hitTest(NSPoint(x: 160, y: 42)))
+        XCTAssertTrue(hit.acceptsFirstMouse(for: nil))
+
+        // 转移真实内容到普通结果窗，标题栏占用不能落到Flutter媒体或操作区域中。
+        let content = panel.contentViewController
+        panel.contentViewController = nil
+        result.contentViewController = content
+        result.setContentSize(NSSize(width: 1280, height: 800))
+        result.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(flutter.view.frame.width, 1280, accuracy: 0.01)
+        XCTAssertEqual(flutter.view.frame.height, 800, accuracy: 0.01)
+        XCTAssertLessThan(flutter.view.convert(flutter.view.bounds, to: nil).maxY, result.frame.height)
     }
 
-    /// width/height为像素尺寸，offset为滚动，top/bottom为固定带，repeatRows指定重复周期；返回真实位图。
+    /// 无参数；活动采集须跨Space置顶，媒体结果须能激活且允许普通应用和系统对话框位于其上。
+    @MainActor
+    func testCaptureAndResultWindowsUseSeparateActivationAndLevels() {
+        let controls = CaptureWindowController.makeWindow(compact: true)
+        let result = CaptureWindowController.makeWindow(compact: false)
+        defer { controls.close(); result.close() }
+        XCTAssertEqual(controls.level, .statusBar)
+        XCTAssertGreaterThan(controls.level.rawValue, NSWindow.Level.floating.rawValue)
+        XCTAssertTrue(controls.styleMask.contains(.nonactivatingPanel))
+        XCTAssertTrue(controls.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(controls.collectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertEqual(result.level, .normal)
+        XCTAssertLessThan(result.level.rawValue, NSWindow.Level.modalPanel.rawValue)
+        XCTAssertFalse(result.styleMask.contains(.nonactivatingPanel))
+        XCTAssertFalse(result.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(result.canBecomeKey)
+        // AppKit只让已显示的普通窗口成为主窗口，按用户打开结果后的真实状态验证。
+        result.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(result.canBecomeMain)
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            XCTAssertNotNil(result.standardWindowButton(button))
+            XCTAssertEqual(result.standardWindowButton(button)?.isEnabled, true)
+        }
+    }
+
+    /// 无参数/返回值；非key面板首个down/up须改变按钮状态，窗口焦点和应用激活态均保持不变。
+    @MainActor
+    func testCaptureFirstClickChangesControlWithoutStealingFocus() throws {
+        let panel = CaptureWindowController.makeWindow(compact: true)
+        let control = CaptureButtonEventFixture(frame: NSRect(origin: .zero, size: AppConstants.captureControlSize))
+        // 真实玻璃穿透命中后，包装层沿用NSView默认首鼠标策略，复现平台视图的事件边界。
+        control.addSubview(NativeGlassView(frame: control.bounds))
+        panel.contentView = control
+        panel.alphaValue = 0.01
+        defer { panel.close() }
+        // 默认面板策略在宿主激活或未激活时都会吞首击；不依赖外部应用接管测试宿主焦点。
+        panel.orderFrontRegardless()
+        let wasActive = NSApp.isActive
+        XCTAssertFalse(panel.isKeyWindow)
+        let point = NSPoint(x: 160, y: 42)
+        XCTAssertTrue(panel.contentView?.hitTest(point) === control)
+        XCTAssertFalse(control.acceptsFirstMouse(for: nil))
+        // 只将一组事件交给本进程的真实面板，不使用全局鼠标注入或第二次激活点击。
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            NSApp.sendEvent(event)
+        }
+        XCTAssertTrue(control.isPaused)
+        XCTAssertFalse(panel.isKeyWindow)
+        XCTAssertEqual(NSApp.isActive, wasActive)
+    }
+
+    /// 无参数；853×434媒体占925×450内容区，系统标题栏计入窗口边界，全屏及宽/高极值均须完整容纳。
+    @MainActor
+    func testVideoResultBoundsDoNotCreateAnInvisibleDesktopOverlay() {
+        let visible = NSRect(x: -1920, y: 24, width: 1920, height: 1056)
+        let ordinary = CaptureWindowController.resultFrame(pixels: NSSize(width: 1706, height: 868), scale: 2, visible: visible)
+        let content = NSWindow.contentRect(forFrameRect: ordinary, styleMask: AppConstants.captureResultWindowStyle)
+        XCTAssertEqual(content.size, NSSize(width: 925, height: 450))
+        XCTAssertGreaterThan(ordinary.height, content.height)
+        XCTAssertFalse(ordinary.contains(NSPoint(x: visible.minX + 1, y: visible.minY + 1)))
+        for pixels in [NSSize(width: 72, height: 48), NSSize(width: 20000, height: 1000),
+                       NSSize(width: 720, height: 4800), NSSize(width: 3840, height: 2160)] {
+            let frame = CaptureWindowController.resultFrame(pixels: pixels, scale: 2, visible: visible)
+            XCTAssertTrue(visible.contains(frame))
+            XCTAssertGreaterThanOrEqual(frame.width, 73)
+            XCTAssertGreaterThan(frame.height, 196)
+        }
+    }
+
+    /// 无参数；真实保存sheet必须完整可见且取消能结束等待，避免仅检查窗口level而漏掉模态链路。
+    @MainActor
+    func testVideoResultSaveSheetIsVisibleAndCancellationCompletes() async throws {
+        let visible = try XCTUnwrap(NSScreen.main).visibleFrame
+        let result = CaptureWindowController.makeWindow(compact: false)
+        result.setFrame(CaptureWindowController.resultFrame(pixels: NSSize(width: 1706, height: 868),
+            scale: 2, visible: visible), display: false)
+        result.contentView = NSView(frame: NSRect(origin: .zero, size: result.frame.size))
+        let save = NSSavePanel()
+        save.nameFieldStringValue = "capture-window-regression.mp4"
+        defer { save.cancel(nil); result.close() }
+        NSApp.activate()
+        result.makeKeyAndOrderFront(nil)
+        let completed = expectation(description: "取消保存返回当前结果")
+        save.beginSheetModal(for: result) { response in
+            XCTAssertEqual(response, .cancel)
+            completed.fulfill()
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(result.attachedSheet === save)
+        XCTAssertTrue(save.isVisible)
+        XCTAssertTrue(visible.contains(save.frame))
+        XCTAssertGreaterThanOrEqual(save.level.rawValue, result.level.rawValue)
+        save.cancel(nil)
+        await fulfillment(of: [completed], timeout: 3)
+        XCTAssertNil(result.attachedSheet)
+    }
+
+    /// 无参数/返回值；系统关闭先确认，保留维持会话身份，确认放弃才结束该会话。
+    @MainActor
+    func testVideoResultSystemCloseConfirmsBeforeEndingSession() async throws {
+        let controller = CaptureWindowController(screenshot: ScreenshotWindowController())
+        let result = CaptureWindowController.makeWindow(compact: false)
+        result.delegate = controller
+        let content = NSViewController()
+        content.view = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+        result.contentViewController = content
+        defer { result.delegate = nil; result.close() }
+        result.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(result.isVisible)
+        for choice in ["继续保留", "放弃"] {
+            let token = controller.service.id
+            let responded = expectation(description: "系统关闭确认：\(choice)")
+            // 仅操作本进程的真实模态按钮；看门狗确保失败也不会留下阻塞窗口。
+            let watchdog = Timer(timeInterval: 2, repeats: false) { _ in NSApp.stopModal(withCode: .abort) }
+            let input = Timer(timeInterval: 0.05, repeats: false) { _ in
+                guard let modal = NSApp.modalWindow, let content = modal.contentView else {
+                    XCTFail("关闭未显示放弃确认")
+                    NSApp.stopModal(withCode: .abort)
+                    responded.fulfill()
+                    return
+                }
+                var views = [content]
+                var button: NSButton?
+                while let view = views.popLast() {
+                    if let candidate = view as? NSButton, candidate.title == choice { button = candidate; break }
+                    views.append(contentsOf: view.subviews)
+                }
+                XCTAssertNotNil(button)
+                button?.performClick(nil)
+                responded.fulfill()
+            }
+            RunLoop.main.add(watchdog, forMode: .modalPanel)
+            RunLoop.main.add(input, forMode: .modalPanel)
+            try XCTUnwrap(result.standardWindowButton(.closeButton)).performClick(nil)
+            await fulfillment(of: [responded], timeout: 3)
+            input.invalidate()
+            watchdog.invalidate()
+            if choice == "继续保留" {
+                XCTAssertEqual(controller.service.id, token)
+                XCTAssertTrue(result.isVisible)
+            } else {
+                XCTAssertNotEqual(controller.service.id, token)
+                XCTAssertEqual(controller.service.phase, .idle)
+            }
+        }
+    }
+
+    /// 无参数；确认窗不能依赖84pt控制条的sheet几何，负坐标及竖排来源屏也必须容纳全部按钮。
+    @MainActor
+    func testDiscardConfirmationFitsSourceDisplayAndKeepsByDefault() throws {
+        for visible in [NSRect(x: -1920, y: 24, width: 1920, height: 1056),
+                        NSRect(x: 0, y: -900, width: 1440, height: 876)] {
+            let alert = CaptureWindowController.discardAlert(visibleFrame: visible)
+            XCTAssertNil(alert.window.sheetParent)
+            XCTAssertTrue(visible.contains(alert.window.frame))
+            // AppKit会把窗口原点对齐屏幕像素，奇数高度的居中允许半点取整。
+            XCTAssertEqual(alert.window.frame.midX, visible.midX, accuracy: 0.5)
+            XCTAssertEqual(alert.window.frame.midY, visible.midY, accuracy: 0.5)
+            XCTAssertGreaterThan(alert.window.level.rawValue, NSWindow.Level.statusBar.rawValue)
+            XCTAssertEqual(alert.buttons[0].title, "继续保留")
+            XCTAssertEqual(alert.buttons[0].keyEquivalent, "\r")
+            XCTAssertTrue(alert.window.defaultButtonCell === alert.buttons[0].cell)
+            for button in alert.buttons {
+                let rect = button.convert(button.bounds, to: nil)
+                XCTAssertTrue(alert.window.frame.contains(alert.window.convertToScreen(rect)))
+            }
+            alert.window.close()
+        }
+    }
+
+    /// 无参数；实际模态循环验证Escape、Return和数字键盘Enter均保留，窗口像素边界完整位于来源屏。
+    @MainActor
+    func testDiscardModalKeysKeepCaptureWithoutMovingOffScreen() throws {
+        let visible = try XCTUnwrap(NSScreen.main).visibleFrame
+        for (characters, keyCode) in [("\u{1b}", UInt16(53)), ("\r", UInt16(36)), ("\u{3}", UInt16(76))] {
+            // discardAlert建立真实确认窗口；通过AppKit事件分发检查默认与取消快捷键。
+            let alert = CaptureWindowController.discardAlert(visibleFrame: visible)
+            alert.window.orderFrontRegardless()
+            // 看门狗保证断言失败也能结束模态循环，不留下需要用户关闭的对话框。
+            let watchdog = Timer(timeInterval: 2, repeats: false) { _ in NSApp.stopModal(withCode: .abort) }
+            let input = Timer(timeInterval: 0.05, repeats: false) { _ in
+                XCTAssertTrue(visible.contains(alert.window.frame))
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                  timestamp: 0, windowNumber: alert.window.windowNumber,
+                                                  context: nil, characters: characters,
+                                                  charactersIgnoringModifiers: characters,
+                                                  isARepeat: false, keyCode: keyCode) else {
+                    XCTFail("无法创建确认窗键盘事件")
+                    NSApp.stopModal(withCode: .abort)
+                    return
+                }
+                NSApp.sendEvent(event)
+            }
+            RunLoop.main.add(watchdog, forMode: .modalPanel)
+            RunLoop.main.add(input, forMode: .modalPanel)
+            let response = CaptureWindowController.runDiscardConfirmation(alert)
+            input.invalidate()
+            watchdog.invalidate()
+            alert.window.orderOut(nil)
+            XCTAssertEqual(response, .alertFirstButtonReturn, "keyCode=\(keyCode)")
+        }
+    }
+
+    /// 无参数；负坐标副屏和上/下排列都以可用区右下角定位，保留8pt边距和全部提示空间。
+    @MainActor
+    func testCaptureControlsAnchorToVisibleBottomRight() {
+        for visible in [NSRect(x: -1920, y: 24, width: 1920, height: 1056),
+                        NSRect(x: 1440, y: -900, width: 1440, height: 876)] {
+            let origin = CaptureWindowController.controlOrigin(visible: visible, size: AppConstants.captureControlSize)
+            let frame = NSRect(origin: origin, size: AppConstants.captureControlSize)
+            XCTAssertEqual(frame.maxX, visible.maxX - 8)
+            XCTAssertEqual(frame.minY, visible.minY + 8)
+            XCTAssertTrue(visible.contains(frame))
+        }
+    }
+
+    /// 无参数；真实矢量图标栅格化为16pt@2x PNG；缺失图标是可展示的空资产，不是来源列表错误。
+    @MainActor
+    func testApplicationIconRendersVectorAndHandlesMissingAsset() throws {
+        let vector = NSImage(size: NSSize(width: 256, height: 256), flipped: false) { rect in
+            NSColor.red.setFill()
+            rect.fill()
+            return true
+        }
+        let png = try XCTUnwrap(MediaCaptureService.applicationIconPNG(vector))
+        let image = try decode(png)
+        XCTAssertEqual(image.width, 32)
+        XCTAssertEqual(image.height, 32)
+        XCTAssertGreaterThan(try pixels(image)[(16 * 32 + 16) * 4], 250)
+        XCTAssertNil(MediaCaptureService.applicationIconPNG(nil))
+    }
+
+    /// 无参数；负坐标、显示器间空隙及1x/2x混合倍率必须保留桌面位置，黑色填充其余画布。
+    func testApplicationCanvasKeepsMixedScaleDisplaysAndBlackGaps() throws {
+        let canvas = try ApplicationCaptureCanvas(displays: [
+            .init(id: 1, frame: CGRect(x: -64, y: -32, width: 64, height: 48), scale: 1),
+            .init(id: 2, frame: CGRect(x: 0, y: 0, width: 64, height: 48), scale: 2),
+        ])
+        XCTAssertEqual(canvas.size, CGSize(width: 256, height: 160))
+        let frames: [CGDirectDisplayID: CIImage] = [
+            1: CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 48)),
+            2: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 128, height: 96)),
+        ]
+        // composite输出真实CI像素，通过统一RGBA读取核对每个像素，不断言绘制调用。
+        let image = try XCTUnwrap(CIContext().createCGImage(canvas.composite(frames), from: CGRect(origin: .zero, size: canvas.size)))
+        let bytes = try pixels(image)
+        for y in 0..<160 {
+            for x in 0..<256 {
+                let expected: [UInt8] = x < 128 && y < 96 ? [255, 0, 0, 255] :
+                    (x >= 128 && y >= 64 ? [0, 0, 255, 255] : [0, 0, 0, 255])
+                XCTAssertEqual(Array(bytes[(y * 256 + x) * 4..<(y * 256 + x + 1) * 4]), expected)
+            }
+        }
+        // 奇数尺寸向外补黑边，不裁掉最后一列/行；相同尺寸的拓扑移动也不能视为同一画布。
+        let odd = try ApplicationCaptureCanvas(displays: [.init(id: 1,
+            frame: CGRect(x: 0, y: 0, width: 65, height: 65), scale: 1)])
+        XCTAssertEqual(odd.size, CGSize(width: 66, height: 66))
+        XCTAssertThrowsError(try ApplicationCaptureCanvas(displays: []))
+    }
+
+    /// 无参数；两路合成实际编码H264并解码，验证尺寸、黑底及左右来源均进入同一MP4。
+    func testApplicationEncoderProducesDecodableCompositeVideo() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("application.mp4")
+        let canvas = try ApplicationCaptureCanvas(displays: [
+            .init(id: 1, frame: CGRect(x: 0, y: 0, width: 64, height: 64), scale: 1),
+            .init(id: 2, frame: CGRect(x: 128, y: 0, width: 64, height: 64), scale: 1),
+        ])
+        let encoder = try ApplicationVideoEncoder(canvas: canvas, url: url) { error in
+            XCTFail(error.localizedDescription)
+        }
+        encoder.queue.async {
+            // 两屏输入使用实际CI图像，进入与ScreenCaptureKit相同的帧接收/编码入口。
+            encoder.receive(CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64)), display: 1)
+            encoder.receive(CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64)), display: 2)
+        }
+        try await encoder.waitUntilReady()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try await encoder.finish(discard: false)
+        let info = try await GIFExporter.metadata(url)
+        XCTAssertEqual(info.width, 192)
+        XCTAssertEqual(info.height, 64)
+        XCTAssertGreaterThan(info.duration, 0)
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        let result = try await generator.image(at: .zero)
+        let bytes = try pixels(result.image)
+        // 距接缝32像素的中心色允许5级有损误差，同时检查非主色通道及显示器间黑色空隙。
+        for (x, expected) in [(32, [255, 0, 0]), (96, [0, 0, 0]), (160, [0, 0, 255])] {
+            for channel in 0..<3 {
+                XCTAssertLessThanOrEqual(abs(Int(bytes[(32 * 192 + x) * 4 + channel]) - expected[channel]), 5)
+            }
+        }
+    }
+
+    /// 无参数；放弃先于首帧等待入队时必须返回取消，不能留下无法完成的启动任务。
+    func testDiscardBeforeFirstFrameCancelsReadiness() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let canvas = try ApplicationCaptureCanvas(displays: [
+            .init(id: 1, frame: CGRect(x: 0, y: 0, width: 64, height: 64), scale: 1),
+        ])
+        let encoder = try ApplicationVideoEncoder(canvas: canvas, url: folder.appendingPathComponent("cancel.mp4")) { error in
+            XCTFail(error.localizedDescription)
+        }
+        // finish模拟真实放弃先完成的状态；waitUntilReady必须观察已结束的编码器身份。
+        try await encoder.finish(discard: true)
+        do {
+            try await encoder.waitUntilReady()
+            XCTFail("已放弃的录制不能继续等待或进入可录制状态。")
+        } catch is CancellationError {
+            // 取消为预期业务结果，不要求调用方等待首帧超时。
+        }
+    }
+
+    /// width/height为像素尺寸，offset为滚动，top/bottom为固定带，repeatRows指定重复周期、blankRows指定正文空白行范围；返回真实位图。
     private func frame(width: Int = 96, height: Int = 192, offset: Int, top: Int = 12,
                        bottom: Int = 16, cornerOnly: Bool = false, changedHeader: Bool = false,
-                       repeatRows: Int = 0) throws -> CGImage {
+                       repeatRows: Int = 0, blankRows: [Range<Int>] = []) throws -> CGImage {
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
             for x in 0..<width {
@@ -87,7 +423,8 @@ final class CaptureMediaTests: XCTestCase {
                     let row = y - top + offset
                     let contentRow = repeatRows > 0 ? row % repeatRows : row
                     let seed = UInt32(contentRow) &* 73856093 ^ UInt32(x) &* 19349663
-                    color = [UInt8(truncatingIfNeeded: seed), UInt8(truncatingIfNeeded: seed >> 8), UInt8(truncatingIfNeeded: seed >> 16)]
+                    color = blankRows.contains(where: { $0.contains(contentRow) }) ? [255, 255, 255] :
+                        [UInt8(truncatingIfNeeded: seed), UInt8(truncatingIfNeeded: seed >> 8), UInt8(truncatingIfNeeded: seed >> 16)]
                 }
                 let isButton = cornerOnly && x >= width - 16 && y >= height - 12
                 let index = (y * width + x) * 4
@@ -132,6 +469,45 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(try pixels(decode(result.png)), try pixels(expected))
     }
 
+    /// 无参数；正文空白跨过首帧对边缘，第三帧文字进入边缘仍应连续；40小于可靠重叠上限。
+    func testScrollingBlankParagraphEdgesAreNotFixedBars() throws {
+        let blanks = [0..<70, 150..<240]
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        // 三帧覆盖空白重合与退出空白两个边界，不以调用次数代替输出像素验证。
+        for offset in [0, 40, 80] {
+            try stitcher.append(frame(offset: offset, top: 0, bottom: 0, blankRows: blanks))
+        }
+        let result = try stitcher.finish()
+        let expected = try frame(height: 272, offset: 0, top: 0, bottom: 0, blankRows: blanks)
+        XCTAssertEqual(result.frames, 3)
+        XCTAssertEqual(try pixels(decode(result.png)), try pixels(expected))
+    }
+
+    /// 无参数；真实12/16像素固定栏旁的正文空白不能被并入固定栏，固定栏仍仅保留一次。
+    func testFixedBarsBesideScrollingBlankParagraphsAreKeptOnce() throws {
+        let blanks = [0..<70, 140..<220]
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        for offset in [0, 40, 80] {
+            try stitcher.append(frame(offset: offset, blankRows: blanks))
+        }
+        let result = try stitcher.finish()
+        let expected = try frame(height: 272, offset: 0, blankRows: blanks)
+        XCTAssertEqual(result.frames, 3)
+        XCTAssertEqual(try pixels(decode(result.png)), try pixels(expected))
+    }
+
+    /// 无参数；16×12角落按钮只遮住局部正文，自动模式须按真实位移去重且不误判其余正文变化。
+    func testAutomaticBandExcludesCornerButtonWithoutDuplicatingIt() throws {
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        for offset in [0, 32, 64] {
+            try stitcher.append(frame(offset: offset, bottom: 24, cornerOnly: true))
+        }
+        let result = try stitcher.finish()
+        let expected = try frame(height: 256, offset: 0, bottom: 24, cornerOnly: true)
+        XCTAssertEqual(result.frames, 3)
+        XCTAssertEqual(try pixels(decode(result.png)), try pixels(expected))
+    }
+
     /// 无参数；手动底带覆盖局部角落按钮，正文连续且按钮只存在于最后一屏底带。
     func testManualBandExcludesCornerButtonWithoutInventingCoveredPixels() throws {
         let stitcher = ScrollStitcher(edges: .init(top: 12, bottom: 24, automatic: false))
@@ -142,8 +518,8 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(try pixels(decode(result.png)), try pixels(expected))
     }
 
-    /// 无参数；静止等待，反向、固定导航变化和8行周期歧义均保留最后确认像素。
-    func testIdleReverseAndChangedHeaderPreserveConfirmedResult() throws {
+    /// 无参数；静止等待、反向和8行周期歧义保留确认像素，固定导航变色仍按正文位移追加。
+    func testIdleReverseAndDynamicHeaderPreserveConfirmedResult() throws {
         let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
         XCTAssertFalse(try stitcher.append(frame(offset: 0)))
         XCTAssertFalse(try stitcher.append(frame(offset: 0)))
@@ -152,8 +528,9 @@ final class CaptureMediaTests: XCTestCase {
         let before = try stitcher.finish().png
         XCTAssertThrowsError(try stitcher.append(frame(offset: 20)))
         XCTAssertEqual(try stitcher.finish().png, before)
-        XCTAssertThrowsError(try stitcher.append(frame(offset: 80, changedHeader: true)))
-        XCTAssertEqual(try stitcher.finish().png, before)
+        // 顶部固定内容变色不破坏正文接缝；输出保留首帧顶部并追加80像素正文。
+        XCTAssertTrue(try stitcher.append(frame(offset: 80, changedHeader: true)))
+        XCTAssertEqual(try pixels(decode(stitcher.finish().png)), try pixels(frame(height: 272, offset: 0)))
         // 周期8行的正文可对应多个位移；即使误差为0，也不能猜测采用其中一个接缝。
         let repeating = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: false))
         try repeating.append(frame(offset: 0, top: 0, bottom: 0, repeatRows: 8))
@@ -315,5 +692,139 @@ final class CaptureMediaTests: XCTestCase {
         // 0.2到0.8秒在10fps下恰好六帧，浮点尾差不得采到结束边界外。
         XCTAssertEqual(try GIFExporter.Options(start: 0.2, end: 0.8, framesPerSecond: 10, width: 32).validate(duration: 1, sourceWidth: 64), 6)
         XCTAssertThrowsError(try GIFExporter.Options(start: 0, end: 60.01, framesPerSecond: 30, width: 32).validate(duration: 61, sourceWidth: 64))
+    }
+    /// 无参数；600像素/秒滚动时4fps跨150像素越过123像素上限，10fps的60像素步进须生成连续原图。
+    func testDenserScrollFramesPreserveFastMovingContentWithoutWeakeningOverlap() throws {
+        let sparse = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        // frame生成顶部12、底部16固定像素，正文164像素至少保留41像素重叠。
+        try sparse.append(frame(offset: 0))
+        let confirmed = try sparse.finish().png
+        XCTAssertThrowsError(try sparse.append(frame(offset: 150)))
+        XCTAssertEqual(try sparse.finish().png, confirmed)
+
+        let dense = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        for offset in stride(from: 0, through: 180, by: 60) {
+            try dense.append(frame(offset: offset))
+        }
+        // 同一移动正文增加180像素；decode/pixels检查接缝内容，不只检查最终尺寸。
+        let result = try dense.finish()
+        XCTAssertEqual(result.height, 372)
+        XCTAssertEqual(try pixels(decode(result.png)), try pixels(frame(height: 372, offset: 0)))
+    }
+
+    /// 无参数；6×6徽标RGB变化10但正文唯一匹配40像素位移，输出首顶末底的完整272像素长图。
+    func testAutomaticStitchAcceptsChangingFixedPixelsWhenBodyMatches() throws {
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        try stitcher.append(animatedFrame(offset: 0))
+        try stitcher.append(animatedFrame(offset: 40))
+        let accepted: Bool
+        do {
+            accepted = try stitcher.append(animatedFrame(offset: 80, headerVariant: true, footerVariant: true))
+        } catch {
+            XCTFail("Body-matchable frame was rejected: \(error.localizedDescription)")
+            return
+        }
+        XCTAssertTrue(accepted)
+
+        let result = try stitcher.finish()
+        let expected = try animatedFrame(width: 96, height: 272, offset: 0, footerVariant: true)
+        XCTAssertEqual(result.width, 96)
+        XCTAssertEqual(result.height, 272)
+        XCTAssertEqual(try pixels(decode(result.png)), try pixels(expected))
+    }
+
+    /// 无参数；正文重排导致不可匹配时停止，输出保持为上一张已确认PNG。
+    func testUnreliableBodyMatchStillStopsAfterConfirmedFrames() throws {
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        try stitcher.append(animatedFrame(offset: 0))
+        try stitcher.append(animatedFrame(offset: 40))
+        let confirmed = try stitcher.finish().png
+
+        XCTAssertThrowsError(try stitcher.append(animatedFrame(offset: 80, bodyRevision: 0x5a5a5a5a)))
+        XCTAssertEqual(try stitcher.finish().png, confirmed)
+    }
+
+    /// 无参数；手动12/16像素边界遵守首顶末底，固定栏动态像素不能进入正文条带。
+    func testFinishUsesFirstTopAndLastBottomWithChangingBars() throws {
+        let stitcher = ScrollStitcher(edges: .init(top: 12, bottom: 16, automatic: false))
+        try stitcher.append(animatedFrame(offset: 0))
+        try stitcher.append(animatedFrame(offset: 40))
+        try stitcher.append(animatedFrame(offset: 80, headerVariant: true, footerVariant: true))
+
+        let result = try stitcher.finish()
+        let expected = try animatedFrame(width: 96, height: 272, offset: 0, footerVariant: true)
+        XCTAssertEqual(try pixels(decode(result.png)), try pixels(expected))
+    }
+
+    /// width/height为像素尺寸，offset为正文位移，variant改变6×6固定徽标，bodyRevision重排正文；返回RGBA图。
+    private func animatedFrame(
+        width: Int = 96,
+        height: Int = 192,
+        offset: Int,
+        headerVariant: Bool = false,
+        footerVariant: Bool = false,
+        bodyRevision: UInt32 = 0
+    ) throws -> CGImage {
+        let top = 12
+        let bottom = 16
+        var rgba = [UInt8](repeating: 255, count: width * height * 4)
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let color: [UInt8]
+                if y < top {
+                    let badge = headerVariant && (3..<9).contains(y) && (44..<50).contains(x)
+                    color = badge ? [210, 220, 230] : [220, 230, 240]
+                } else if y >= height - bottom {
+                    let badge = footerVariant && (height - 12..<height - 6).contains(y) && (44..<50).contains(x)
+                    color = badge ? [70, 80, 90] : [80, 90, 100]
+                } else {
+                    let contentRow = y - top + offset
+                    let seed = UInt32(contentRow) &* 73856093 ^ UInt32(x) &* 19349663 ^ bodyRevision
+                    color = [
+                        UInt8(truncatingIfNeeded: seed),
+                        UInt8(truncatingIfNeeded: seed >> 8),
+                        UInt8(truncatingIfNeeded: seed >> 16),
+                    ]
+                }
+                let index = (y * width + x) * 4
+                rgba[index] = color[0]
+                rgba[index + 1] = color[1]
+                rgba[index + 2] = color[2]
+            }
+        }
+
+        let provider = try XCTUnwrap(CGDataProvider(data: Data(rgba) as CFData))
+        return try XCTUnwrap(CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ))
+    }
+
+
+}
+
+/// 模拟平台视图命中层上的暂停按钮状态；由实际AppKit鼠标序列驱动，不覆盖首鼠标接受策略。
+private final class CaptureButtonEventFixture: NSView {
+    private var pressed = false
+    private(set) var isPaused = false
+
+    /// event为面板送达的按下事件；开始一次按钮手势，无返回值。
+    override func mouseDown(with event: NSEvent) { pressed = true }
+
+    /// event为同一按钮的松开事件；完整按下/松开才切换暂停状态，无返回值。
+    override func mouseUp(with event: NSEvent) {
+        guard pressed else { return }
+        pressed = false
+        isPaused.toggle()
     }
 }

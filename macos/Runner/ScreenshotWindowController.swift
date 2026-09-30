@@ -17,16 +17,60 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var channel: FlutterMethodChannel?
     private var textInputActive = false
-    private var flutterMenuOpen = false
-    /// 原生来源菜单跟踪期间将键盘交给AppKit，与Flutter菜单分别持有状态，避免关闭回声互相覆盖。
-    var nativeMenuOpen = false
     /// 标记本编辑会话曾设置原生光标，关闭时清除，避免污染其他窗口。
     private var hasNativeResizeCursor = false
     private var capturing = false
     /// 保存冻结帧任务；退出时取消并拒绝权限请求或截图的迟到结果。
     private var captureTask: Task<Void, Never>?
-    /// 只用于媒体区域选择；关闭窗口时返回nil，确认后传递已校验的像素选区。
-    private var selectionCompletion: ((MediaCaptureService.Region?) -> Void)?
+    /// 发起冻结截图前的前台应用身份；编辑器获得焦点不改变应用来源排序。
+    private var sourceApplicationID: String?
+    private var captureSources: [[String: Any]] = []
+    private var targetPreviews: [NSWindow] = []
+    private var previewSource: (kind: String, applicationID: String?)?
+
+    /// 无参数；撤下准备阶段的跨显示器预览，不改变冻结帧或编辑文档。
+    private func clearTargetPreviews() {
+        targetPreviews.forEach { $0.close() }
+        targetPreviews.removeAll()
+    }
+
+    /// kind为目标、applicationID为已列出的应用身份；按来源快照显示其他屏幕的实际画布，无返回值。
+    private func previewTarget(kind: String, applicationID: String?) {
+        // 每次目标变更先释放旧预览，截图来源屏由Flutter绘制。
+        clearTargetPreviews()
+        previewSource = (kind, applicationID)
+        guard kind == CaptureTarget.application.rawValue else { return }
+        let source = captureSources.first { $0["applicationID"] as? String == applicationID }
+        let rects = (source?["windows"] as? [[String: CGFloat]])?.map {
+            CGRect(x: $0["x"]!, y: $0["y"]!, width: $0["width"]!, height: $0["height"]!)
+        }
+        for screen in NSScreen.screens {
+            let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! NSNumber).uint32Value
+            guard id != selectedDisplayID else { continue }
+            let panel = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.ignoresMouseEvents = true
+            panel.level = .statusBar
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            let shade = CaptureShadeView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            shade.selection = shade.bounds
+            let display = CGDisplayBounds(id)
+            // SCK窗口使用全局顶部原点，AppKit视图使用本屏底部原点。
+            shade.contentRects = rects?.compactMap { rect in
+                let clipped = rect.intersection(display)
+                guard !clipped.isNull else { return nil }
+                return CGRect(x: clipped.minX - display.minX, y: display.maxY - clipped.maxY,
+                              width: clipped.width, height: clipped.height)
+            }
+            panel.contentView = shade
+            targetPreviews.append(panel)
+            panel.orderFrontRegardless()
+        }
+    }
+
     private var selectedDisplayID: CGDirectDisplayID = 0
     private var selectedScale: CGFloat = 1
     private var png: Data?
@@ -47,31 +91,43 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     /// 贴图与编辑窗分离；关闭编辑不销毁已贴出的图。
     let pins = PinOverlayController()
     var onCapturingChanged: ((Bool) -> Void)?
-    /// kind为region/display/window，scrolling指定长截图，region为直启的锁定选区；失败保留编辑器。
-    var onPrepareCapture: (@MainActor (String, Bool, MediaCaptureService.Region?) throws -> Void)?
+    /// source为已选择来源，scrolling指定长截图，region为校验后的选区；协调器启动真实采集。
+    var onPrepareCapture: (@MainActor ([String: Any], Bool, MediaCaptureService.Region?) throws -> Void)?
+    /// 用户已展开有效录制目标；提前准备隐藏控制界面，不启动采集或改变截图草稿。
+    var onPrepareCaptureControls: (@MainActor () -> Void)?
+    /// 应用ID为截图前台应用；返回去重、有序且携带PNG图标的可录制应用。
+    var onCaptureSources: (@MainActor (String?) async throws -> [[String: Any]])?
 
     /// 无参数；返回已完成的冻结帧身份，换帧期间和媒体结果图片均不能发起屏幕采集。
     var liveCaptureID: String? { !capturing && displaysFrozenScreen && png != nil ? captureId : nil }
 
-    /// selection返回区域录屏的当前选区或取消；仅切换确认状态，不重新捕获屏幕。
-    func prepareSelection(selection: @escaping (MediaCaptureService.Region?) -> Void) throws {
-        guard !capturing, liveCaptureID != nil, selectionCompletion == nil else {
-            throw GIFExporter.ExportError(message: "请先打开屏幕截图并选择区域。")
-        }
-        selectionCompletion = selection
-    }
-
     /// 无参数；在用户选定录制目标后收起冻结编辑层，释放该截图会话，无返回值。
     func closeForCapture() { window?.close() }
+
+    /// 无参数；准备采集时隐藏冻结画面并释放跨屏预览，保留编辑草稿供启动失败恢复。
+    func hideForCapture() {
+        clearTargetPreviews()
+        window?.orderOut(nil)
+    }
+
+    /// 无参数；采集准备失败或取消时重新显示同一编辑会话，不重新读取屏幕。
+    func restoreAfterCapturePreparation() {
+        guard liveCaptureID != nil else { return }
+        // 恢复同一目标的其他显示器预览，Flutter本屏裁剪与工具选择保持原样。
+        if let source = previewSource { previewTarget(kind: source.kind, applicationID: source.applicationID) }
+        window?.makeKeyAndOrderFront(nil)
+    }
 
     /// displayID指定显示器，空值使用指针所在屏；创建冻结编辑会话，无返回值。
     func capture(displayID: CGDirectDisplayID? = nil) {
         guard !capturing, window?.attachedSheet == nil else { return }
-        selectionCompletion?(nil)
-        selectionCompletion = nil
-        flutterMenuOpen = false
         displaysFrozenScreen = true
         capturing = true
+        // 替换冻结帧时撤下上一张截图的跨屏预览。
+        clearTargetPreviews()
+        captureSources.removeAll()
+        previewSource = nil
+        sourceApplicationID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         onCapturingChanged?(true)
         if window?.isVisible == true {
             window?.orderOut(nil)
@@ -122,10 +178,8 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
 
     /// 无参数；取消冻结帧任务并结束媒体选区回调，迟到帧不能再展示窗口。
     func cancelCapture() {
+        clearTargetPreviews()
         captureTask?.cancel()
-        let completion = selectionCompletion
-        selectionCompletion = nil
-        completion?(nil)
     }
 
     /// 无参数；关闭编辑窗并关闭引擎，保留已创建的贴图。
@@ -156,18 +210,29 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         var value: [String: Any] = [
             // 展示快照时帧已填充，冻结任务随后结束；原生动作仍通过liveCaptureID拒绝换帧期请求。
             "canCaptureMedia": displaysFrozenScreen && png != nil,
-            "selectionOnly": selectionCompletion != nil,
 
             "directory": UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey) ?? "",
             "screenAccess": ScreenCaptureService.isAuthorized(),
             "capturedAt": capturedAt,
             "width": pixels.width,
             "height": pixels.height,
+            "captureDisplayX": CGDisplayBounds(selectedDisplayID).minX,
+            "captureDisplayY": CGDisplayBounds(selectedDisplayID).minY,
             "displayX": displayFrame.origin.x,
             "displayY": displayFrame.origin.y,
             "displayWidth": displayFrame.width,
             "displayHeight": displayFrame.height,
         ]
+        if let screen = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == selectedDisplayID
+        }), displaysFrozenScreen {
+            // 可用区域按冻结显示器的局部顶部原点发送；不改变整屏画布和源图坐标。
+            value["toolbarSafeX"] = screen.visibleFrame.minX - displayFrame.minX
+            value["toolbarSafeY"] = displayFrame.maxY - screen.visibleFrame.maxY
+            value["toolbarSafeWidth"] = screen.visibleFrame.width
+            value["toolbarSafeHeight"] = screen.visibleFrame.height
+        }
+        if !displaysFrozenScreen { value["imageScale"] = selectedScale }
         if let png, let captureId {
             value["id"] = captureId
             value["bytes"] = FlutterStandardTypedData(bytes: png)
@@ -209,48 +274,64 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         switch call.method {
-        case AppConstants.setScreenshotMenuOpenMethod:
-            guard let open = args["open"] as? Bool else {
-                result(FlutterError(code: AppConstants.badArgsError, message: "菜单状态无效。", details: nil))
+        case AppConstants.previewCaptureTargetMethod:
+            guard let id = args["id"] as? String, id == liveCaptureID,
+                  let kind = args["kind"] as? String,
+                  CaptureTarget(rawValue: kind) != nil else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "录制预览已失效。", details: nil))
                 return
             }
-            // 旧菜单关闭回声不能修改新截图的键盘状态。
-            if let id = args["id"] as? String, id == captureId { flutterMenuOpen = open }
-            result(nil)
+            // 仅使用本次冻结帧列出的来源信息，客户端不能注入窗口坐标。
+            previewTarget(kind: kind, applicationID: args["applicationID"] as? String)
+            // UI初始化完成才返回预览成功；迟到预览不能为已经替换的截图准备界面。
+            Task { @MainActor in
+                guard id == self.liveCaptureID else {
+                    result(FlutterError(code: AppConstants.badArgsError, message: "录制预览已失效。", details: nil))
+                    return
+                }
+                self.onPrepareCaptureControls?()
+                result(nil)
+            }
+        case AppConstants.captureSourcesMethod:
+            guard let id = args["id"] as? String, id == liveCaptureID,
+                  let sources = onCaptureSources else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "请在当前屏幕截图中选择录制应用。", details: nil))
+                return
+            }
+            Task { @MainActor in
+                do {
+                    // 来源查询只返回数据，异步结果不能更新已经替换的截图。
+                    let values = try await sources(sourceApplicationID)
+                    guard id == self.liveCaptureID else { throw CancellationError() }
+                    self.captureSources = values
+                    result(values)
+                } catch {
+                    result(FlutterError(code: AppConstants.captureFailedError, message: error.localizedDescription, details: nil))
+                }
+            }
         case AppConstants.prepareCaptureMethod:
-            // 入口携带当前冻结帧身份；图片结果或迟到请求不能把图片坐标当屏幕坐标。
             guard !capturing, let id = args["id"] as? String, id == liveCaptureID,
-                  let kind = args["kind"] as? String, ["region", "display", "window"].contains(kind),
-                  let scrolling = args["scrolling"] as? Bool, !scrolling || kind == "region",
+                  let kind = args["kind"] as? String, [CaptureTarget.region.rawValue, CaptureTarget.display.rawValue, CaptureTarget.application.rawValue].contains(kind),
+                  let scrolling = args["scrolling"] as? Bool, !scrolling || kind == CaptureTarget.region.rawValue,
                   let prepare = onPrepareCapture else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "请在当前屏幕截图中选择采集工具。", details: nil))
                 return
             }
             Task { @MainActor in
-                guard !self.capturing, id == self.liveCaptureID else {
+                guard id == self.liveCaptureID else {
                     result(FlutterError(code: AppConstants.badArgsError, message: "截图已变化，请重新选择采集工具。", details: nil))
                     return
                 }
                 do {
-                    // 协调器仅建立选区回调或打开实时目标菜单；返回状态不替换Dart编辑文档。
-                    try prepare(kind, scrolling, scrolling ? captureRegion(args) : nil)
-                    result(["selectionOnly": self.selectionCompletion != nil])
+                    var source = args
+                    // 所有目标保留冻结显示器身份，供控制条固定在同一显示器。
+                    source["sourceID"] = selectedDisplayID
+                    // 选区只在开始时提交，显示器由冻结帧身份决定，不接受其他显示器坐标。
+                    try prepare(source, scrolling, kind == CaptureTarget.region.rawValue ? captureRegion(args) : nil)
+                    result(nil)
                 } catch {
                     result(FlutterError(code: AppConstants.captureFailedError, message: error.localizedDescription, details: nil))
                 }
-            }
-        case AppConstants.confirmCaptureRegionMethod:
-            do {
-                guard let completion = selectionCompletion, args["id"] as? String == captureId else {
-                    throw GIFExporter.ExportError(message: "截图已变化，请重新选择采集工具。")
-                }
-                let region = try captureRegion(args)
-                selectionCompletion = nil
-                // 协调器核对截图身份后才撤下冻结编辑层。
-                completion(region)
-                result(nil)
-            } catch {
-                result(FlutterError(code: AppConstants.badArgsError, message: error.localizedDescription, details: nil))
             }
         case AppConstants.setResizeCursorMethod:
             // 使用公开AppKit对角光标；Flutter当前macOS引擎会把这两个方向映射为箭头。
@@ -554,8 +635,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
 
     /// event 为按键；返回是否由当前截图处理，调用方据此消费事件。
     func routeScreenshotKey(_ event: NSEvent) -> Bool {
-        guard window?.isVisible == true, window?.attachedSheet == nil,
-              !flutterMenuOpen, !nativeMenuOpen else { return false }
+        guard window?.isVisible == true, window?.attachedSheet == nil else { return false }
         // 文字输入期间普通键和编辑命令交给Flutter/NSTextInputClient，不能先消费再丢弃。
         // Escape仍由Dart决定仅取消当前文字草稿，其他状态不受影响。
         if textInputActive && event.keyCode != AppConstants.escapeKeyCode { return false }
@@ -695,26 +775,25 @@ final class ScreenshotPanel: NSPanel {
 extension ScreenshotWindowController {
     /// notification 为编辑窗关闭通知；释放原始图像并通知 Dart 清空，不撤销已导出文件或贴图。
     func windowWillClose(_ notification: Notification) {
-        let completion = selectionCompletion
-        selectionCompletion = nil
-        completion?(nil)
+        previewSource = nil
+        clearTargetPreviews()
+        captureSources.removeAll()
         if hasNativeResizeCursor { NSCursor.arrow.set(); hasNativeResizeCursor = false }
         removeScreenshotKeys()
         textInputActive = false
         png = nil
         captureId = nil
-        flutterMenuOpen = false
         message = nil
         windowCrop = nil
         freezeView.image = nil
         channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
     }
 
-    /// data为已完成或明确标为部分结果的PNG；尺寸为原像素，warning为采集说明；复用编辑、复制、保存。
-    func presentImage(_ data: Data, width: Int, height: Int, warning: String?) {
-        // 长图按编辑器自身的比例呈现，不能作为屏幕冻结底图拉伸到整屏。
+    /// data为完成或部分结果PNG，width/height为源像素，scale为来源倍率，warning为采集说明；复用编辑、复制、保存。
+    func presentImage(_ data: Data, width: Int, height: Int, scale: CGFloat, warning: String?) {
+        // 长图保留来源倍率，Flutter用同一等比矩形绘制图像、标注并映射手势。
         displaysFrozenScreen = false
-        selectionCompletion = nil
+        selectedScale = scale
         png = data
         captureId = UUID().uuidString
         capturedAt = Int64(Date().timeIntervalSince1970 * 1000)

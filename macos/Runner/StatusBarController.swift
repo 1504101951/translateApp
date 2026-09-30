@@ -20,15 +20,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         if installed { return }
         installed = true
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.isVisible = true
         if let image = NSImage(systemSymbolName: "translate", accessibilityDescription: "选区翻译")
             ?? NSImage(systemSymbolName: "globe", accessibilityDescription: "选区翻译") {
             image.isTemplate = true
             item.button?.image = image
-            item.button?.imagePosition = .imageLeading
+            item.button?.imagePosition = .imageOnly
         }
-        item.button?.title = "选区翻译"
+        // 图标独占菜单栏方形位置，名称仍通过悬停与辅助功能提供。
+        item.button?.title = ""
+        item.button?.setAccessibilityLabel("选区翻译")
         item.button?.toolTip = "选区翻译"
         statusItem = item
         reloadMenu()
@@ -108,9 +110,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture() }
     }
 
-    /// active 为实际连续采集占用；菜单栏文字保持可见的录制状态。
+    /// active为连续采集状态；更新提示与停止能力，保持图标入口宽度不变。
     func setCaptureActive(_ active: Bool) {
-        statusItem?.button?.title = active ? "● 采集中" : "选区翻译"
+        statusItem?.button?.title = ""
+        let description = active ? "选区翻译，采集中" : "选区翻译"
+        statusItem?.button?.toolTip = description
+        statusItem?.button?.setAccessibilityLabel(description)
         stopCaptureItem?.isEnabled = MacPlatformBridge.Shared.instance?.capture.canStop == true
     }
 

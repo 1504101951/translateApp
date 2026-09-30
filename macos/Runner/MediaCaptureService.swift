@@ -16,6 +16,9 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         let edges: ScrollStitcher.Edges
     }
 
+    private var applicationRecorder: ApplicationRecorder?
+    private var applicationCanvas: ApplicationCaptureCanvas?
+    private var applicationSegmentID: UUID?
     private var stream: SCStream?
     private var recordingOutput: SCRecordingOutput?
     private var temporaryDirectory: URL?
@@ -31,12 +34,13 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     private var recordingCompletionWaiters: [CheckedContinuation<Void, Never>] = []
     private var timer: Timer?
     private var startedAt: Date?
+    /// 当前分段请求到真正开始写入的单调时钟起点，只用于本地启动诊断。
+    private var recordingRequestedAt: ContinuousClock.Instant?
     private(set) var phase = CapturePhase.idle
     private(set) var id = UUID().uuidString
     private(set) var region: Region?
     /// 实际录制配置在AppKit屏幕点坐标中的范围，仅供可见选区遮罩使用。
     private(set) var captureFrame: NSRect?
-    private var recordingWindowID: CGWindowID?
     private var details: [String: Any] = [:]
     var onChange: (([String: Any]) -> Void)?
     var onActiveChanged: ((Bool) -> Void)?
@@ -54,6 +58,12 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
 
     /// next为真实生命周期阶段，values合并元数据；通知当前窗口与菜单，无返回值。
     private func update(_ next: CapturePhase, _ values: [String: Any] = [:]) {
+        // 真实开始回调才结束总耗时；计时通知、迟到回调和取消不会重复写入。
+        if next == .recording, let requested = recordingRequestedAt {
+            CaptureStartupLog.record("recording-ready", since: requested)
+            recordingRequestedAt = nil
+        }
+        if [.idle, .failed].contains(next) { recordingRequestedAt = nil }
         phase = next
         details.merge(values) { _, new in new }
         onChange?(snapshot())
@@ -66,25 +76,54 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         update(phase)
     }
 
-    /// 无参数；权限检查成功后返回显示器/窗口列表，不捕获屏幕像素。
-    func sources() async throws -> [[String: Any]] {
+    /// preferredApplicationID为截图前台应用；返回按应用去重的身份、名称和PNG图标，不采集屏幕像素。
+    func sources(preferredApplicationID: String?) async throws -> [[String: Any]] {
         guard await ScreenCaptureService.requestAccess() else {
             throw GIFExporter.ExportError(message: "需要屏幕录制权限，请在系统设置中授权后重试。")
         }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        var values: [[String: Any]] = content.displays.map { display in
-            ["kind": "display", "sourceID": display.displayID, "name": "显示器 \(display.displayID)（\(display.width)×\(display.height)）"]
+        let visible = Set(content.windows.filter {
+            $0.frame.width > 0 && $0.frame.height > 0 && $0.isOnScreen
+        }.compactMap { $0.owningApplication?.bundleIdentifier })
+        var applications: [String: [String: Any]] = [:]
+        for app in content.applications where visible.contains(app.bundleIdentifier) && app.bundleIdentifier != Bundle.main.bundleIdentifier {
+            guard applications[app.bundleIdentifier] == nil else { continue }
+            // 来源身份不依赖图标；直接栅格化16pt@2x，避免在主线程编码整套TIFF表示。
+            let running = NSRunningApplication(processIdentifier: app.processID)
+            let icon = running?.icon ?? running?.bundleURL.map { NSWorkspace.shared.icon(forFile: $0.path) }
+            var source: [String: Any] = ["kind": CaptureTarget.application.rawValue, "applicationID": app.bundleIdentifier,
+                "name": app.applicationName,
+                "windows": content.windows.filter { $0.isOnScreen && $0.owningApplication?.bundleIdentifier == app.bundleIdentifier }
+                    .map { ["x": $0.frame.minX, "y": $0.frame.minY, "width": $0.frame.width, "height": $0.frame.height] }]
+            // applicationIconPNG只负责图标像素；缺失资产由界面明确显示通用应用图标，不能删掉可录来源。
+            if let png = Self.applicationIconPNG(icon) { source["icon"] = FlutterStandardTypedData(bytes: png) }
+            applications[app.bundleIdentifier] = source
         }
-        values += content.windows.filter {
-            $0.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier && $0.windowLayer == 0 && $0.frame.width >= 32 && $0.frame.height >= 32
-        }.map { window in
-            ["kind": "window", "sourceID": window.windowID,
-             "name": "\(window.owningApplication?.applicationName ?? "应用") — \(window.title ?? "窗口")"]
+        // 当前应用依据截图前保存的身份置顶，其余按名称及稳定应用身份排序。
+        return applications.values.sorted { lhs, rhs in
+            let left = lhs["applicationID"] as! String, right = rhs["applicationID"] as! String
+            if left == preferredApplicationID { return true }
+            if right == preferredApplicationID { return false }
+            let order = (lhs["name"] as! String).localizedStandardCompare(rhs["name"] as! String)
+            return order == .orderedSame ? left < right : order == .orderedAscending
         }
-        return values
     }
 
-    /// args指定显示器、窗口或已确认区域；返回排除自身窗口且像素倍率正确的捕获配置。
+    /// image为系统应用图标（可能缺失或为矢量表示）；返回32×32 PNG，缺失时返回nil供界面标识。
+    static func applicationIconPNG(_ image: NSImage?) -> Data? {
+        guard let image, let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+            let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        context.cgContext.clear(CGRect(x: 0, y: 0, width: 32, height: 32))
+        image.draw(in: NSRect(x: 0, y: 0, width: 32, height: 32), from: .zero, operation: .copy, fraction: 1)
+        return bitmap.representation(using: .png, properties: [:])
+    }
+
+    /// args指定显示器或已确认区域，video决定偶数像素对齐；返回排除自身窗口的过滤器和原生采集配置。
     private func configuration(_ args: [String: Any], video: Bool) async throws -> (SCContentFilter, SCStreamConfiguration) {
         guard ScreenCaptureService.isAuthorized() else { throw GIFExporter.ExportError(message: "屏幕录制权限不可用。") }
         let token = id
@@ -94,15 +133,9 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         let filter: SCContentFilter
         var crop: CGRect?
         var targetFrame: CGRect
-        var targetWindowID: CGWindowID? = nil
-        if kind == "window", let number = args["sourceID"] as? NSNumber,
-           let window = content.windows.first(where: { $0.windowID == number.uint32Value && $0.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier }) {
-            filter = SCContentFilter(desktopIndependentWindow: window)
-            targetFrame = window.frame
-            targetWindowID = window.windowID
-        } else {
-            let displayID = kind == "region" ? region?.displayID : (args["sourceID"] as? NSNumber)?.uint32Value
-            guard ["display", "region"].contains(kind),
+        do {
+            let displayID = kind == CaptureTarget.region.rawValue ? region?.displayID : (args["sourceID"] as? NSNumber)?.uint32Value
+            guard [CaptureTarget.display.rawValue, CaptureTarget.region.rawValue].contains(kind),
                   let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw GIFExporter.ExportError(message: "捕获目标已不可用，请重新选择。")
             }
@@ -111,7 +144,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             guard !own.isEmpty else { throw GIFExporter.ExportError(message: "无法排除采集控制窗口，请重新开始。") }
             filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
             targetFrame = display.frame
-            if kind == "region", let region {
+            if kind == CaptureTarget.region.rawValue, let region {
                 guard abs(CGFloat(filter.pointPixelScale) - region.scale) < 0.01 else {
                     throw GIFExporter.ExportError(message: "显示器缩放已改变，请重新框选。")
                 }
@@ -149,7 +182,6 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         targetFrame.origin.y += actualCrop.minY
         targetFrame.size = actualCrop.size
         captureFrame = CaptureGeometry.appKitRect(fromCGWindowBounds: targetFrame)
-        recordingWindowID = targetWindowID
         return (filter, config)
     }
 
@@ -163,7 +195,6 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         id = UUID().uuidString
         details = [:]
         captureFrame = nil
-        recordingWindowID = nil
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TranslateApp-Capture-\(id)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         temporaryDirectory = directory
@@ -173,6 +204,8 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
 
     /// args为当前目标；创建独立会话并开始第一段无音轨MP4，暂停恢复保留同一会话。
     func startRecording(_ args: [String: Any]) async throws {
+        let started = ContinuousClock.now
+        defer { CaptureStartupLog.record("start-recording-await", since: started) }
         try begin()
         recordingArguments = args
         details["kind"] = "recording"
@@ -182,12 +215,20 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     /// 无参数；为已确认目标追加一段MP4，系统开始回调后才允许暂停或结束。
     private func startRecordingSegment() async throws {
         let token = id
+        recordingRequestedAt = .now
         let previousFrame = captureFrame
         details.removeValue(forKey: "error")
         update(.preparing)
         do {
-            // 每段重验目标与授权，窗口关闭或缩放变化时明确失败。
+            if recordingArguments["kind"] as? String == CaptureTarget.application.rawValue {
+                // 应用录制统一逐屏捕获和合成，暂停分段仍复用同一会话与输出画布。
+                try await startApplicationSegment()
+                return
+            }
+            // 每段重验目标与授权，目标关闭或缩放变化时明确失败。
+            let configurationStarted = ContinuousClock.now
             let (filter, config) = try await configuration(recordingArguments, video: true)
+            CaptureStartupLog.record("screen-configuration-await", since: configurationStarted)
             guard token == id else { throw CancellationError() }
             // 无损合并要求所有段尺寸一致；目标尺寸改变时保留已有段供结束保存。
             if !recordingSegments.isEmpty,
@@ -195,6 +236,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                 throw GIFExporter.ExportError(message: "目标尺寸已改变，请结束并保存当前录制后重新开始。")
             }
             let outputURL = temporaryDirectory!.appendingPathComponent("segment-\(UUID().uuidString).mp4")
+            let resourceStarted = ContinuousClock.now
             let outputConfig = SCRecordingOutputConfiguration()
             outputConfig.outputURL = outputURL
             outputConfig.videoCodecType = .h264
@@ -202,6 +244,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             let output = SCRecordingOutput(configuration: outputConfig, delegate: self)
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
             try stream.addRecordingOutput(output)
+            CaptureStartupLog.record("screen-resources-sync", since: resourceStarted)
             self.stream = stream
             recordingOutput = output
             video = outputURL
@@ -209,12 +252,18 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             recordingFailure = nil
             details["width"] = config.width
             details["height"] = config.height
+            let captureStarted = ContinuousClock.now
             try await stream.startCapture()
+            CaptureStartupLog.record("screen-start-await", since: captureStarted)
         } catch {
             if token == id {
                 if recordingSegments.isEmpty { await fail(error) }
                 else {
                     // 恢复失败不删除已完成内容；撤销本次输出身份，仍可结束合并或明确放弃。
+                    if let recorder = applicationRecorder {
+                        try? await recorder.finish(discard: true)
+                        applicationRecorder = nil
+                    }
                     let active = stream
                     stream = nil
                     recordingOutput = nil
@@ -229,6 +278,93 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         }
     }
 
+    /// 无参数；创建应用的逐屏流和联合画布编码器，全部首帧到齐后才进入录制状态。
+    private func startApplicationSegment() async throws {
+        let started = ContinuousClock.now
+        defer { CaptureStartupLog.record("application-segment-await", since: started) }
+        let token = id
+        guard ScreenCaptureService.isAuthorized(),
+              let applicationID = recordingArguments["applicationID"] as? String else {
+            throw GIFExporter.ExportError(message: "应用来源或屏幕录制权限不可用。")
+        }
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        guard token == id else { throw CancellationError() }
+        let url = temporaryDirectory!.appendingPathComponent("application-\(UUID().uuidString).mp4")
+        let segmentID = UUID()
+        applicationSegmentID = segmentID
+        let recorder = try await ApplicationRecorder(content: content, applicationID: applicationID,
+            expected: applicationCanvas, url: url) { [weak self] error in
+            guard let self, self.id == token, self.applicationSegmentID == segmentID, self.phase == .recording else { return }
+            // 系统中断保留本段已编码画面及以前完成的分段，错误随结果交付。
+            Task { @MainActor in
+                // 异步任务实际执行时再次核对段身份，暂停恢复不能接收旧段错误。
+                guard self.id == token, self.applicationSegmentID == segmentID else { return }
+                await self.finishApplicationSegment(paused: false, warning: error.localizedDescription)
+            }
+        }
+        // 后台编码初始化可跨越取消；过期段必须结束，不能重新挂接到新会话。
+        guard token == id, applicationSegmentID == segmentID else {
+            try? await recorder.finish(discard: true)
+            throw CancellationError()
+        }
+        applicationRecorder = recorder
+        applicationCanvas = recorder.canvas
+        captureFrame = CaptureGeometry.appKitRect(fromCGWindowBounds: recorder.canvas.bounds)
+        video = url
+        details["width"] = Int(recorder.canvas.size.width)
+        details["height"] = Int(recorder.canvas.size.height)
+        try await recorder.start()
+        guard token == id, applicationRecorder === recorder else { throw CancellationError() }
+        startedAt = Date()
+        update(.recording, ["elapsed": recordedElapsed])
+        var validating = false
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.id == token, self.phase == .recording,
+                      self.applicationRecorder === recorder, !validating else { return }
+                validating = true
+                defer { validating = false }
+                do {
+                    // validate检查实际应用窗口和显示器拓扑，不能把任意黑帧当成正常录制。
+                    try await recorder.validate()
+                    guard self.id == token, self.applicationRecorder === recorder, self.phase == .recording, let start = self.startedAt else { return }
+                    self.update(.recording, ["elapsed": self.recordedElapsed + Date().timeIntervalSince(start)])
+                } catch {
+                    guard self.id == token, self.applicationRecorder === recorder, self.phase == .recording else { return }
+                    await self.finishApplicationSegment(paused: false, warning: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// paused为保留后继续的意图，warning为系统中断原因；等待编码完成再公开暂停或视频结果。
+    private func finishApplicationSegment(paused: Bool, warning: String? = nil) async {
+        guard let recorder = applicationRecorder, phase == .recording else { return }
+        let token = id
+        timer?.invalidate()
+        timer = nil
+        if let startedAt { recordedElapsed += Date().timeIntervalSince(startedAt) }
+        startedAt = nil
+        update(paused ? .pausing : .finalizing, ["elapsed": recordedElapsed])
+        if let warning { details["error"] = warning }
+        do {
+            // finish等待所有屏幕流及MP4尾部；完成前不得复用编码器或删除临时文件。
+            try await recorder.finish(discard: false)
+            guard id == token, applicationRecorder === recorder, let video else { return }
+            applicationRecorder = nil
+            recordingSegments.append(video)
+            if paused { update(.paused) }
+            else { finishRecording() }
+        } catch {
+            // 放弃会先撤销录制器身份；迟到的结束错误不得重新发布会话状态或合并分段。
+            guard id == token, applicationRecorder === recorder else { return }
+            applicationRecorder = nil
+            if recordingSegments.isEmpty { await fail(error); return }
+            details["error"] = error.localizedDescription
+            finishRecording()
+        }
+    }
+
     /// paused为期望暂停状态；暂停保留会话与选区，恢复继续追加内容，不创建第二个会话。
     func setPaused(_ paused: Bool) async throws {
         if paused, phase == .scrolling {
@@ -239,6 +375,10 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         if !paused, phase == .paused {
             if details["kind"] as? String == "scrolling" { update(.scrolling); return }
             try await startRecordingSegment()
+            return
+        }
+        if paused, phase == .recording, applicationRecorder != nil {
+            await finishApplicationSegment(paused: true)
             return
         }
         guard paused, phase == .recording, let stream else {
@@ -265,6 +405,10 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             finishRecording()
             return
         }
+        if phase == .recording, applicationRecorder != nil {
+            await finishApplicationSegment(paused: false)
+            return
+        }
         guard phase == .recording, let stream else { return }
         update(.finalizing)
         timer?.invalidate()
@@ -275,6 +419,12 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
 
     /// 无参数；取消当前资源或丢弃预览，只清理本会话创建的私有目录。
     func cancel() async {
+        if let recorder = applicationRecorder {
+            // 先撤销可提交身份，正在等待编码的结束任务不能再次发布结果。
+            applicationRecorder = nil
+            update(.finalizing)
+            try? await recorder.finish(discard: true)
+        }
         exportTask?.cancel()
         if let exportTask { await exportTask.value }
         self.exportTask = nil
@@ -311,10 +461,12 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         video = nil
         recordingSegments = []
         recordingArguments = [:]
+        applicationRecorder = nil
+        applicationCanvas = nil
+        applicationSegmentID = nil
         recordedElapsed = 0
         startedAt = nil
         captureFrame = nil
-        recordingWindowID = nil
         if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
         temporaryDirectory = nil
         details = [:]
@@ -326,6 +478,10 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
 
     /// error为系统实际错误；停止占用资源并保留原因，不交付损坏MP4。
     private func fail(_ error: Error) async {
+        if let recorder = applicationRecorder {
+            applicationRecorder = nil
+            try? await recorder.finish(discard: true)
+        }
         let active = stream
         stream = nil
         recordingOutput = nil
@@ -344,18 +500,6 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, let start = self.startedAt, self.phase == .recording else { return }
-                    if let windowID = self.recordingWindowID, let frame = self.captureFrame {
-                        // 窗口目标随已有每秒状态同步位置，编码范围和流配置保持固定。
-                        guard let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, windowID) as? [[String: Any]],
-                              let bounds = windows.first?[kCGWindowBounds as String] as? [String: Any],
-                              var target = CGRect(dictionaryRepresentation: bounds as CFDictionary) else {
-                            do { try await self.stop() }
-                            catch { /* stop已发布流停止失败并清理资源。 */ }
-                            return
-                        }
-                        target.size = frame.size
-                        self.captureFrame = CaptureGeometry.appKitRect(fromCGWindowBounds: target)
-                    }
                     self.update(.recording, ["elapsed": self.recordedElapsed + Date().timeIntervalSince(start)])
                 }
             }
@@ -460,7 +604,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         details["kind"] = "scrolling"
         do {
             guard let region else { throw GIFExporter.ExportError(message: "请先明确框选长截图区域。") }
-            let (filter, config) = try await configuration(["kind": "region"], video: false)
+            let (filter, config) = try await configuration(["kind": CaptureTarget.region.rawValue], video: false)
             guard token == id else { throw CancellationError() }
             let edges = region.edges
             guard edges.top >= 0, edges.bottom >= 0, edges.top <= config.height - 64,
@@ -473,6 +617,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             scrollTask = Task.detached { [weak self] in
                 guard let self else { return }
                 var warning: String?
+                let clock = ContinuousClock()
                 do {
                     while !Task.isCancelled {
                         let state = await MainActor.run {
@@ -481,9 +626,11 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                         }
                         if state.0 { break }
                         if state.1 {
-                            try await Task.sleep(for: .milliseconds(250))
+                            try await Task.sleep(for: .milliseconds(100))
                             continue
                         }
+                        // 以采集开始时刻计100ms周期；截图和拼接耗时包含在周期内，避免快滚时额外空等。
+                        let nextCapture = clock.now.advanced(by: .milliseconds(100))
                         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
                         try Task.checkCancellation()
                         let accept = await MainActor.run { self.id == token && self.phase == .scrolling }
@@ -495,7 +642,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                                 self.update(self.phase, ["height": stitcher.height, "frames": stitcher.acceptedFrames])
                             }
                         }
-                        try await Task.sleep(for: .milliseconds(250))
+                        if clock.now < nextCapture { try await clock.sleep(until: nextCapture) }
                     }
                 } catch is CancellationError { return }
                 catch { warning = error.localizedDescription }

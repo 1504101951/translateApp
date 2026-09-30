@@ -4,12 +4,14 @@ abstract final class MethodNames {
   static const getCaptureState = 'getCaptureState';
   static const captureStateChanged = 'captureStateChanged';
   static const prepareCapture = 'prepareCapture';
-  static const setScreenshotMenuOpen = 'setScreenshotMenuOpen';
-  static const confirmCaptureRegion = 'confirmCaptureRegion';
+  static const previewCaptureTarget = 'previewCaptureTarget';
+  static const captureSources = 'captureSources';
   static const stopCapture = 'stopCapture';
   static const setCapturePaused = 'setCapturePaused';
   static const cancelCapture = 'cancelCapture';
   static const saveRecording = 'saveRecording';
+
+  /// 播放当前完整视频或指定的GIF片段。
   static const previewRecording = 'previewRecording';
   static const exportRecordingGIF = 'exportRecordingGIF';
   static const cancelGIFExport = 'cancelGIFExport';

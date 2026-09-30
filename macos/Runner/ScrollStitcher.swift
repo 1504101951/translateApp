@@ -56,6 +56,7 @@ final class ScrollStitcher {
 
     private let requested: Edges
     private var edges: Edges?
+    /// 首帧保留顶部固定区域，末帧提供底部固定区域。
     private var first: Frame?
     private var previous: Frame?
     private var strips: [CGImage] = []
@@ -89,19 +90,13 @@ final class ScrollStitcher {
         if difference(old, current, oldStart: 0, newStart: 0, count: image.height, samples: 64) < 0.8 {
             return false
         }
-        let selected: Edges
+        var selected: Edges
         if let edges {
-            // 已确认的自动固定带变化表示导航折叠或页面布局切换，不能继续套用旧边界。
-            let topChanged = edges.top > 0 && difference(old, current, oldStart: 0, newStart: 0, count: edges.top, samples: 32) >= 0.8
-            let bottomStart = image.height - edges.bottom
-            let bottomChanged = edges.bottom > 0 && difference(old, current, oldStart: bottomStart, newStart: bottomStart, count: edges.bottom, samples: 32) >= 0.8
-            guard !edges.automatic || (!topChanged && !bottomChanged) else {
-                throw Failure(message: "已识别的固定区域发生变化，请重新框选。已保留确认部分。")
-            }
+            // 固定带采用首顶末底；局部动画不改变正文接缝，可靠性由下面的位移与重叠校验决定。
             selected = edges
         }
         else if requested.automatic {
-            // 固定边缘只从画面边界连续检测，并限制在视口的三分之一。
+            // 相邻帧的静止边缘仅作为候选带；可靠位移确定后还须排除随正文移动的空白。
             let limit = image.height / 3
             var top = 0
             var bottom = 0
@@ -109,7 +104,7 @@ final class ScrollStitcher {
             while bottom < limit && rowDifference(old.rows[image.height - bottom - 1], current.rows[image.height - bottom - 1]) < 0.8 { bottom += 1 }
             selected = Edges(top: top, bottom: bottom, automatic: true)
         } else { selected = requested }
-        let body = image.height - selected.top - selected.bottom
+        var body = image.height - selected.top - selected.bottom
         let overlap = max(32, body / 4)
         guard body > overlap else { throw Failure(message: "正文区域不足以验证重叠，请调整固定边界。") }
         // 先用稀疏样本寻找候选，随后在更密集的正文重叠区校验，拒绝歧义接缝。
@@ -125,7 +120,42 @@ final class ScrollStitcher {
         }.sorted { $0.score < $1.score }
         guard let best = verified.first, best.score < 3,
               !verified.dropFirst().contains(where: { abs($0.shift - best.shift) > 1 && $0.score < max(1, best.score * 1.8) }) else {
-            throw Failure(message: "无法可靠拼接：请慢速向下滚动，避开动态内容，并检查上下固定边界。已保留确认部分。")
+            throw Failure(message: "相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。")
+        }
+        if edges == nil && requested.automatic {
+            // 固定证据必须同位置稳定且不服从正文位移；连续三个采样点拒绝孤立巧合。
+            // 按像素块识别局部悬浮按钮，但合成仍保留完整横带，不推测被按钮遮挡的正文。
+            let limit = image.height / 3
+            var top = 0
+            var bottom = 0
+            for row in Array(0..<limit) + Array(image.height - limit..<image.height) {
+                let isTop = row < limit
+                let shifted = isTop ? row + best.shift : row - best.shift
+                guard shifted >= 0, shifted < image.height else { continue }
+                var run = 0
+                let wholeRowStable = rowDifference(old.rows[row], current.rows[row]) < 0.8
+                let minimumRun = wholeRowStable ? 1 : 3
+                for column in stride(from: 0, through: old.rows[row].count, by: 3) {
+                    let stationary = column < old.rows[row].count &&
+                        sampleDifference(old.rows[row], current.rows[row], column: column) < 0.8
+                    let moving = column < old.rows[row].count && (isTop
+                        ? sampleDifference(old.rows[shifted], current.rows[row], column: column)
+                        : sampleDifference(old.rows[row], current.rows[shifted], column: column)) >= 0.8
+                    if stationary && moving { run += 1; continue }
+                    if run >= minimumRun {
+                        if isTop { top = max(top, row + 1) }
+                        else { bottom = max(bottom, image.height - row) }
+                    }
+                    run = 0
+                }
+            }
+            selected = Edges(top: top, bottom: bottom, automatic: true)
+            body = image.height - selected.top - selected.bottom
+            // 收缩候选带后重新校验全部正文重叠，确保接缝可靠。
+            guard body - best.shift >= 32, difference(old, current, oldStart: selected.top + best.shift,
+                newStart: selected.top, count: body - best.shift, samples: body) < 3 else {
+                throw Failure(message: "无法可靠区分固定区域与正文，已保留确认部分。")
+            }
         }
         // 纹理不足的空白/重复色块不能凭低误差证明滚动；保留等待下一张可识别画面。
         let texture = old.rows[selected.top..<(image.height - selected.bottom)].map { row in
@@ -195,6 +225,11 @@ final class ScrollStitcher {
         context.draw(crop, in: CGRect(x: 0, y: 0, width: image.width, height: height))
         guard let result = context.makeImage() else { throw Failure(message: "无法保存长图条带。") }
         return result
+    }
+
+    /// a/b为RGB采样行、column为RGB三元组起始位置；返回该采样点三通道平均绝对误差。
+    private func sampleDifference(_ a: [Double], _ b: [Double], column: Int) -> Double {
+        (abs(a[column] - b[column]) + abs(a[column + 1] - b[column + 1]) + abs(a[column + 2] - b[column + 2])) / 3
     }
 
     /// a/b为等宽RGB采样行；返回通道平均绝对差，不分配差分图。
