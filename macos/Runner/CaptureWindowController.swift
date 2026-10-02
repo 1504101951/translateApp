@@ -18,6 +18,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     private var discarding = false
     private var compactPresentation: Bool?
     private var lastPhase = CapturePhase.idle
+    /// 打开结果前的激活策略；关闭结果后恢复菜单栏形态，避免采集层消失后窗口留在其他应用后面。
+    private var activationBeforeResult: NSApplication.ActivationPolicy?
     private var originScreen: NSScreen?
     private var captureShades: [CGDirectDisplayID: NSWindow] = [:]
     var onActiveChanged: ((Bool) -> Void)?
@@ -69,6 +71,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         await service.cancel()
         window?.delegate = nil
         window?.close()
+        restoreActivationIfNeeded()
         channel?.setMethodCallHandler(nil)
         engine?.shutDownEngine()
         engine = nil
@@ -222,26 +225,22 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         let previous = lastPhase
         lastPhase = service.phase
         guard !shuttingDown else { return }
-        // 采集与暂停都保留固定可见区域，结束或放弃才撤下。
-        updateCaptureShades()
+        let showingResult = [.videoReady, .converting, .imageReady].contains(service.phase)
+        // 结果先就位再撤遮罩；采集中仍立即更新选区阴影。
+        if !showingResult { updateCaptureShades() }
         if [.idle, .failed].contains(service.phase) {
             window?.orderOut(nil)
             compactPresentation = nil
             releasePlayer()
-            if previous != service.phase, let message = service.snapshot()["error"] as? String {
+            if previous != service.phase, service.phase == .failed, let message = service.snapshot()["error"] as? String {
+                // 采集层已经撤下；先成为可激活应用，失败说明才不会留在正在滚动的应用后面。
+                let policy = NSApp.activationPolicy()
+                if policy != .regular { _ = NSApp.setActivationPolicy(.regular) }
+                NSApp.activate(ignoringOtherApps: true)
                 showError(GIFExporter.ExportError(message: message))
+                if NSApp.activationPolicy() != policy { _ = NSApp.setActivationPolicy(policy) }
             }
-            return
-        }
-        if service.phase == .imageReady, previous != .imageReady || force {
-            let state = service.snapshot()
-            guard let bytes = state["imageBytes"] as? FlutterStandardTypedData,
-                  let width = state["width"] as? Int, let height = state["height"] as? Int, let region = service.region else { return }
-            window?.orderOut(nil)
-            // 长图结果窗口确认可见才释放采集会话；展示失败保留PNG供用户重新打开。
-            guard screenshot.presentImage(bytes.data, width: width, height: height, scale: region.scale,
-                                          warning: state["warning"] as? String) else { return }
-            service.clear()
+            restoreActivationIfNeeded()
             return
         }
         createPanel()
@@ -258,7 +257,10 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             NativeGlassFactory.applyAppearance(to: replacement)
             window = replacement
         }
-        guard let window else { return }
+        guard let window else {
+            if showingResult { showError(GIFExporter.ExportError(message: "无法打开结果窗口。")) }
+            return
+        }
         let changed = compactPresentation != compact
         let controlSize = AppConstants.captureControlSize
         let sizeChanged = compact && window.contentView?.frame.size != controlSize
@@ -270,14 +272,19 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             // 隐藏的idle界面没有可提交内容；先通知准备态，再缩放，避免Flutter同步等待空白帧直到超时。
             channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: captureState())
         }
+        if !compact { applyResultChrome(to: window) }
         // 结果只占媒体、工具栏和系统边框，窗口整体限制在来源屏可用区内。
         if changed || sizeChanged {
             if compact { window.setContentSize(controlSize) }
             else if let screen = originScreen ?? NSScreen.main {
                 let state = service.snapshot()
                 guard let width = state["width"] as? Int, let height = state["height"] as? Int else { return }
-                let frame = Self.resultFrame(pixels: NSSize(width: width, height: height),
-                    scale: screen.backingScaleFactor, visible: screen.visibleFrame)
+                let pixels = NSSize(width: width, height: height)
+                let visible = screen.visibleFrame
+                // 长图保持逻辑宽度并可滚动；视频才按可用区等比缩小。
+                let frame = service.phase == .imageReady
+                    ? ScreenshotWindowController.imageResultFrame(pixels: pixels, scale: screen.backingScaleFactor, visible: visible)
+                    : Self.resultFrame(pixels: pixels, scale: screen.backingScaleFactor, visible: visible)
                 window.setFrame(frame, display: true)
             }
         }
@@ -286,10 +293,38 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             placeControls()
             window.orderFrontRegardless()
         } else if changed || force {
-            // 用户结束采集或明确打开结果后，结果窗口可正常获得键盘和系统保存面板焦点。
-            NSApp.activate()
-            window.makeKeyAndOrderFront(nil)
+            // 菜单栏应用默认不能盖过正在滚动的前台应用，结果必须先显示出来。
+            orderResultFront(window)
         }
+        if showingResult { updateCaptureShades() }
+    }
+
+    /// window为本次要展示的结果；记住打开前的激活策略，并把它放到当前前台应用之前。
+    private func orderResultFront(_ window: NSWindow) {
+        if activationBeforeResult == nil { activationBeforeResult = NSApp.activationPolicy() }
+        // 菜单栏应用停留在 accessory 时，普通窗口会落在正在滚动的应用后面。
+        if NSApp.activationPolicy() != .regular { _ = NSApp.setActivationPolicy(.regular) }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        // 激活尚未完成时也先显示；层级仍是普通窗口，之后允许其他应用盖住。
+        window.orderFrontRegardless()
+    }
+
+    /// 无参数/返回值；结果关闭后恢复打开前的菜单栏或普通激活策略。
+    private func restoreActivationIfNeeded() {
+        guard let previous = activationBeforeResult else { return }
+        activationBeforeResult = nil
+        if NSApp.activationPolicy() != previous { _ = NSApp.setActivationPolicy(previous) }
+    }
+
+    /// window为已经换成普通标题样式的结果窗；长图和视频使用不同标题与最小内容，避免工具栏被裁掉。
+    private func applyResultChrome(to window: NSWindow) {
+        let image = service.phase == .imageReady
+        window.title = image ? "长截图结果" : "录制结果"
+        window.contentMinSize = image
+            ? NSSize(width: 320, height: 240)
+            : NSSize(width: AppConstants.captureResultToolbarWidth + AppConstants.captureControlGap * 3 + 1,
+                     height: AppConstants.captureResultToolbarHeight + AppConstants.captureControlGap * 2)
     }
 
     /// 无参数；控制条固定在发起截图显示器的右下角，不随窗口移动或采集范围跳屏。
@@ -389,8 +424,15 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         playerSession = nil
     }
 
+    /// 无参数；返回当前长图的源像素PNG。没有可保存结果时返回nil。
+    private func scrollPNG() -> Data? {
+        guard service.phase == .imageReady,
+              let bytes = service.snapshot()["imageBytes"] as? FlutterStandardTypedData else { return nil }
+        return bytes.data
+    }
+
     /// call为当前会话的控制或结果操作；异步入口重复检查身份，不提供准备表单协议。
-    private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         Task { @MainActor in
             do {
@@ -430,6 +472,27 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                     try service.exportGIF(options: options, to: target)
                 case AppConstants.cancelGIFExportMethod:
                     service.cancelGIF()
+                case AppConstants.copyScreenshotMethod:
+                    guard let png = scrollPNG() else {
+                        throw GIFExporter.ExportError(message: "当前没有可复制的长图。")
+                    }
+                    let item = NSPasteboardItem()
+                    item.setData(png, forType: .png)
+                    NSPasteboard.general.clearContents()
+                    guard NSPasteboard.general.writeObjects([item]) else {
+                        throw GIFExporter.ExportError(message: "无法复制长图，请重试。")
+                    }
+                case AppConstants.saveScreenshotMethod:
+                    guard let png = scrollPNG() else {
+                        throw GIFExporter.ExportError(message: "当前没有可保存的长图。")
+                    }
+                    let name = args["name"] as? String ?? "长截图.png"
+                    // datedDirectory创建截图/日期目录；save按源像素写入，不经过裁剪编码。
+                    let directory = try ScreenshotStorage.datedDirectory(
+                        basePath: UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
+                        extension: "png")
+                    let url = try ScreenshotStorage.save(png, directory: directory, name: name)
+                    service.noteSavedScroll(url.path)
                 default:
                     result(FlutterMethodNotImplemented); return
                 }

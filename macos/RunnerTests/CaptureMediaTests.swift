@@ -348,6 +348,35 @@ final class CaptureMediaTests: XCTestCase {
         return try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
     }
 
+    /// 无参数；没有帧时只失败，已有首帧时停止原因仍进入可保存结果；过期会话不能覆盖当前图。
+    @MainActor
+    func testScrollFailureKeepsConfirmedImageAndEmptyCaptureFails() throws {
+        let empty = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: false))
+        XCTAssertThrowsError(try empty.confirmedFrame())
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: false))
+        let source = try frame(offset: 0)
+        try stitcher.append(source)
+        let confirmed = try stitcher.confirmedFrame()
+        XCTAssertEqual(confirmed.frames, 1)
+        XCTAssertEqual(confirmed.width, source.width)
+        XCTAssertEqual(confirmed.height, source.height)
+        let failed = MediaCaptureService()
+        failed.publishFinishedScroll(png: nil, width: 0, height: 0, frames: 0, failure: "还没有捕获到图像。", token: failed.id)
+        XCTAssertEqual(failed.phase, .failed)
+        XCTAssertNil(failed.snapshot()["imageBytes"])
+        XCTAssertEqual(failed.snapshot()["error"] as? String, "还没有捕获到图像。")
+        let ready = MediaCaptureService()
+        let reason = "相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。"
+        ready.publishFinishedScroll(png: confirmed.png, width: confirmed.width, height: confirmed.height,
+            frames: confirmed.frames, failure: reason, token: ready.id)
+        XCTAssertEqual(ready.phase, .imageReady)
+        XCTAssertEqual((ready.snapshot()["imageBytes"] as? FlutterStandardTypedData)?.data, confirmed.png)
+        XCTAssertEqual(ready.snapshot()["warning"] as? String, reason)
+        ready.publishFinishedScroll(png: confirmed.png, width: 1, height: 1, frames: 9, failure: nil, token: "stale")
+        XCTAssertEqual(ready.snapshot()["width"] as? Int, confirmed.width)
+        XCTAssertEqual(ready.phase, .imageReady)
+    }
+
     /// 无参数；首尾固定带各一次，40像素位移低于164像素正文的75%上限，逐像素验证完整拼接。
     func testAutomaticTopAndBottomAreKeptExactlyOnce() throws {
         let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))

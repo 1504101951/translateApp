@@ -497,7 +497,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// compact为无权限/失败小窗；按冻结选区或长图结果配置窗口，返回结果是否已显示。
+    /// compact为无权限/失败小窗；按冻结选区配置窗口，返回窗口是否已显示。
     @discardableResult
     private func show(compact: Bool) -> Bool {
         let overlay = compact || displaysFrozenScreen
@@ -520,7 +520,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 return false
             }
             RegisterGeneratedPlugins(registry: flutter)
-            // 平台视图工厂按引擎注册，截图与长图结果共享同一编辑协议。
+            // 平台视图工厂按引擎注册，编辑窗只服务冻结选区。
             NativeGlassFactory.register(with: flutter)
             flutter.view.wantsLayer = true
             flutter.view.layer?.isOpaque = false
@@ -545,7 +545,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         window?.displayIfNeeded()
         channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
         if overlay {
-            // 冻结选择不激活应用，避免设置窗跟随弹出；长图结果是正常可激活窗口。
+            // 冻结选择不激活应用，避免设置窗跟随弹出。
             if NSApp.isHidden { NSApp.unhideWithoutActivation() }
             window?.orderFrontRegardless()
             window?.makeKey()
@@ -568,7 +568,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         }
         panel.onUndo = { [weak self] in self?.channel?.invokeMethod(AppConstants.undoPressedMethod, arguments: nil) }
         panel.onRedo = { [weak self] in self?.channel?.invokeMethod(AppConstants.redoPressedMethod, arguments: nil) }
-        panel.title = overlay ? "" : "长截图结果"
+        panel.title = overlay ? "" : "截图"
         panel.isFloatingPanel = overlay
         panel.level = overlay ? .statusBar : .normal
         panel.collectionBehavior = overlay ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -787,24 +787,5 @@ extension ScreenshotWindowController {
         windowCrop = nil
         freezeView.image = nil
         channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
-    }
-
-    /// data为结果PNG，width/height为源像素，scale为来源倍率，warning为说明；展示编辑结果并返回窗口是否可见。
-    @discardableResult
-    func presentImage(_ data: Data, width: Int, height: Int, scale: CGFloat, warning: String?) -> Bool {
-        // 长图保留来源倍率，Flutter用同一等比矩形绘制图像、标注并映射手势。
-        displaysFrozenScreen = false
-        selectedScale = scale
-        png = data
-        captureId = UUID().uuidString
-        capturedAt = Int64(Date().timeIntervalSince1970 * 1000)
-        pixels = NSSize(width: width, height: height)
-        let source = NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == selectedDisplayID
-        } ?? NSScreen.main
-        displayFrame = source?.visibleFrame ?? displayFrame
-        windowCrop = nil
-        message = warning
-        return show(compact: false)
     }
 }

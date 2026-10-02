@@ -544,8 +544,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('长图结果保留来源逻辑宽度并等比滚动，工具栏保持在视口', (tester) async {
-    // 200×2000像素来自2x屏幕，逻辑宽100、高1000；800×600视口不能横向放大或纵向压扁。
+  testWidgets('长图结果保留来源逻辑宽度并等比滚动，只提供保存复制放弃', (tester) async {
+    // 200×2000像素来自2x屏幕，逻辑宽100、高1000；800×600视口不能放大或压扁，右侧只有三枚操作。
     tester.view.physicalSize = const Size(800, 600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -553,64 +553,78 @@ void main() {
     final png = await tester.runAsync(
       () => _selectionImage(width: 200, height: 2000),
     );
-    const resultChannel = MethodChannel('test/long-image-preview');
-    Uint8List? copied;
-    messenger.setMockMethodCallHandler(resultChannel, (call) async {
+    String? copiedId;
+    String? savedName;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.getCaptureState) return state;
       if (call.method == MethodNames.copyScreenshot) {
-        copied = (call.arguments as Map)['bytes'] as Uint8List;
+        copiedId = (call.arguments as Map)['id'] as String;
+        return state;
       }
-      if (call.method == MethodNames.getScreenshot) {
-        return {
-          'id': 'long-image',
-          'bytes': png,
-          'width': 200,
-          'height': 2000,
-          'imageScale': 2.0,
-          'canCaptureMedia': false,
-        };
+      if (call.method == MethodNames.saveScreenshot) {
+        savedName = (call.arguments as Map)['name'] as String;
+        state = {...state, 'savedPath': '/截图/2026-10-02/$savedName'};
+        return state;
       }
-      return null;
+      return state;
     });
-    addTearDown(() => messenger.setMockMethodCallHandler(resultChannel, null));
-    await tester.pumpWidget(const ScreenshotApp(channel: resultChannel));
-    await tester.pumpAndSettle();
-    final canvas = find.byKey(const Key('screenshot-canvas'));
-    expect(tester.getSize(canvas), const Size(100, 1000));
-    final vertical = tester
-        .widgetList<SingleChildScrollView>(find.byType(SingleChildScrollView))
-        .firstWhere((view) => view.scrollDirection == Axis.vertical);
-    vertical.controller!.jumpTo(400);
-    await tester.pumpAndSettle();
-    expect(tester.getSize(canvas), const Size(100, 1000));
-    expect(tester.getTopLeft(canvas).dy, -400);
-    expect(find.byTooltip('复制图片').hitTestable(), findsOneWidget);
-    await tester.tap(find.byTooltip('复制图片'));
-    for (var attempt = 0; copied == null && attempt < 100; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump();
+    state = {
+      'id': 'long-image',
+      'phase': 'imageReady',
+      'kind': 'scrolling',
+      'width': 200,
+      'height': 2000,
+      'previewScale': 2.0,
+      'imageBytes': png,
+      'warning': '相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。',
+    };
+    await tester.pumpWidget(const CaptureApp(channel: channel));
+    await tester.pump();
+    final preview = find.byKey(const Key('long-image-preview'));
+    expect(tester.getSize(preview), const Size(100, 1000));
+    expect(find.textContaining('相邻画面缺少稳定的重叠内容'), findsOneWidget);
+    expect(find.byTooltip('复制图片'), findsNothing);
+    expect(find.byKey(const Key('screenshot-canvas')), findsNothing);
+    tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byKey(const Key('long-image-scroll')),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position
+        .jumpTo(400);
+    await tester.pump();
+    expect(tester.getSize(preview), const Size(100, 1000));
+    // 视口上边距8pt，滚动400后预览顶边为-392，源逻辑尺寸不变。
+    expect(tester.getTopLeft(preview).dy, -392);
+    Rect? previous;
+    for (final action in ['保存', '复制', '放弃']) {
+      expect(find.byTooltip(action).hitTestable(), findsOneWidget);
+      final button = tester.getRect(find.byTooltip(action));
+      expect(button.left, greaterThan(tester.getRect(preview).right));
+      if (previous != null) {
+        expect(button.left, previous.left);
+        expect(button.top - previous.bottom, 12);
+      }
+      previous = button;
     }
-    // 200×2000源像素在2倍屏幕上显示100×1000，滚动预览后导出尺寸仍是源尺寸。
-    final size = await tester.runAsync(() async {
-      final codec = await ui.instantiateImageCodec(copied!);
-      final frame = await codec.getNextFrame();
-      final result = Size(
-        frame.image.width.toDouble(),
-        frame.image.height.toDouble(),
-      );
-      frame.image.dispose();
-      codec.dispose();
-      return result;
-    });
-    expect(size, const Size(200, 2000));
-    await tester.pump(const Duration(seconds: 3));
-
+    await tester.tap(find.byTooltip('复制'));
+    await tester.pump();
+    expect(copiedId, 'long-image');
+    expect(find.text('已复制'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.textContaining('相邻画面缺少稳定的重叠内容'), findsNothing);
+    await tester.tap(find.byTooltip('保存'));
+    await tester.pump();
+    expect(savedName, startsWith('截图_'));
+    expect(savedName, endsWith('.png'));
+    expect(find.text('已保存截图'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('媒体结果图片不能作为屏幕选区启动采集', (tester) async {
-    // 结果图片仍能裁剪编辑，但它没有真实冻结帧身份，两个采集入口必须保持禁用。
+    // 没有冻结帧身份的图片仍可留在编辑器里，但两个采集入口必须保持禁用。
     final png = await tester.runAsync(_selectionImage);
     const selectionChannel = MethodChannel('test/image-capture-boundary');
     messenger.setMockMethodCallHandler(selectionChannel, (call) async {

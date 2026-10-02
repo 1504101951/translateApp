@@ -647,28 +647,45 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                 } catch is CancellationError { return }
                 catch { warning = error.localizedDescription }
                 guard !Task.isCancelled else { return }
+                let delivered: (png: Data, width: Int, height: Int, frames: Int)?
                 do {
                     let result = try stitcher.finish()
                     if result.frames < 2 && warning == nil { warning = "未检测到有效滚动，当前结果只有一屏。" }
-                    let finalWarning = warning
-                    await MainActor.run {
-                        guard self.id == token else { return }
-                        self.onActiveChanged?(false)
-                        var values: [String: Any] = ["imageBytes": FlutterStandardTypedData(bytes: result.png),
-                            "width": result.width, "height": result.height, "frames": result.frames]
-                        if let finalWarning { values["warning"] = finalWarning }
-                        self.update(.imageReady, values)
-                    }
+                    delivered = result
                 } catch {
-                    let failure = warning ?? error.localizedDescription
-                    await MainActor.run {
-                        guard self.id == token else { return }
-                        self.onActiveChanged?(false)
-                        self.update(.failed, ["error": failure])
-                    }
+                    // confirmedFrame只编码已接受的首帧；完整合成失败时仍留下可保存的图。
+                    warning = warning ?? error.localizedDescription
+                    delivered = stitcher.acceptedFrames > 0 ? try? stitcher.confirmedFrame() : nil
+                }
+                let note = warning
+                let image = delivered
+                await MainActor.run {
+                    self.publishFinishedScroll(png: image?.png, width: image?.width ?? 0, height: image?.height ?? 0,
+                        frames: image?.frames ?? 0, failure: note, token: token)
                 }
             }
         } catch { if token == id { await fail(error) }; throw error }
+    }
+
+    /// png为已编码长图，width/height/frames为源像素与已接受帧数，failure为停止原因，token为会话身份。
+    /// 有图像时进入可保存结果并保留原因；没有图像时只记录失败，不交出空图。
+    func publishFinishedScroll(png: Data?, width: Int, height: Int, frames: Int, failure: String?, token: String) {
+        guard id == token else { return }
+        onActiveChanged?(false)
+        guard let png else {
+            update(.failed, ["error": failure ?? "无法完成长截图。"])
+            return
+        }
+        var values: [String: Any] = ["imageBytes": FlutterStandardTypedData(bytes: png),
+            "width": width, "height": height, "frames": frames, "kind": "scrolling"]
+        if let failure { values["warning"] = failure }
+        update(.imageReady, values)
+    }
+
+    /// path为已经写入日期目录的PNG；保留当前长图，只公开保存路径。
+    func noteSavedScroll(_ path: String) {
+        guard phase == .imageReady else { return }
+        update(.imageReady, ["savedPath": path])
     }
 
     /// 无参数；只返回已经可解码的录制路径，未完成或正在导出时拒绝。

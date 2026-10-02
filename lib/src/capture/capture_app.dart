@@ -8,10 +8,11 @@ import '../common/constants/capture_phase.dart';
 import '../common/constants/channel_names.dart';
 import '../common/constants/glass_metrics.dart';
 import '../common/constants/method_names.dart';
+import '../common/utils/screenshot_filename.dart';
 import '../common/widgets/native_glass.dart';
 import '../common/widgets/toolbar_feedback.dart';
 
-/// 采集工具的统一悬浮控制条及视频结果；选区准备由截图选择层负责。
+/// 采集工具的统一悬浮控制条、长图保留页及视频结果；选区准备由截图选择层负责。
 class CaptureApp extends StatefulWidget {
   /// channel 为会话状态及显式采集命令通道；可注入以验证界面状态。
   const CaptureApp({
@@ -79,7 +80,11 @@ class _CaptureAppState extends State<CaptureApp> {
       _showFeedback('已保存 GIF');
     } else if (state['savedPath'] != null &&
         state['savedPath'] != previous['savedPath']) {
-      _showFeedback('已保存 MP4');
+      final path = state['savedPath'] as String;
+      _showFeedback(path.toLowerCase().endsWith('.png') ? '已保存截图' : '已保存 MP4');
+    } else if (state['warning'] != null &&
+        state['warning'] != previous['warning']) {
+      _showFeedback(state['warning'] as String, isError: true);
     }
   }
 
@@ -121,6 +126,13 @@ class _CaptureAppState extends State<CaptureApp> {
 
   /// 无参数；立即放弃当前会话，原生停止后台任务并保留已经保存的文件。
   Future<void> _discard() => _invoke(MethodNames.cancelCapture);
+
+  /// 无参数；复制会话中的完整源像素PNG，成功后显示一秒，失败沿用命令错误。
+  Future<void> _copyImage() async {
+    await _invoke(MethodNames.copyScreenshot);
+    if (!mounted || _feedback != null) return;
+    _showFeedback('已复制');
+  }
 
   /// 无参数；两种采集共用四个独立材料气泡，状态只读，三操作沿用真实阶段约束。
   Widget _active() {
@@ -348,18 +360,149 @@ class _CaptureAppState extends State<CaptureApp> {
     );
   }
 
+  /// child为视频或长图结果；Escape与系统关闭一样立即放弃，已经保存的文件保留。
+  Widget _resultPage(Widget child) => Material(
+    type: MaterialType.transparency,
+    child: Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent ||
+            event.logicalKey != LogicalKeyboardKey.escape) {
+          return KeyEventResult.ignored;
+        }
+        if (!_pending) unawaited(_discard());
+        return KeyEventResult.handled;
+      },
+      child: child,
+    ),
+  );
+
+  /// 无参数；按源逻辑尺寸滚动长图，右侧只有保存、复制、放弃。
+  Widget _imageResult() {
+    final pixels = Size(
+      (_state['width'] as num).toDouble(),
+      (_state['height'] as num).toDouble(),
+    );
+    final logical = pixels / (_state['previewScale'] as num).toDouble();
+    final bytes = _state['imageBytes'] as Uint8List;
+    final enabled = !_pending;
+    // 三个操作固定在右侧，不提供裁剪、贴图或编辑工具。
+    final actions = <(String, IconData, VoidCallback?)>[
+      (
+        '保存',
+        Icons.save_outlined,
+        enabled
+            ? () => _invoke(MethodNames.saveScreenshot, {
+                'name': screenshotFilename(DateTime.now()),
+              })
+            : null,
+      ),
+      ('复制', Icons.copy_outlined, enabled ? () => _copyImage() : null),
+      ('放弃', Icons.close, _pending ? null : _discard),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const margin = GlassMetrics.toolbarPadding;
+        const gap = GlassMetrics.toastGap;
+        const reservedWidth = GlassMetrics.toolbarThickness + gap + margin * 2;
+        final toolbarHeight =
+            actions.length * GlassMetrics.hitSize +
+            (actions.length - 1) * GlassMetrics.captureResultActionGap +
+            margin * 2;
+        final viewport = Rect.fromLTWH(
+          margin,
+          margin,
+          math.max(0, constraints.maxWidth - reservedWidth),
+          math.max(0, constraints.maxHeight - margin * 2),
+        );
+        final toolbar = Rect.fromLTWH(
+          constraints.maxWidth - margin - GlassMetrics.toolbarThickness,
+          (constraints.maxHeight - toolbarHeight) / 2,
+          GlassMetrics.toolbarThickness,
+          toolbarHeight,
+        );
+        return Stack(
+          children: [
+            Positioned.fromRect(
+              rect: viewport,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SingleChildScrollView(
+                  key: const Key('long-image-scroll'),
+                  scrollDirection: Axis.vertical,
+                  child: SizedBox(
+                    width: math.max(viewport.width, logical.width),
+                    height: math.max(viewport.height, logical.height),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Semantics(
+                        label:
+                            '长截图结果，${pixels.width.toInt()}×${pixels.height.toInt()}像素',
+                        child: SizedBox(
+                          key: const Key('long-image-preview'),
+                          width: logical.width,
+                          height: logical.height,
+                          child: Image.memory(
+                            bytes,
+                            fit: BoxFit.fill,
+                            filterQuality: FilterQuality.none,
+                            gaplessPlayback: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fromRect(
+              rect: toolbar,
+              child: Padding(
+                padding: const EdgeInsets.all(margin),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < actions.length; i++) ...[
+                      if (i > 0)
+                        SizedBox(height: GlassMetrics.captureResultActionGap),
+                      SizedBox.square(
+                        dimension: GlassMetrics.hitSize,
+                        child: NativeGlassSurface(
+                          material: true,
+                          radius: GlassMetrics.controlRadius,
+                          child: IconButton(
+                            tooltip: actions[i].$1,
+                            padding: EdgeInsets.zero,
+                            onPressed: actions[i].$3,
+                            icon: Icon(actions[i].$2, size: GlassMetrics.icon),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (_feedback != null)
+              ToolbarFeedback(
+                toolbar: toolbar,
+                message: _feedback!,
+                isError: _feedbackIsError,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   /// context 为窗口上下文；使用项目统一原生玻璃主题与窗口背景。
   @override
   Widget build(BuildContext context) =>
       NativeGlassApp(home: Builder(builder: _buildPage));
 
-  /// context为内部主题；录制与长截图共用状态条，已完成视频展示结果窗口。
+  /// context为内部主题；录制与长截图共用状态条，完成后分别展示视频或长图结果。
   Widget _buildPage(BuildContext context) {
-    if ([
-      CapturePhase.idle,
-      CapturePhase.failed,
-      CapturePhase.imageReady,
-    ].contains(_phase)) {
+    if ([CapturePhase.idle, CapturePhase.failed].contains(_phase)) {
       return const SizedBox.shrink();
     }
     if ([
@@ -404,20 +547,7 @@ class _CaptureAppState extends State<CaptureApp> {
         ),
       );
     }
-    return Material(
-      type: MaterialType.transparency,
-      child: Focus(
-        autofocus: true,
-        onKeyEvent: (node, event) {
-          if (event is! KeyDownEvent ||
-              event.logicalKey != LogicalKeyboardKey.escape) {
-            return KeyEventResult.ignored;
-          }
-          if (!_pending) unawaited(_discard());
-          return KeyEventResult.handled;
-        },
-        child: _videoResult(),
-      ),
-    );
+    if (_phase == CapturePhase.imageReady) return _resultPage(_imageResult());
+    return _resultPage(_videoResult());
   }
 }

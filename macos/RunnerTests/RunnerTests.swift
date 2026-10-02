@@ -149,51 +149,72 @@ class RunnerTests: XCTestCase {
         XCTAssertTrue(controller.filterScreenshotEvent(enter) === enter)
     }
 
-    /// 无参数；模拟采集收起冻结层后交付长图，首次及复用引擎都显示普通结果窗且可立即保存PNG。
+    /// 无参数；长图留在采集结果窗，首次及复用引擎都可见、可复制、可保存，红按钮关闭后文件仍在。
     @MainActor
     func testLongScreenshotResultWindowShowsAndSavesAfterCapture() async throws {
-        let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        let screenshot = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        let controller = CaptureWindowController(screenshot: screenshot)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LongResult-\(UUID().uuidString)")
         let defaults = UserDefaults.standard
         let oldDirectory = defaults.object(forKey: AppConstants.screenshotSaveDirectoryKey)
+        let oldPolicy = NSApp.activationPolicy()
         defaults.set(root.path, forKey: AppConstants.screenshotSaveDirectoryKey)
-        defer {
-            controller.shutdown()
+        addTeardownBlock { @MainActor in
+            await controller.shutdown()
+            screenshot.shutdown()
             defaults.set(oldDirectory, forKey: AppConstants.screenshotSaveDirectoryKey)
+            if NSApp.activationPolicy() != oldPolicy { _ = NSApp.setActivationPolicy(oldPolicy) }
             try? FileManager.default.removeItem(at: root)
         }
+        // 测试宿主可能已经是 accessory，重复设置会返回 false；只要求展示前确实是菜单栏策略。
+        _ = NSApp.setActivationPolicy(.accessory)
+        XCTAssertEqual(NSApp.activationPolicy(), .accessory)
         let png = try screenshotFixture(width: 200, height: 2000, color: .white)
         for cycle in 0...1 {
-            controller.seedCaptureForTesting(png: png, id: "selection-\(cycle)", width: 200, height: 2000, showEditor: true)
-            controller.closeForCapture()
-            // presentImage是采集结束时真正的交接入口；切换窗口不能触发清理而丢掉刚交付的PNG。
-            XCTAssertTrue(controller.presentImage(png, width: 200, height: 2000, scale: 2, warning: nil))
+            let token = controller.service.id
+            let editorsBefore = NSApp.windows.filter { $0 is ScreenshotPanel && $0.isVisible }.count
+            // 拼接失败后的交付入口就是这个结果，不能再打开截图编辑器。
+            controller.service.publishFinishedScroll(png: png, width: 200, height: 2000, frames: 3,
+                failure: "相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。", token: token)
             let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "长截图结果" && $0.isVisible })
             XCTAssertEqual(panel.level, .normal)
             XCTAssertTrue(panel.styleMask.contains(.titled))
             XCTAssertFalse(panel.styleMask.contains(.nonactivatingPanel))
+            XCTAssertEqual(NSApp.activationPolicy(), .regular)
+            XCTAssertTrue(panel.canBecomeKey)
             XCTAssertTrue(try XCTUnwrap(panel.screen).visibleFrame.contains(panel.frame))
-            var state: [String: Any] = [:]
-            controller.handle(FlutterMethodCall(methodName: AppConstants.getScreenshotMethod, arguments: nil)) {
-                state = $0 as? [String: Any] ?? [:]
+            XCTAssertEqual(NSApp.windows.filter { $0 is ScreenshotPanel && $0.isVisible }.count, editorsBefore)
+            XCTAssertEqual(controller.service.phase, .imageReady)
+            XCTAssertEqual((controller.service.snapshot()["imageBytes"] as? FlutterStandardTypedData)?.data, png)
+            let copied = expectation(description: "复制长图")
+            controller.handle(FlutterMethodCall(methodName: AppConstants.copyScreenshotMethod, arguments: ["id": token])) { value in
+                XCTAssertFalse(value is FlutterError)
+                copied.fulfill()
             }
-            let id = try XCTUnwrap(state["id"] as? String)
-            XCTAssertEqual((state["bytes"] as? FlutterStandardTypedData)?.data, png)
-            XCTAssertEqual(state["canCaptureMedia"] as? Bool, false)
-            var saved: Any?
+            await fulfillment(of: [copied], timeout: 3)
+            XCTAssertEqual(NSPasteboard.general.data(forType: .png), png)
+            let saved = expectation(description: "保存长图")
+            var path: String?
             controller.handle(FlutterMethodCall(methodName: AppConstants.saveScreenshotMethod,
-                arguments: ["id": id, "name": "长截图.png", "bytes": FlutterStandardTypedData(bytes: png)])) { saved = $0 }
-            let path = try XCTUnwrap(saved as? String)
-            XCTAssertTrue(path.hasPrefix(root.appendingPathComponent("截图").path + "/"))
-            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), png)
-            // 普通结果失焦时不吞掉其他应用按键；红按钮单击关闭，只清理内存中的当前图片。
-            panel.resignKey()
-            let escape = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: true))
-            XCTAssertTrue(controller.filterScreenshotEvent(escape) === escape)
+                arguments: ["id": token, "name": "长截图.png"])) {
+                path = ($0 as? [String: Any])?["savedPath"] as? String
+                saved.fulfill()
+            }
+            await fulfillment(of: [saved], timeout: 3)
+            let file = try XCTUnwrap(path)
+            XCTAssertTrue(file.hasPrefix(root.appendingPathComponent("截图").path + "/"))
+            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: file)), png)
+            let ended = expectation(description: "红按钮关闭")
+            controller.onActiveChanged = { active in
+                if !active && controller.service.id != token { ended.fulfill() }
+            }
             try XCTUnwrap(panel.standardWindowButton(.closeButton)).performClick(nil)
+            await fulfillment(of: [ended], timeout: 3)
             XCTAssertFalse(panel.isVisible)
-            XCTAssertFalse(controller.isCurrentCapture(id))
-            XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+            XCTAssertEqual(controller.service.phase, .idle)
+            XCTAssertEqual(NSApp.activationPolicy(), .accessory)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: file))
+            controller.onActiveChanged = nil
         }
     }
 
