@@ -149,6 +149,54 @@ class RunnerTests: XCTestCase {
         XCTAssertTrue(controller.filterScreenshotEvent(enter) === enter)
     }
 
+    /// 无参数；模拟采集收起冻结层后交付长图，首次及复用引擎都显示普通结果窗且可立即保存PNG。
+    @MainActor
+    func testLongScreenshotResultWindowShowsAndSavesAfterCapture() async throws {
+        let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LongResult-\(UUID().uuidString)")
+        let defaults = UserDefaults.standard
+        let oldDirectory = defaults.object(forKey: AppConstants.screenshotSaveDirectoryKey)
+        defaults.set(root.path, forKey: AppConstants.screenshotSaveDirectoryKey)
+        defer {
+            controller.shutdown()
+            defaults.set(oldDirectory, forKey: AppConstants.screenshotSaveDirectoryKey)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let png = try screenshotFixture(width: 200, height: 2000, color: .white)
+        for cycle in 0...1 {
+            controller.seedCaptureForTesting(png: png, id: "selection-\(cycle)", width: 200, height: 2000, showEditor: true)
+            controller.closeForCapture()
+            // presentImage是采集结束时真正的交接入口；切换窗口不能触发清理而丢掉刚交付的PNG。
+            XCTAssertTrue(controller.presentImage(png, width: 200, height: 2000, scale: 2, warning: nil))
+            let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "长截图结果" && $0.isVisible })
+            XCTAssertEqual(panel.level, .normal)
+            XCTAssertTrue(panel.styleMask.contains(.titled))
+            XCTAssertFalse(panel.styleMask.contains(.nonactivatingPanel))
+            XCTAssertTrue(try XCTUnwrap(panel.screen).visibleFrame.contains(panel.frame))
+            var state: [String: Any] = [:]
+            controller.handle(FlutterMethodCall(methodName: AppConstants.getScreenshotMethod, arguments: nil)) {
+                state = $0 as? [String: Any] ?? [:]
+            }
+            let id = try XCTUnwrap(state["id"] as? String)
+            XCTAssertEqual((state["bytes"] as? FlutterStandardTypedData)?.data, png)
+            XCTAssertEqual(state["canCaptureMedia"] as? Bool, false)
+            var saved: Any?
+            controller.handle(FlutterMethodCall(methodName: AppConstants.saveScreenshotMethod,
+                arguments: ["id": id, "name": "长截图.png", "bytes": FlutterStandardTypedData(bytes: png)])) { saved = $0 }
+            let path = try XCTUnwrap(saved as? String)
+            XCTAssertTrue(path.hasPrefix(root.appendingPathComponent("截图").path + "/"))
+            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), png)
+            // 普通结果失焦时不吞掉其他应用按键；红按钮单击关闭，只清理内存中的当前图片。
+            panel.resignKey()
+            let escape = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: true))
+            XCTAssertTrue(controller.filterScreenshotEvent(escape) === escape)
+            try XCTUnwrap(panel.standardWindowButton(.closeButton)).performClick(nil)
+            XCTAssertFalse(panel.isVisible)
+            XCTAssertFalse(controller.isCurrentCapture(id))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        }
+    }
+
     /// 无参数；冷启动立即 Esc、首帧后失焦 Esc、引擎复用 Esc 都须关闭且保留剪贴板。
     @MainActor
     func testScreenshotEscapeClosesColdWarmAndReusedEditor() async throws {

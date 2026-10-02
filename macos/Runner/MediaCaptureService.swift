@@ -685,14 +685,14 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         return video
     }
 
-    /// path为系统保存面板确认的路径；原子保存当前录制，并公开已保存状态，不清理预览。
+    /// target为分类日期目录内的默认路径；发布时防覆盖，公开实际保存路径并保留预览。
     func saveVideo(to target: URL) throws {
         let source = try recordingURL()
-        try GIFExporter.publish(source: source, target: target)
-        update(.videoReady, ["savedPath": target.path])
+        let saved = try ScreenshotStorage.publish(source: source, target: target)
+        update(.videoReady, ["savedPath": saved.path])
     }
 
-    /// options为已校验片段，target由系统面板确认；后台逐帧编码并报告进度，原MP4保持只读。
+    /// options为完整视频的导出设置，target为分类日期路径；后台逐帧编码，源MP4保持只读。
     func exportGIF(options: GIFExporter.Options, to target: URL) throws {
         let source = try recordingURL()
         let token = id
@@ -711,10 +711,10 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                     }
                 }
                 try Task.checkCancellation()
-                try GIFExporter.publish(source: destination, target: target)
+                let saved = try ScreenshotStorage.publish(source: destination, target: target)
                 await MainActor.run {
                     guard self.id == token else { return }
-                    self.update(.videoReady, ["gifPath": target.path])
+                    self.update(.videoReady, ["gifPath": saved.path])
                 }
             } catch {
                 let message = error is CancellationError ? "GIF转换已取消，源视频保持不变。" : error.localizedDescription

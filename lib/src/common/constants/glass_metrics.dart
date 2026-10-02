@@ -45,7 +45,7 @@ abstract final class GlassMetrics {
   // 视频结果的右侧纵向操作间距，按Spec #67与原生承载尺寸保持一致。
   static const captureResultActionGap = 12.0;
   static const toastGap = 8.0;
-  static const copyFeedbackDuration = Duration(milliseconds: 1000);
+  static const feedbackDuration = Duration(milliseconds: 1000);
   static const transition = Duration(milliseconds: 120);
   static const hoverOpacity = 0.06;
   static const pressedOpacity = 0.12;

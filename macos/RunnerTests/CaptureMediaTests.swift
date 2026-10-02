@@ -3,6 +3,7 @@ import Cocoa
 import CoreGraphics
 import CoreImage
 import CoreVideo
+import CoreText
 import FlutterMacOS
 import ImageIO
 import XCTest
@@ -160,138 +161,27 @@ final class CaptureMediaTests: XCTestCase {
         }
     }
 
-    /// 无参数；真实保存sheet必须完整可见且取消能结束等待，避免仅检查窗口level而漏掉模态链路。
+    /// 无参数/返回值；点击真实红按钮一次即结束会话，不进入会阻塞结果窗口的确认循环。
     @MainActor
-    func testVideoResultSaveSheetIsVisibleAndCancellationCompletes() async throws {
-        let visible = try XCTUnwrap(NSScreen.main).visibleFrame
-        let result = CaptureWindowController.makeWindow(compact: false)
-        result.setFrame(CaptureWindowController.resultFrame(pixels: NSSize(width: 1706, height: 868),
-            scale: 2, visible: visible), display: false)
-        result.contentView = NSView(frame: NSRect(origin: .zero, size: result.frame.size))
-        let save = NSSavePanel()
-        save.nameFieldStringValue = "capture-window-regression.mp4"
-        defer { save.cancel(nil); result.close() }
-        NSApp.activate()
-        result.makeKeyAndOrderFront(nil)
-        let completed = expectation(description: "取消保存返回当前结果")
-        save.beginSheetModal(for: result) { response in
-            XCTAssertEqual(response, .cancel)
-            completed.fulfill()
-        }
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertTrue(result.attachedSheet === save)
-        XCTAssertTrue(save.isVisible)
-        XCTAssertTrue(visible.contains(save.frame))
-        XCTAssertGreaterThanOrEqual(save.level.rawValue, result.level.rawValue)
-        save.cancel(nil)
-        await fulfillment(of: [completed], timeout: 3)
-        XCTAssertNil(result.attachedSheet)
-    }
-
-    /// 无参数/返回值；系统关闭先确认，保留维持会话身份，确认放弃才结束该会话。
-    @MainActor
-    func testVideoResultSystemCloseConfirmsBeforeEndingSession() async throws {
+    func testVideoResultSystemCloseImmediatelyEndsSession() async throws {
         let controller = CaptureWindowController(screenshot: ScreenshotWindowController())
         let result = CaptureWindowController.makeWindow(compact: false)
         result.delegate = controller
-        let content = NSViewController()
-        content.view = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
-        result.contentViewController = content
+        result.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         defer { result.delegate = nil; result.close() }
+        let token = controller.service.id
+        let ended = expectation(description: "单击关闭完成资源清理")
+        controller.onActiveChanged = { active in
+            if !active && controller.service.id != token { ended.fulfill() }
+        }
         result.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(result.isVisible)
-        for choice in ["继续保留", "放弃"] {
-            let token = controller.service.id
-            let responded = expectation(description: "系统关闭确认：\(choice)")
-            // 仅操作本进程的真实模态按钮；看门狗确保失败也不会留下阻塞窗口。
-            let watchdog = Timer(timeInterval: 2, repeats: false) { _ in NSApp.stopModal(withCode: .abort) }
-            let input = Timer(timeInterval: 0.05, repeats: false) { _ in
-                guard let modal = NSApp.modalWindow, let content = modal.contentView else {
-                    XCTFail("关闭未显示放弃确认")
-                    NSApp.stopModal(withCode: .abort)
-                    responded.fulfill()
-                    return
-                }
-                var views = [content]
-                var button: NSButton?
-                while let view = views.popLast() {
-                    if let candidate = view as? NSButton, candidate.title == choice { button = candidate; break }
-                    views.append(contentsOf: view.subviews)
-                }
-                XCTAssertNotNil(button)
-                button?.performClick(nil)
-                responded.fulfill()
-            }
-            RunLoop.main.add(watchdog, forMode: .modalPanel)
-            RunLoop.main.add(input, forMode: .modalPanel)
-            try XCTUnwrap(result.standardWindowButton(.closeButton)).performClick(nil)
-            await fulfillment(of: [responded], timeout: 3)
-            input.invalidate()
-            watchdog.invalidate()
-            if choice == "继续保留" {
-                XCTAssertEqual(controller.service.id, token)
-                XCTAssertTrue(result.isVisible)
-            } else {
-                XCTAssertNotEqual(controller.service.id, token)
-                XCTAssertEqual(controller.service.phase, .idle)
-            }
-        }
-    }
-
-    /// 无参数；确认窗不能依赖84pt控制条的sheet几何，负坐标及竖排来源屏也必须容纳全部按钮。
-    @MainActor
-    func testDiscardConfirmationFitsSourceDisplayAndKeepsByDefault() throws {
-        for visible in [NSRect(x: -1920, y: 24, width: 1920, height: 1056),
-                        NSRect(x: 0, y: -900, width: 1440, height: 876)] {
-            let alert = CaptureWindowController.discardAlert(visibleFrame: visible)
-            XCTAssertNil(alert.window.sheetParent)
-            XCTAssertTrue(visible.contains(alert.window.frame))
-            // AppKit会把窗口原点对齐屏幕像素，奇数高度的居中允许半点取整。
-            XCTAssertEqual(alert.window.frame.midX, visible.midX, accuracy: 0.5)
-            XCTAssertEqual(alert.window.frame.midY, visible.midY, accuracy: 0.5)
-            XCTAssertGreaterThan(alert.window.level.rawValue, NSWindow.Level.statusBar.rawValue)
-            XCTAssertEqual(alert.buttons[0].title, "继续保留")
-            XCTAssertEqual(alert.buttons[0].keyEquivalent, "\r")
-            XCTAssertTrue(alert.window.defaultButtonCell === alert.buttons[0].cell)
-            for button in alert.buttons {
-                let rect = button.convert(button.bounds, to: nil)
-                XCTAssertTrue(alert.window.frame.contains(alert.window.convertToScreen(rect)))
-            }
-            alert.window.close()
-        }
-    }
-
-    /// 无参数；实际模态循环验证Escape、Return和数字键盘Enter均保留，窗口像素边界完整位于来源屏。
-    @MainActor
-    func testDiscardModalKeysKeepCaptureWithoutMovingOffScreen() throws {
-        let visible = try XCTUnwrap(NSScreen.main).visibleFrame
-        for (characters, keyCode) in [("\u{1b}", UInt16(53)), ("\r", UInt16(36)), ("\u{3}", UInt16(76))] {
-            // discardAlert建立真实确认窗口；通过AppKit事件分发检查默认与取消快捷键。
-            let alert = CaptureWindowController.discardAlert(visibleFrame: visible)
-            alert.window.orderFrontRegardless()
-            // 看门狗保证断言失败也能结束模态循环，不留下需要用户关闭的对话框。
-            let watchdog = Timer(timeInterval: 2, repeats: false) { _ in NSApp.stopModal(withCode: .abort) }
-            let input = Timer(timeInterval: 0.05, repeats: false) { _ in
-                XCTAssertTrue(visible.contains(alert.window.frame))
-                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                                                  timestamp: 0, windowNumber: alert.window.windowNumber,
-                                                  context: nil, characters: characters,
-                                                  charactersIgnoringModifiers: characters,
-                                                  isARepeat: false, keyCode: keyCode) else {
-                    XCTFail("无法创建确认窗键盘事件")
-                    NSApp.stopModal(withCode: .abort)
-                    return
-                }
-                NSApp.sendEvent(event)
-            }
-            RunLoop.main.add(watchdog, forMode: .modalPanel)
-            RunLoop.main.add(input, forMode: .modalPanel)
-            let response = CaptureWindowController.runDiscardConfirmation(alert)
-            input.invalidate()
-            watchdog.invalidate()
-            alert.window.orderOut(nil)
-            XCTAssertEqual(response, .alertFirstButtonReturn, "keyCode=\(keyCode)")
-        }
+        // 系统关闭入口走完整的异步资源状态转换，检查最终身份与阶段而不是下游调用。
+        try XCTUnwrap(result.standardWindowButton(.closeButton)).performClick(nil)
+        await fulfillment(of: [ended], timeout: 3)
+        XCTAssertNotEqual(controller.service.id, token)
+        XCTAssertEqual(controller.service.phase, .idle)
+        XCTAssertNil(NSApp.modalWindow)
+        controller.onActiveChanged = nil
     }
 
     /// 无参数；负坐标副屏和上/下排列都以可用区右下角定位，保留8pt边距和全部提示空间。
@@ -626,7 +516,7 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: second), original)
     }
 
-    /// 无参数；非帧边界0.21–0.84秒覆盖7个10fps采样，验证尺寸、顺序、累计延时和原文件不变。
+    /// 无参数；全长1秒视频以10fps导出10帧，验证等比缩小、顺序、累计延时和原文件不变。
     func testGIFRealVideoHasOrderedFramesAndAccurateDuration() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureMediaTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -635,11 +525,11 @@ final class CaptureMediaTests: XCTestCase {
         try await writeMovie(video)
         let original = try Data(contentsOf: video)
         let gif = directory.appendingPathComponent("result.gif")
-        let options = GIFExporter.Options(start: 0.21, end: 0.84, framesPerSecond: 10, width: 32)
+        let options = GIFExporter.Options(framesPerSecond: 10, maximumWidth: 32)
         let count = try await GIFExporter.export(source: video, destination: gif, options: options) { _ in }
-        XCTAssertEqual(count, 7)
+        XCTAssertEqual(count, 10)
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(gif as CFURL, nil))
-        XCTAssertEqual(CGImageSourceGetCount(source), 7)
+        XCTAssertEqual(CGImageSourceGetCount(source), 10)
         var delays = 0.0
         var colors: [Int] = []
         for index in 0..<count {
@@ -655,16 +545,21 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(colors.first, 0)
         XCTAssertEqual(colors.last, 2)
         XCTAssertEqual(colors, colors.sorted())
-        XCTAssertEqual(delays, 0.63, accuracy: 0.011)
+        XCTAssertEqual(delays, 1.0, accuracy: 0.011)
         XCTAssertEqual(try Data(contentsOf: video), original)
-        // 原子发布覆盖已有目标，并保持私有源文件可供继续预览或再次导出。
-        let published = directory.appendingPathComponent("saved.gif")
-        try Data("existing".utf8).write(to: published)
-        try GIFExporter.publish(source: gif, target: published)
-        XCTAssertEqual(try Data(contentsOf: published), try Data(contentsOf: gif))
+        // 未限制或限制大于源宽都不放大；尺寸必须由实际媒体元数据决定。
+        for maximum in [nil, 1000] as [Int?] {
+            let output = directory.appendingPathComponent("original-\(maximum ?? 0).gif")
+            _ = try await GIFExporter.export(source: video, destination: output,
+                options: .init(framesPerSecond: 10, maximumWidth: maximum)) { _ in }
+            let decoded = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+            let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(decoded, 0, nil))
+            XCTAssertEqual(image.width, 64)
+            XCTAssertEqual(image.height, 48)
+        }
     }
 
-    /// 无参数；预先取消任务不得留下输出，空片段、越界和1801帧拒绝，1800帧边界允许。
+    /// 无参数；预先取消不留下输出；无效元数据/设置与1801帧拒绝，1800帧边界允许。
     func testGIFCancellationAndValidationProtectSource() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureCancelTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -675,24 +570,106 @@ final class CaptureMediaTests: XCTestCase {
         let target = directory.appendingPathComponent("cancelled.gif")
         let task = Task {
             try await GIFExporter.export(source: video, destination: target,
-                options: .init(start: 0, end: 1, framesPerSecond: 30, width: 32)) { _ in }
+                options: .init(framesPerSecond: 30, maximumWidth: 32)) { _ in }
         }
         task.cancel()
         do { _ = try await task.value; XCTFail("取消任务不能成功") } catch { }
         XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
         XCTAssertEqual(try Data(contentsOf: video), original)
-        for options in [GIFExporter.Options(start: 0, end: 0, framesPerSecond: 10, width: 32),
-                        .init(start: 0, end: 2, framesPerSecond: 10, width: 32),
-                        .init(start: .nan, end: 1, framesPerSecond: 10, width: 32),
-                        .init(start: 0, end: 1, framesPerSecond: 31, width: 32),
-                        .init(start: 0, end: 1, framesPerSecond: 10, width: 65)] {
+        for options in [GIFExporter.Options(framesPerSecond: 0), .init(framesPerSecond: 31),
+                        .init(maximumWidth: 0), .init(maximumWidth: -1)] {
             XCTAssertThrowsError(try options.validate(duration: 1, sourceWidth: 64))
         }
-        XCTAssertEqual(try GIFExporter.Options(start: 0, end: 60, framesPerSecond: 30, width: 32).validate(duration: 61, sourceWidth: 64), 1800)
-        // 0.2到0.8秒在10fps下恰好六帧，浮点尾差不得采到结束边界外。
-        XCTAssertEqual(try GIFExporter.Options(start: 0.2, end: 0.8, framesPerSecond: 10, width: 32).validate(duration: 1, sourceWidth: 64), 6)
-        XCTAssertThrowsError(try GIFExporter.Options(start: 0, end: 60.01, framesPerSecond: 30, width: 32).validate(duration: 61, sourceWidth: 64))
+        for duration in [0.0, -1, .nan, .infinity] {
+            XCTAssertThrowsError(try GIFExporter.Options().validate(duration: duration, sourceWidth: 64))
+        }
+        XCTAssertEqual(try GIFExporter.Options(framesPerSecond: 30).validate(duration: 60, sourceWidth: 64), 1800)
+        // 0.6秒在10fps下恰好六帧，浮点尾差不能生成超过结束时间的帧。
+        XCTAssertEqual(try GIFExporter.Options().validate(duration: 0.6, sourceWidth: 64), 6)
+        XCTAssertThrowsError(try GIFExporter.Options(framesPerSecond: 30).validate(duration: 60.01, sourceWidth: 64))
     }
+    /// 无参数；唯一中文正文以8.5像素平滑滚动，整数和四分像素起点均应输出完整宽度与34像素增量。
+    func testSmoothTextScrollingPreservesOverlapAndPixels() throws {
+        let document = try textDocument()
+        for initial in [0.0, 0.25] {
+            let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+            for step in 0...4 { try stitcher.append(textViewport(document, offset: initial + Double(step) * 8.5)) }
+            let result = try stitcher.finish()
+            XCTAssertEqual(result.width, document.width)
+            XCTAssertEqual(result.height, 834)
+            XCTAssertEqual(result.frames, 5)
+            // 整数条带保留原像素；仅接缝相位最多半像素差，平均RGB误差限3/255，高误差像素限5%。
+            let expected = try pixels(textViewport(document, offset: initial, height: result.height))
+            let actual = try pixels(decode(result.png))
+            var total = 0.0
+            var affected = 0
+            for index in stride(from: 0, to: actual.count, by: 4) {
+                let differences = (0..<3).map { abs(Int(actual[index + $0]) - Int(expected[index + $0])) }
+                total += Double(differences.reduce(0, +))
+                if differences.max()! > 16 { affected += 1 }
+            }
+            XCTAssertLessThanOrEqual(total / Double(result.width * result.height * 3), 3)
+            XCTAssertLessThanOrEqual(Double(affected) / Double(result.width * result.height), 0.05)
+        }
+        // 视觉完全重复的段落存在多个同样可靠的接缝，不能通过亚像素容错猜测位移。
+        let repeated = try textDocument(repeated: true)
+        let ambiguous = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        try ambiguous.append(textViewport(repeated, offset: 0))
+        let confirmed = try ambiguous.finish().png
+        XCTAssertThrowsError(try ambiguous.append(textViewport(repeated, offset: 8)))
+        XCTAssertEqual(try ambiguous.finish().png, confirmed)
+    }
+
+    /// repeated决定唯一编号或完全重复的中文行；返回900×1600的真实CoreText栅格图，不依赖桌面内容。
+    private func textDocument(repeated: Bool = false) throws -> CGImage {
+        let width = 900
+        let height = 1600
+        var text = ""
+        for index in 0..<90 {
+            let row = repeated ? 1 : index + 1
+            let marker = repeated ? 1 : index * 37
+            text += String(format: "项目%04d：列表项目需要清晰的信息结构、稳定的文字间距和一致的阅读节奏。核验序号%04d记录。\n", row, marker)
+            if index % 4 == 3 { text += "\n\n" }
+        }
+        let font = CTFontCreateWithName("PingFangSC-Regular" as CFString, 15, nil)
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0.1, alpha: 1),
+        ])
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
+        let path = CGPath(rect: CGRect(x: 28, y: 20, width: width - 56, height: height - 40), transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        CTFrameDraw(frame, context)
+        return try XCTUnwrap(context.makeImage())
+    }
+
+    /// document为CoreText原图，offset为分数像素滚动，height为视口高度；返回线性栅格化的同宽新帧。
+    private func textViewport(_ document: CGImage, offset: Double, height: Int = 800) throws -> CGImage {
+        let source = try pixels(document)
+        let width = document.width
+        let base = Int(offset.rounded(.down))
+        let fraction = offset - Double(base)
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<(width * 4) {
+                let first = (base + y) * width * 4 + x
+                bytes[y * width * 4 + x] = UInt8((Double(source[first]) * (1 - fraction)
+                    + Double(source[first + width * 4]) * fraction).rounded())
+            }
+        }
+        let provider = try XCTUnwrap(CGDataProvider(data: Data(bytes) as CFData))
+        return try XCTUnwrap(CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider,
+            decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+    }
+
     /// 无参数；600像素/秒滚动时4fps跨150像素越过123像素上限，10fps的60像素步进须生成连续原图。
     func testDenserScrollFramesPreserveFastMovingContentWithoutWeakeningOverlap() throws {
         let sparse = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))

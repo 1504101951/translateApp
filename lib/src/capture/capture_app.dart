@@ -9,7 +9,7 @@ import '../common/constants/channel_names.dart';
 import '../common/constants/glass_metrics.dart';
 import '../common/constants/method_names.dart';
 import '../common/widgets/native_glass.dart';
-import 'gif_options.dart';
+import '../common/widgets/toolbar_feedback.dart';
 
 /// 采集工具的统一悬浮控制条及视频结果；选区准备由截图选择层负责。
 class CaptureApp extends StatefulWidget {
@@ -26,17 +26,13 @@ class CaptureApp extends StatefulWidget {
   State<CaptureApp> createState() => _CaptureAppState();
 }
 
-/// 维护实际采集状态与按需展开的GIF草稿；会话ID隔离迟到回调。
+/// 维护实际采集状态和一秒响应；GIF参数由已保存的截图设置决定。
 class _CaptureAppState extends State<CaptureApp> {
   Map<String, dynamic> _state = {};
   bool _pending = false;
-  bool _gifExpanded = false;
-  String? _error;
-  String? _videoDraftId;
-  final _start = TextEditingController(text: '0');
-  final _end = TextEditingController();
-  int _fps = 10;
-  final _width = TextEditingController();
+  String? _feedback;
+  bool _feedbackIsError = false;
+  Timer? _feedbackTimer;
 
   CapturePhase get _phase =>
       CapturePhase.parse(_state['phase'] as String? ?? 'idle');
@@ -59,29 +55,44 @@ class _CaptureAppState extends State<CaptureApp> {
     await _invoke(MethodNames.getCaptureState);
   }
 
-  /// 无参数；解除平台订阅并释放所有本窗口表单资源。
+  /// 无参数；解除平台订阅并取消本窗口反馈计时。
   @override
   void dispose() {
     widget.channel.setMethodCallHandler(null);
-    for (final controller in [_start, _end, _width]) {
-      controller.dispose();
-    }
+    _feedbackTimer?.cancel();
     super.dispose();
   }
 
-  /// state 为完整平台快照；同一录制的进度回调不得覆盖用户编辑中的 GIF 参数。
+  /// state为完整快照；仅新的保存结果或错误触发反馈，重复进度回包不延长文字寿命。
   void _apply(Map<String, dynamic> state) {
     if (!mounted) return;
-    if (state['duration'] is num && state['id'] != _videoDraftId) {
-      _videoDraftId = state['id'] as String;
-      _start.text = '0';
-      _gifExpanded = false;
-      // 保留实际时长精度，避免四舍五入后的结束时间超过源视频。
-      _end.text = (state['duration'] as num).toDouble().toString();
-      _fps = 10;
-      _width.text = state['width'].toString();
-    }
+    final previous = _state;
     setState(() => _state = state);
+    if (state['id'] != previous['id']) {
+      _feedbackTimer?.cancel();
+      _feedback = null;
+    }
+    if (state['error'] != null && state['error'] != previous['error']) {
+      _showFeedback(state['error'] as String, isError: true);
+    } else if (state['gifPath'] != null &&
+        state['gifPath'] != previous['gifPath']) {
+      _showFeedback('已保存 GIF');
+    } else if (state['savedPath'] != null &&
+        state['savedPath'] != previous['savedPath']) {
+      _showFeedback('已保存 MP4');
+    }
+  }
+
+  /// message为操作结果；显示1000ms，isError只影响前景语义色，不改变媒体状态。
+  void _showFeedback(String message, {bool isError = false}) {
+    _feedbackTimer?.cancel();
+    setState(() {
+      _feedback = message;
+      _feedbackIsError = isError;
+    });
+    _feedbackTimer = Timer(GlassMetrics.feedbackDuration, () {
+      if (mounted) setState(() => _feedback = null);
+    });
   }
 
   /// method/arguments 为已知采集命令及参数；返回完整快照，错误只显示在当前窗口。
@@ -92,7 +103,8 @@ class _CaptureAppState extends State<CaptureApp> {
     if (!mounted) return;
     setState(() {
       _pending = true;
-      _error = null;
+      _feedbackTimer?.cancel();
+      _feedback = null;
     });
     try {
       final value = await widget.channel.invokeMapMethod<String, dynamic>(
@@ -101,46 +113,14 @@ class _CaptureAppState extends State<CaptureApp> {
       );
       if (value != null) _apply(value);
     } on PlatformException catch (error) {
-      if (mounted) setState(() => _error = error.message ?? error.code);
+      if (mounted) _showFeedback(error.message ?? error.code, isError: true);
     } finally {
       if (mounted) setState(() => _pending = false);
     }
   }
 
-  /// 无参数；解析 GIF 草稿；非法文本用 NaN/0 交给统一业务校验。
-  GifOptions get _gif => GifOptions(
-    start: double.tryParse(_start.text) ?? double.nan,
-    end: double.tryParse(_end.text) ?? double.nan,
-    fps: _fps,
-    width: int.tryParse(_width.text) ?? 0,
-  );
-
-  /// 无参数；提交明确丢弃，所有活动与结果状态均由原生二级弹窗确认。
+  /// 无参数；立即放弃当前会话，原生停止后台任务并保留已经保存的文件。
   Future<void> _discard() => _invoke(MethodNames.cancelCapture);
-
-  /// label 为按钮文本；action 为空时禁用，primary 表示主要动作。
-  Widget _button(String label, VoidCallback? action, {bool primary = false}) =>
-      NativeGlassSurface(
-        material: true,
-        child: primary
-            ? FilledButton(onPressed: action, child: Text(label))
-            : TextButton(onPressed: action, child: Text(label)),
-      );
-
-  /// label/controller 为数值字段；enabled控制鼠标和键盘编辑，输入后重算验证结果。
-  Widget _field(
-    String label,
-    TextEditingController controller, {
-    bool enabled = true,
-  }) => NativeGlassField(
-    label: label,
-    child: TextField(
-      enabled: enabled && !_pending,
-      controller: controller,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      onChanged: (_) => setState(() {}),
-    ),
-  );
 
   /// 无参数；两种采集共用四个独立材料气泡，状态只读，三操作沿用真实阶段约束。
   Widget _active() {
@@ -165,7 +145,7 @@ class _CaptureAppState extends State<CaptureApp> {
           CapturePhase.scrolling,
           CapturePhase.paused,
         ].contains(_phase);
-    final status = _error ?? _state['error'] as String? ?? label;
+    final status = label;
 
     /// description为上方提示，child为状态或操作；返回不共享外壳的32pt玻璃气泡。
     Widget bubble(String description, Widget child) => Tooltip(
@@ -246,113 +226,6 @@ class _CaptureAppState extends State<CaptureApp> {
     );
   }
 
-  /// 无参数；返回按需显示的GIF参数，输入和进度始终属于当前视频草稿。
-  Widget _gifOptions() {
-    final duration = (_state['duration'] as num).toDouble();
-    final sourceWidth = (_state['width'] as num).toInt();
-    final sourceHeight = (_state['height'] as num).toInt();
-    final options = _gif;
-    final error = options.validate(
-      duration: duration,
-      sourceWidth: sourceWidth,
-    );
-    final converting = _phase == CapturePhase.converting;
-    final enabled = !_pending && !converting;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Expanded(child: Text('导出 GIF')),
-            IconButton(
-              tooltip: '收起 GIF 选项',
-              onPressed: converting
-                  ? null
-                  : () => setState(() => _gifExpanded = false),
-              icon: const Icon(Icons.close, size: GlassMetrics.icon),
-            ),
-          ],
-        ),
-        IgnorePointer(
-          ignoring: !enabled,
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(child: _field('开始（秒）', _start, enabled: enabled)),
-                  const SizedBox(width: GlassMetrics.actionGap),
-                  Expanded(child: _field('结束（秒）', _end, enabled: enabled)),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: NativeGlassField(
-                      label: '帧率（1–30）',
-                      child: NativeGlassDropdown<int>(
-                        label: 'GIF帧率',
-                        value: _fps,
-                        items: {
-                          for (var fps = 1; fps <= 30; fps++) fps: '$fps fps',
-                        },
-                        onChanged: enabled
-                            ? (value) => setState(() => _fps = value)
-                            : null,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: GlassMetrics.actionGap),
-                  Expanded(child: _field('宽度（像素）', _width, enabled: enabled)),
-                ],
-              ),
-            ],
-          ),
-        ),
-        if (error != null)
-          Text(error)
-        else
-          Text(
-            '${(options.end - options.start).toStringAsFixed(2)} 秒 · ${options.frameCount} 帧 · ${options.width} × ${(sourceHeight * options.width / sourceWidth).round()} 像素',
-          ),
-        const SizedBox(height: GlassMetrics.actionGap),
-        Wrap(
-          spacing: GlassMetrics.actionGap,
-          runSpacing: GlassMetrics.actionGap,
-          children: [
-            _button(
-              '预览片段',
-              enabled && error == null
-                  ? () => _invoke(MethodNames.previewRecording, options.toMap())
-                  : null,
-            ),
-            _button(
-              '导出 GIF',
-              enabled && error == null
-                  ? () =>
-                        _invoke(MethodNames.exportRecordingGIF, options.toMap())
-                  : null,
-              primary: true,
-            ),
-          ],
-        ),
-        if (converting) ...[
-          const SizedBox(height: GlassMetrics.groupGap),
-          LinearProgressIndicator(
-            value: (_state['progress'] as num?)?.toDouble(),
-          ),
-          Text(
-            '正在转换 ${(((_state['progress'] as num?)?.toDouble() ?? 0) * 100).round()}%',
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _button('取消转换', () => _invoke(MethodNames.cancelGIFExport)),
-          ),
-        ],
-      ],
-    );
-  }
-
   /// 无参数；返回等比视频与固定右侧纵向工具栏，系统标题栏由原生窗口承载。
   Widget _videoResult() {
     final pixels = Size(
@@ -362,15 +235,7 @@ class _CaptureAppState extends State<CaptureApp> {
     final logical = pixels / (_state['previewScale'] as num).toDouble();
     final converting = _phase == CapturePhase.converting;
     final enabled = !_pending && !converting;
-    final message =
-        _error ??
-        _state['error'] as String? ??
-        (_state['gifPath'] != null
-            ? '已保存：${_state['gifPath']}'
-            : _state['savedPath'] != null
-            ? '已保存：${_state['savedPath']}'
-            : null);
-    // 四个操作各32pt、相邻gap12pt，关闭与放弃共用确认和资源清理路径。
+    // 四个操作保持固定位置；转换时GIF按钮直接提供取消，不展开参数表单。
     final actions = <(String, IconData, VoidCallback?)>[
       (
         '播放视频',
@@ -383,9 +248,15 @@ class _CaptureAppState extends State<CaptureApp> {
         enabled ? () => _invoke(MethodNames.saveRecording) : null,
       ),
       (
-        '导出 GIF…',
-        Icons.gif_box_outlined,
-        enabled ? () => setState(() => _gifExpanded = !_gifExpanded) : null,
+        converting ? '取消转换' : '导出 GIF',
+        converting ? Icons.cancel_outlined : Icons.gif_box_outlined,
+        _pending
+            ? null
+            : () => _invoke(
+                converting
+                    ? MethodNames.cancelGIFExport
+                    : MethodNames.exportRecordingGIF,
+              ),
       ),
       ('关闭当前采集', Icons.close, _pending ? null : _discard),
     ];
@@ -463,40 +334,13 @@ class _CaptureAppState extends State<CaptureApp> {
                 ),
               ),
             ),
-            if (message != null)
-              Positioned(
-                left: margin,
-                top: margin,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: math.min(400, constraints.maxWidth - margin * 2),
-                  ),
-                  child: NativeGlassSurface(
-                    material: true,
-                    child: Padding(
-                      padding: const EdgeInsets.all(margin),
-                      child: Text(message),
-                    ),
-                  ),
-                ),
-              ),
-            if (_gifExpanded || converting)
-              Align(
-                alignment: Alignment.center,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: math.min(400, constraints.maxWidth - margin * 2),
-                    maxHeight: constraints.maxHeight - margin * 2,
-                  ),
-                  child: NativeGlassSurface(
-                    material: true,
-                    radius: GlassMetrics.panelRadius,
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(GlassMetrics.panelPadding),
-                      child: _gifOptions(),
-                    ),
-                  ),
-                ),
+            if (_feedback != null || converting)
+              ToolbarFeedback(
+                toolbar: toolbar,
+                message:
+                    _feedback ??
+                    '正在转换 ${(((_state['progress'] as num?)?.toDouble() ?? 0) * 100).round()}%',
+                isError: _feedback != null && _feedbackIsError,
               ),
           ],
         );
@@ -529,11 +373,33 @@ class _CaptureAppState extends State<CaptureApp> {
       // 面板上部保留提示空间；仅四个气泡绘制材料，外围不绘制背景或阴影。
       return Material(
         type: MaterialType.transparency,
-        child: Align(
-          alignment: Alignment.bottomRight,
-          child: Padding(
-            padding: const EdgeInsets.all(GlassMetrics.toolbarPadding),
-            child: SizedBox(height: GlassMetrics.hitSize, child: _active()),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Stack(
+            children: [
+              Align(
+                alignment: Alignment.bottomRight,
+                child: Padding(
+                  padding: const EdgeInsets.all(GlassMetrics.toolbarPadding),
+                  child: SizedBox(
+                    height: GlassMetrics.hitSize,
+                    child: _active(),
+                  ),
+                ),
+              ),
+              if (_feedback != null)
+                ToolbarFeedback(
+                  toolbar: Rect.fromLTWH(
+                    GlassMetrics.toolbarPadding,
+                    constraints.maxHeight -
+                        GlassMetrics.toolbarPadding -
+                        GlassMetrics.hitSize,
+                    constraints.maxWidth - GlassMetrics.toolbarPadding * 2,
+                    GlassMetrics.hitSize,
+                  ),
+                  message: _feedback!,
+                  isError: _feedbackIsError,
+                ),
+            ],
           ),
         ),
       );
@@ -547,11 +413,7 @@ class _CaptureAppState extends State<CaptureApp> {
               event.logicalKey != LogicalKeyboardKey.escape) {
             return KeyEventResult.ignored;
           }
-          if (_gifExpanded && _phase != CapturePhase.converting) {
-            setState(() => _gifExpanded = false);
-          } else {
-            if (!_pending) unawaited(_discard());
-          }
+          if (!_pending) unawaited(_discard());
           return KeyEventResult.handled;
         },
         child: _videoResult(),

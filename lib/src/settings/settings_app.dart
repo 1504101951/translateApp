@@ -42,6 +42,7 @@ class _SettingsPageState extends State<_SettingsPage>
     with WidgetsBindingObserver {
   static const _channel = MethodChannel(ChannelNames.settings);
   AppSettings? _settings;
+  final _gifMaximumWidth = TextEditingController();
   Map<Object?, Object?> _status = {};
   String? _message;
   bool _saving = false;
@@ -70,6 +71,7 @@ class _SettingsPageState extends State<_SettingsPage>
   /// 无参数；解除引擎内的回调和生命周期监听，无返回值。
   @override
   void dispose() {
+    _gifMaximumWidth.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _channel.setMethodCallHandler(null);
     super.dispose();
@@ -113,6 +115,7 @@ class _SettingsPageState extends State<_SettingsPage>
         _revision = map['revision'] as int;
         _conflicted = false;
         _settings = AppSettings.fromMap(map);
+        _gifMaximumWidth.text = _settings!.gifMaximumWidth?.toString() ?? '';
         _credentialIds = Set<String>.from(
           map[MethodNames.credentialIds] as List? ?? [],
         );
@@ -723,12 +726,12 @@ class _SettingsPageState extends State<_SettingsPage>
                         contentPadding: EdgeInsets.zero,
                         title: Text(
                           settings.screenshotSaveDirectory.isEmpty
-                              ? '保存时选择位置'
+                              ? '系统图片目录/截图'
                               : settings.screenshotSaveDirectory,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: const Text('固定目录后，保存截图默认写入此处；空目录表示每次询问。'),
+                        subtitle: const Text('默认截图存放路径'),
                         trailing: Wrap(
                           spacing: 4,
                           children: [
@@ -741,21 +744,41 @@ class _SettingsPageState extends State<_SettingsPage>
                                 child: const Text('选择…'),
                               ),
                             ),
-                            if (settings.screenshotSaveDirectory.isNotEmpty)
-                              NativeGlassSurface(
-                                material: true,
-                                child: TextButton(
-                                  onPressed: _recording
-                                      ? null
-                                      : () => _edit(
-                                          () =>
-                                              settings.screenshotSaveDirectory =
-                                                  '',
-                                        ),
-                                  child: const Text('每次询问'),
-                                ),
-                              ),
                           ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
+                      const Text(
+                        'GIF 导出',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      NativeGlassDropdown<int>(
+                        label: '帧率',
+                        value: settings.gifFramesPerSecond,
+                        items: {
+                          for (var fps = 1; fps <= 30; fps++) fps: '$fps fps',
+                        },
+                        onChanged: (fps) =>
+                            _edit(() => settings.gifFramesPerSecond = fps),
+                      ),
+                      const SizedBox(height: 8),
+                      NativeGlassField(
+                        label: '最大宽度（像素）',
+                        child: TextField(
+                          key: const Key('gif-maximum-width'),
+                          controller: _gifMaximumWidth,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(hintText: '不限制'),
+                          // 留空保留原宽；非法非空值进入统一设置校验，不能当作无限制保存。
+                          onChanged: (text) => _edit(
+                            () => settings.gifMaximumWidth = text.trim().isEmpty
+                                ? null
+                                : int.tryParse(text) ?? 0,
+                          ),
                         ),
                       ),
                     ],

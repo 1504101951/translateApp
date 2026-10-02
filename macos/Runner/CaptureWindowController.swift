@@ -1,7 +1,6 @@
 import AppKit
 import AVKit
 import FlutterMacOS
-import UniformTypeIdentifiers
 
 /// 采集工具协调者；截图层确认选区，采集与暂停时显示实时阴影与四气泡控制条，完成后展示结果。
 @MainActor
@@ -234,13 +233,14 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             }
             return
         }
-        if service.phase == .imageReady, previous != .imageReady {
+        if service.phase == .imageReady, previous != .imageReady || force {
             let state = service.snapshot()
             guard let bytes = state["imageBytes"] as? FlutterStandardTypedData,
                   let width = state["width"] as? Int, let height = state["height"] as? Int, let region = service.region else { return }
             window?.orderOut(nil)
-            // 图片编辑器接管内存结果后释放采集会话，不再显示额外的长图结果页面。
-            screenshot.presentImage(bytes.data, width: width, height: height, scale: region.scale, warning: state["warning"] as? String)
+            // 长图结果窗口确认可见才释放采集会话；展示失败保留PNG供用户重新打开。
+            guard screenshot.presentImage(bytes.data, width: width, height: height, scale: region.scale,
+                                          warning: state["warning"] as? String) else { return }
             service.clear()
             return
         }
@@ -344,26 +344,20 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// sender为用户关闭的结果窗口；返回false保留窗口，异步确认放弃后由资源状态撤下。
+    /// sender为用户关闭的结果窗口；返回false，由立即放弃后的资源状态统一撤下窗口。
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         Task { @MainActor in
             // discard统一系统关闭和Flutter操作；内部窗口切换已移除delegate，不经过此入口。
-            do { try await discard() }
-            catch { showError(error) }
+            await discard()
         }
         return false
     }
 
-    /// 无参数/返回值；确认后清理当前临时媒体，取消保留结果，已经保存的文件不参与删除。
-    private func discard() async throws {
-        guard !discarding, let visible = (originScreen ?? NSScreen.main)?.visibleFrame else { return }
+    /// 无参数/返回值；单击立即停止当前任务并清理临时媒体，已经保存的文件不参与删除。
+    private func discard() async {
+        guard !discarding else { return }
         discarding = true
         defer { discarding = false }
-        let token = service.id
-        // discardAlert在来源屏幕内完整布局；runDiscardConfirmation使默认键和Escape保留结果。
-        let alert = Self.discardAlert(visibleFrame: visible)
-        guard Self.runDiscardConfirmation(alert) == .alertSecondButtonReturn else { return }
-        guard token == service.id else { throw GIFExporter.ExportError(message: "采集会话已改变，请重试。") }
         // releasePlayer先撤销文件引用，再由cancel结束任务并清理临时目录。
         releasePlayer()
         await service.cancel()
@@ -395,40 +389,6 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         playerSession = nil
     }
 
-    /// visibleFrame为来源显示器可用点坐标；返回已布局、居中且默认保留的独立确认窗。
-    static func discardAlert(visibleFrame: NSRect) -> NSAlert {
-        let alert = NSAlert()
-        alert.messageText = "放弃当前采集？"
-        alert.informativeText = "未保存的录制或长图将被删除，已经保存的文件会保留。"
-        let keep = alert.addButton(withTitle: "继续保留")
-        alert.addButton(withTitle: "放弃").hasDestructiveAction = true
-        // 原生默认按钮保持保留；模态期间统一接收保留按键，不依赖应用激活状态。
-        alert.window.defaultButtonCell = keep.cell as? NSButtonCell
-        alert.layout()
-        let frame = alert.window.frame
-        alert.window.setFrameOrigin(NSPoint(x: visibleFrame.midX - frame.width / 2,
-                                             y: visibleFrame.midY - frame.height / 2))
-        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        return alert
-    }
-
-    /// alert为已布局的放弃确认窗；返回用户选择，Escape/Return/Enter保留并在退出时撤除监听。
-    static func runDiscardConfirmation(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        // 只处理本确认窗的取消与默认按键，不改变来源应用或其他窗口的键盘事件。
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.window === alert.window, [53, 36, 76].contains(event.keyCode) else { return event }
-            alert.buttons[0].performClick(nil)
-            return nil
-        }
-        defer {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            alert.window.orderOut(nil)
-        }
-        alert.window.orderFrontRegardless()
-        return alert.runModal()
-    }
-
     /// call为当前会话的控制或结果操作；异步入口重复检查身份，不提供准备表单协议。
     private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
@@ -449,28 +409,25 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                 case AppConstants.stopCaptureMethod:
                     try await service.stop()
                 case AppConstants.cancelCaptureMethod:
-                    try await discard()
+                    await discard()
                 case AppConstants.saveRecordingMethod:
-                    _ = try service.recordingURL()
-                    if let target = await chooseOutput(type: .mpeg4Movie, name: "录屏-\(filenameTimestamp()).mp4") {
-                        guard token == service.id else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
-                        try service.saveVideo(to: target)
-                    }
+                    let target = try outputURL(extension: "mp4", date: Date())
+                    try service.saveVideo(to: target)
                 case AppConstants.previewRecordingMethod:
-                    try await preview(args)
+                    try await preview()
                 case AppConstants.exportRecordingGIFMethod:
+                    let requestedAt = Date()
                     let source = try service.recordingURL()
                     let info = try await GIFExporter.metadata(source)
-                    guard let start = args["start"] as? Double, let end = args["end"] as? Double,
-                          let fps = args["fps"] as? Int, let width = args["width"] as? Int else {
-                        throw GIFExporter.ExportError(message: "缺少GIF片段、帧率或宽度。")
-                    }
-                    let options = GIFExporter.Options(start: start, end: end, framesPerSecond: fps, width: width)
+                    guard token == service.id else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
+                    // 每次导出读取已提交设置；结果窗口不缓存另一份可编辑GIF参数。
+                    let settings = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+                    let options = GIFExporter.Options(
+                        framesPerSecond: settings[AppConstants.gifFramesPerSecondKey] as? Int ?? 10,
+                        maximumWidth: settings[AppConstants.gifMaximumWidthKey] as? Int)
                     _ = try options.validate(duration: info.duration, sourceWidth: info.width)
-                    if let target = await chooseOutput(type: .gif, name: "录屏-\(filenameTimestamp()).gif") {
-                        guard token == service.id else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
-                        try service.exportGIF(options: options, to: target)
-                    }
+                    let target = try outputURL(extension: "gif", date: requestedAt)
+                    try service.exportGIF(options: options, to: target)
                 case AppConstants.cancelGIFExportMethod:
                     service.cancelGIF()
                 default:
@@ -483,24 +440,17 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// type/name为输出类型和默认名；取消返回nil，系统面板承担覆盖确认。
-    private func chooseOutput(type: UTType, name: String) async -> URL? {
-        guard let window else { return nil }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [type]
-        panel.nameFieldStringValue = name
-        // 保存是明确交互；确保系统面板附着于可激活的结果窗口并接收鼠标与键盘。
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
-        let response = await panel.beginSheetModal(for: window)
-        return response == .OK ? panel.url : nil
-    }
-
-    /// 无参数；返回不携带来源窗口标题的本地媒体文件时间戳。
-    private func filenameTimestamp() -> String {
+    /// fileExtension为mp4或gif，date为点击操作时刻；返回分类日期路径，文件名与目录共用同一日期。
+    private func outputURL(extension fileExtension: String, date: Date) throws -> URL {
+        // datedDirectory统一创建媒体分类和日期目录，最终发布再处理同名冲突。
+        let directory = try ScreenshotStorage.datedDirectory(
+            basePath: UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
+            extension: fileExtension, date: date)
         let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter.string(from: Date())
+        return directory.appendingPathComponent("录屏-\(formatter.string(from: date)).\(fileExtension)")
     }
 
     /// id为Flutter结果身份；返回绑定当前完整视频的系统播放器，迟到视图不读取新会话。
@@ -521,23 +471,18 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         return view
     }
 
-    /// args为可选起止秒数；在结果页播放器中预览完整视频或片段，不另开准备窗口。
-    private func preview(_ args: [String: Any]) async throws {
+    /// 无参数；在结果页播放器中从头播放完整视频，不另开窗口。
+    private func preview() async throws {
         let token = service.id
         let url = try service.recordingURL()
         let info = try await GIFExporter.metadata(url)
         guard token == service.id else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
-        let start = args["start"] as? Double ?? 0
-        let end = args["end"] as? Double ?? info.duration
-        guard start.isFinite, end.isFinite, start >= 0, start < end, end <= info.duration else {
-            throw GIFExporter.ExportError(message: "预览时间必须位于录制范围内。")
-        }
         let item = AVPlayerItem(url: url)
-        item.forwardPlaybackEndTime = CMTime(seconds: end, preferredTimescale: 60000)
+        item.forwardPlaybackEndTime = CMTime(seconds: info.duration, preferredTimescale: 60000)
         if player == nil { player = AVPlayer(); playerSession = token }
         player?.replaceCurrentItem(with: item)
         playerView?.player = player
-        await player?.seek(to: CMTime(seconds: start, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+        await player?.seek(to: CMTime.zero, toleranceBefore: .zero, toleranceAfter: .zero)
         guard token == service.id else { return }
         player?.play()
     }

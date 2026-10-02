@@ -71,6 +71,9 @@ enum AppConstants {
     static let permissionWizardFinishedKey = "permissionWizardFinished"
     /// screenshotSaveDirectoryKey 的平台约定；调用方共享同一协议或硬件定义。
     static let screenshotSaveDirectoryKey = "screenshotSaveDirectory"
+    /// GIF导出偏好；最大宽度缺省表示原始宽度。
+    static let gifFramesPerSecondKey = "gifFramesPerSecond"
+    static let gifMaximumWidthKey = "gifMaximumWidth"
     /// escapeKeyCode 的平台约定；调用方共享同一协议或硬件定义。
     static let escapeKeyCode: UInt16 = 53
     /// returnKeyCode 的平台约定；调用方共享同一协议或硬件定义。

@@ -5,24 +5,27 @@ import UniformTypeIdentifiers
 
 /// 本地视频的有界GIF导出；按时间顺序逐帧解码，不修改源视频。
 enum GIFExporter {
-    /// 从录屏中选择的时间范围和尺寸；宽度以输出像素计，纵横比保持不变。
+    /// 完整录制的GIF设置；最大宽度以像素计，缺省保留原宽。
     struct Options {
-        let start: Double
-        let end: Double
         let framesPerSecond: Int
-        let width: Int
+        let maximumWidth: Int?
 
-        /// duration/sourceWidth为解码后的视频元数据；返回计划帧数，非法参数直接抛错。
+        /// framesPerSecond为每秒采样数，maximumWidth为可选正整数上限；不持有逐视频草稿。
+        init(framesPerSecond: Int = 10, maximumWidth: Int? = nil) {
+            self.framesPerSecond = framesPerSecond
+            self.maximumWidth = maximumWidth
+        }
+
+        /// duration/sourceWidth为真实元数据；返回完整视频帧数，非法配置与资源超限在编码前失败。
         func validate(duration: Double, sourceWidth: Int) throws -> Int {
-            guard duration.isFinite, start.isFinite, end.isFinite,
-                  start >= 0, end > start, end <= duration,
-                  (1...30).contains(framesPerSecond), width > 0, width <= sourceWidth else {
-                throw ExportError(message: "GIF参数无效：起止须位于视频内且结束大于开始，帧率1–30，宽度不得超过原视频。")
+            guard duration.isFinite, duration > 0, sourceWidth > 0,
+                  (1...30).contains(framesPerSecond), maximumWidth.map({ $0 > 0 }) ?? true else {
+                throw ExportError(message: "GIF帧率须为1–30，最大宽度须为正整数或不限制。")
             }
-            // 消除十进制端点的浮点余量，不追加位于结束时间上的额外帧。
-            let count = max(1, ceil((end - start) * Double(framesPerSecond) - 1e-9))
-            guard count >= 1, count <= 1800 else {
-                throw ExportError(message: "GIF最多1800帧，请缩短片段或降低帧率。")
+            // 消除十进制端点的浮点余量，完整视频不足一帧时仍输出一帧。
+            let count = max(1, ceil(duration * Double(framesPerSecond) - 1e-9))
+            guard count.isFinite, count <= 1800 else {
+                throw ExportError(message: "GIF最多1800帧，请在截图设置中降低帧率或缩短录制时长。")
             }
             return Int(count)
         }
@@ -55,14 +58,15 @@ enum GIFExporter {
         return (duration, width, height)
     }
 
-    /// source只读；destination必须是新临时路径；options指定片段；progress输出0–1进度，成功返回帧数。
+    /// source只读；destination必须是新临时路径；options指定帧率和最大宽度；progress输出0–1进度，成功返回帧数。
     static func export(source: URL, destination: URL, options: Options,
                        progress: @escaping (Double) -> Void) async throws -> Int {
         // 先解码校验与参数校验，再创建GIF目标，避免非法输入留下空文件。
         let info = try await metadata(source)
         let count = try options.validate(duration: info.duration, sourceWidth: info.width)
-        let outputHeight = max(1, Int((Double(info.height) * Double(options.width) / Double(info.width)).rounded()))
-        guard options.width * outputHeight <= 33_554_432,
+        let outputWidth = min(info.width, options.maximumWidth ?? info.width)
+        let outputHeight = max(1, Int((Double(info.height) * Double(outputWidth) / Double(info.width)).rounded()))
+        guard outputWidth * outputHeight <= 33_554_432,
               !FileManager.default.fileExists(atPath: destination.path) else {
             throw ExportError(message: "GIF尺寸超过33554432像素，或临时输出已存在。")
         }
@@ -74,16 +78,16 @@ enum GIFExporter {
         CGImageDestinationSetProperties(encoder, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: source))
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: options.width, height: outputHeight)
+        generator.maximumSize = CGSize(width: outputWidth, height: outputHeight)
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
         // GIF以百分之一秒表示延时；累计边界取整防止非整除帧率累积时间漂移。
         for index in 0..<count {
             try Task.checkCancellation()
             let offset = Double(index) / Double(options.framesPerSecond)
-            let sample = try await generator.image(at: CMTime(seconds: options.start + offset, preferredTimescale: 60000))
+            let sample = try await generator.image(at: CMTime(seconds: offset, preferredTimescale: 60000))
             try Task.checkCancellation()
-            let next = min(options.end - options.start, Double(index + 1) / Double(options.framesPerSecond))
+            let next = min(info.duration, Double(index + 1) / Double(options.framesPerSecond))
             let delay = max(0.01, (round(next * 100) - round(offset * 100)) / 100)
             CGImageDestinationAddImage(encoder, sample.image, [kCGImagePropertyGIFDictionary: [
                 kCGImagePropertyGIFDelayTime: delay,
@@ -102,16 +106,4 @@ enum GIFExporter {
         return count
     }
 
-    /// source为已校验的临时文件，target为系统面板确认的目标；以同目录暂存文件原子发布，无返回值。
-    static func publish(source: URL, target: URL) throws {
-        guard source.standardizedFileURL != target.standardizedFileURL else { return }
-        let staging = target.deletingLastPathComponent().appendingPathComponent(".TranslateApp-\(UUID().uuidString).partial")
-        defer { try? FileManager.default.removeItem(at: staging) }
-        try FileManager.default.copyItem(at: source, to: staging)
-        if FileManager.default.fileExists(atPath: target.path) {
-            _ = try FileManager.default.replaceItemAt(target, withItemAt: staging)
-        } else {
-            try FileManager.default.moveItem(at: staging, to: target)
-        }
-    }
 }

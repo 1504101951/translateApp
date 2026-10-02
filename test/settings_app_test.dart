@@ -316,4 +316,70 @@ void main() {
       isTrue,
     );
   });
+  testWidgets('截图页保存GIF帧率与最大宽度，留空恢复原宽且非法值不保存', (tester) async {
+    // 600是有效压缩上限；0非法、空值是不限制，保存后的重新加载必须保留用户选择。
+    const channel = MethodChannel(ChannelNames.settings);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var settings = <String, Object?>{'revision': 0};
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.systemStatus) {
+        return {'accessibility': true};
+      }
+      if (call.method == MethodNames.getSettings) return settings;
+      if (call.method == MethodNames.saveSettings) {
+        settings = {
+          ...Map<String, Object?>.from(call.arguments as Map),
+          'revision': (settings['revision'] as int) + 1,
+        };
+        return settings;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('截图'));
+    await tester.pumpAndSettle();
+    expect(find.text('默认截图存放路径'), findsOneWidget);
+    expect(find.text('每次询问'), findsNothing);
+    expect(find.text('10 fps'), findsOneWidget);
+    final width = find.byKey(const Key('gif-maximum-width'));
+    await tester.ensureVisible(width);
+    await tester.enterText(width, '600');
+    await tester.pumpAndSettle();
+    expect(settings[PreferenceKeys.gifMaximumWidth], 600);
+    await tester.tap(find.text('10 fps'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('15 fps'));
+    await tester.tap(find.text('15 fps'));
+    await tester.pumpAndSettle();
+    expect(settings[PreferenceKeys.gifFramesPerSecond], 15);
+    await tester.enterText(width, '0');
+    await tester.pumpAndSettle();
+    expect(settings[PreferenceKeys.gifMaximumWidth], 600);
+    await tester.scrollUntilVisible(
+      find.textContaining('最大宽度须为正整数'),
+      150,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(find.textContaining('最大宽度须为正整数'), findsOneWidget);
+    await tester.ensureVisible(width);
+    await tester.enterText(width, '');
+    await tester.pumpAndSettle();
+    expect(settings.containsKey(PreferenceKeys.gifMaximumWidth), isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('截图'));
+    await tester.pumpAndSettle();
+    expect(find.text('15 fps'), findsOneWidget);
+    expect(tester.widget<TextField>(width).controller!.text, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
 }

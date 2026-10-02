@@ -21,5 +21,5 @@ Codex-Thread: 01a0b9b5-7646-76b0-9028-2402885d401b
 ## 本轮执行工单
 
 1. [屏幕录制](https://github.com/1504101951/translateApp/issues/21)：显示器、窗口或区域的无声MP4录制及本地预览保存。
-2. [GIF导出](https://github.com/1504101951/translateApp/issues/23)：从已完成录制中选择片段、帧率和宽度并导出GIF。
+2. [GIF导出](https://github.com/1504101951/translateApp/issues/23)：按截图设置中的帧率与最大宽度导出完整录制视频。
 3. [手动滚动长截图](https://github.com/1504101951/translateApp/issues/28)：手动向下滚动、上下固定区去重、结束直接进入已有截图编辑流程。

@@ -16,6 +16,7 @@ import '../common/constants/screenshot_enums.dart';
 import '../common/utils/geometry.dart';
 import '../common/utils/screenshot_filename.dart';
 import '../common/widgets/native_glass.dart';
+import '../common/widgets/toolbar_feedback.dart';
 import '../common/widgets/native_resize_cursor.dart';
 import 'edit_document.dart';
 import 'drawing_style.dart';
@@ -110,13 +111,22 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   bool _busy = false;
   bool _failed = false;
   bool _textInputOpen = false;
-  String? _message;
+  String? _feedbackMessage;
+  Timer? _feedbackTimer;
 
-  /// 复制成功是短暂反馈；与需要保留的错误、保存状态分开管理。
-  String? _copyFeedback;
+  /// 无参数；返回当前一秒文字反馈，成功和失败共用同一状态。
+  String? get _message => _feedbackMessage;
 
-  /// 连续复制先取消旧计时，保证新反馈保留完整一秒。
-  Timer? _copyFeedbackTimer;
+  /// value为响应文案；赋值方负责当前重建，计时结束仅移除文字，不修改保存路径或编辑状态。
+  set _message(String? value) {
+    _feedbackTimer?.cancel();
+    _feedbackMessage = value;
+    if (value == null) return;
+    _feedbackTimer = Timer(GlassMetrics.feedbackDuration, () {
+      if (mounted) setState(() => _feedbackMessage = null);
+    });
+  }
+
   String? _savedPath;
   List<_OcrOverlay> _ocrOverlays = [];
   // 双击位置只用于松开确认后的编辑/复制，第二次按下不能提前导出。
@@ -258,7 +268,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     if (_styleDialogOpen) {
       Navigator.of(_editorKey.currentContext!).pop();
     }
-    _copyFeedbackTimer?.cancel();
+    _feedbackTimer?.cancel();
     final bytes = value['bytes'] as Uint8List?;
     final width = (value['width'] as num?)?.toInt() ?? 0;
     final height = (value['height'] as num?)?.toInt() ?? 0;
@@ -275,7 +285,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _message = value['error'] as String?;
       _failed = _message != null;
       _savedPath = null;
-      _copyFeedback = null;
       _busy = false;
       _dragStart = null;
       _dragCurrent = null;
@@ -679,16 +688,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
   }
 
-  /// message 为复制成功文案；显示一秒浮层，返回 void；连续成功重新计时。
+  /// message为复制成功文案；经统一反馈入口显示一秒，不改变编辑和保存状态。
   void _showCopyFeedback(String message) {
-    _copyFeedbackTimer?.cancel();
     setState(() {
-      _copyFeedback = message;
-      _message = null;
+      _message = message;
       _failed = false;
-    });
-    _copyFeedbackTimer = Timer(GlassMetrics.copyFeedbackDuration, () {
-      if (mounted) setState(() => _copyFeedback = null);
     });
   }
 
@@ -786,9 +790,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       }
     } on PlatformException catch (error) {
       if (!mounted || _capture['id'] != id) return;
-      _copyFeedbackTimer?.cancel();
+      _feedbackTimer?.cancel();
       setState(() {
-        _copyFeedback = null;
         _savedPath = saved ?? _savedPath;
         _message = error.message;
         _failed = true;
@@ -1532,7 +1535,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   @override
   void dispose() {
     _sourceImage?.dispose();
-    _copyFeedbackTimer?.cancel();
+    _feedbackTimer?.cancel();
     _document.removeListener(_onDocumentChanged);
     _document.dispose();
     _focusNode.dispose();
@@ -1707,8 +1710,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                       ? (_recordingTarget == CaptureTarget.application ? 2 : 1)
                       : 0,
                   applicationCount: _recordingApplications.length,
-                  toolbarHasMessage: _message != null,
-                  copyFeedback: _copyFeedback,
+                  feedbackIsError: _failed,
+                  feedback: _message,
                   ocrOverlays: _ocrOverlays,
                 )
               else
@@ -2130,37 +2133,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           ),
       ],
     );
+    // 响应文字由画布外层独立定位，工具组始终使用完整工具栏空间。
     return SizedBox(
       key: const Key('screenshot-toolbar'),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: LayoutBuilder(
-          builder: (context, constraints) => Flex(
-            direction: axis,
-            children: [
-              Expanded(child: groups),
-              if (_message != null)
-                SizedBox(
-                  width: axis == Axis.horizontal
-                      ? constraints.maxWidth * .4
-                      : null,
-                  height: axis == Axis.vertical
-                      ? constraints.maxHeight * .35
-                      : null,
-                  child: SingleChildScrollView(
-                    child: Text(
-                      _message!,
-                      style: TextStyle(
-                        color: _failed ? colors.error : colors.onSurface,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
+      child: Padding(padding: const EdgeInsets.all(8), child: groups),
     );
   }
 }
@@ -2201,8 +2177,8 @@ class _EditorSurface extends StatefulWidget {
     this.secondaryItemCount = 0,
     this.recordingRows = 0,
     this.applicationCount = 0,
-    required this.toolbarHasMessage,
-    required this.copyFeedback,
+    required this.feedbackIsError,
+    required this.feedback,
     required this.ocrOverlays,
     this.selectedText,
     this.sourceImage,
@@ -2217,7 +2193,7 @@ class _EditorSurface extends StatefulWidget {
   final int secondaryItemCount;
   final int recordingRows;
   final int applicationCount;
-  final bool toolbarHasMessage;
+  final bool feedbackIsError;
   final MethodChannel channel;
   final EditDocument document;
   final ScreenshotTool tool;
@@ -2250,7 +2226,7 @@ class _EditorSurface extends StatefulWidget {
 
   /// axis 由可用空白决定；返回具有相应滚动方向的工具栏。
   final Widget Function(BuildContext context, Axis axis) toolbarBuilder;
-  final String? copyFeedback;
+  final String? feedback;
   final List<_OcrOverlay> ocrOverlays;
 
   /// 无参数；每张图片独立管理滚动位置，替换图片不会继承旧长图偏移。
@@ -2582,34 +2558,16 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                 // 拖动时不让工具栏遮住正在变化的选区；松开后按新选区重新定位。
                 if ((widget.dragStart == null || widget.textInputOpen) &&
                     (widget.toolbarItemCount > 0 ||
-                        widget.secondaryItemCount > 0 ||
-                        widget.toolbarHasMessage))
+                        widget.secondaryItemCount > 0))
                   Positioned.fromRect(
                     rect: layout.toolbar,
                     child: widget.toolbarBuilder(context, layout.axis),
                   ),
-                if (widget.copyFeedback != null)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: CustomSingleChildLayout(
-                        delegate: _CopyFeedbackLayout(layout.toolbar),
-                        child: Semantics(
-                          liveRegion: true,
-                          child: NativeGlassSurface(
-                            key: const Key('screenshot-copy-feedback'),
-                            radius: GlassMetrics.controlRadius,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 5,
-                              ),
-                              // 成功状态由文字完整表达，短提示保持28pt轮廓，长提示自动换行。
-                              child: Text(widget.copyFeedback!),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                if (widget.feedback != null)
+                  ToolbarFeedback(
+                    toolbar: layout.toolbar,
+                    message: widget.feedback!,
+                    isError: widget.feedbackIsError,
                   ),
                 if (widget.textInputOpen)
                   Positioned.fromRect(
@@ -2698,48 +2656,6 @@ class _EditorSurfaceState extends State<_EditorSurface> {
       ),
     );
   }
-}
-
-/// 复制提示的定位；优先工具栏上方，屏幕边缘不足时使用其他不遮工具栏的位置。
-class _CopyFeedbackLayout extends SingleChildLayoutDelegate {
-  /// toolbar 为当前工具栏的窗口坐标矩形。
-  const _CopyFeedbackLayout(this.toolbar);
-  final Rect toolbar;
-
-  /// constraints 为窗口约束；返回提示最大尺寸，允许大字号文字换行。
-  @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
-      BoxConstraints.loose(
-        Size(
-          math.min(240, constraints.maxWidth - 16),
-          constraints.maxHeight - 16,
-        ),
-      );
-
-  /// size/childSize 为窗口与实际提示尺寸；返回始终留在窗口内的浮层坐标。
-  @override
-  Offset getPositionForChild(Size size, Size childSize) {
-    const gap = 8.0;
-    final x = (toolbar.center.dx - childSize.width / 2).clamp(
-      gap,
-      size.width - childSize.width - gap,
-    );
-    final above = toolbar.top - childSize.height - gap;
-    if (above >= gap) return Offset(x, above);
-    final below = toolbar.bottom + gap;
-    if (below + childSize.height <= size.height - gap) return Offset(x, below);
-    final right = toolbar.right + gap;
-    final y = toolbar.top.clamp(gap, size.height - childSize.height - gap);
-    if (right + childSize.width <= size.width - gap) return Offset(right, y);
-    final left = toolbar.left - childSize.width - gap;
-    if (left >= gap) return Offset(left, y);
-    return Offset(x, above.clamp(gap, size.height - childSize.height - gap));
-  }
-
-  /// oldDelegate 为上一帧定位信息；工具栏移动时重新计算提示位置。
-  @override
-  bool shouldRelayout(_CopyFeedbackLayout oldDelegate) =>
-      toolbar != oldDelegate.toolbar;
 }
 
 /// cursorFor 根据本地坐标返回四角拉伸光标；child 为画布手势层。

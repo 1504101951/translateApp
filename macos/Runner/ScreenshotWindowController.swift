@@ -1,7 +1,6 @@
 import Cocoa
 import CoreGraphics
 import FlutterMacOS
-import UniformTypeIdentifiers
 
 /// 系统截图模块承接权限与冻结帧；Dart 编辑层负责框选变暗、标注与导出。
 final class ScreenshotWindowController: NSObject, NSWindowDelegate {
@@ -262,6 +261,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
 
     /// png/id/尺寸为合成捕获；showEditor 为真时启动真实 Flutter 编辑窗，供系统链路测试。
     func seedCaptureForTesting(png: Data, id: String, width: CGFloat = 1, height: CGFloat = 1, showEditor: Bool = false) {
+        self.displaysFrozenScreen = true
         self.png = png
         self.captureId = id
         self.pixels = NSSize(width: width, height: height)
@@ -446,39 +446,15 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 result(nil)
             case AppConstants.saveScreenshotMethod:
                 let name = args["name"] as? String ?? "screenshot.png"
-                if let directory = UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
-                   args["saveAs"] as? Bool != true {
-                    do {
-                        let url = try ScreenshotStorage.save(
-                            payload,
-                            directory: URL(fileURLWithPath: directory),
-                            name: name
-                        )
-                        result(url.path)
-                    } catch {
-                        result(FlutterError(code: AppConstants.saveFailedError, message: error.localizedDescription, details: nil))
-                    }
-                    return
-                }
-                guard let window else {
-                    result(FlutterError(code: AppConstants.saveFailedError, message: "截图窗口已关闭。", details: nil))
-                    return
-                }
-                let panel = NSSavePanel()
-                panel.allowedContentTypes = [.png]
-                panel.nameFieldStringValue = name
-                panel.canCreateDirectories = true
-                panel.beginSheetModal(for: window) { response in
-                    guard response == .OK, let url = panel.url else {
-                        result(nil)
-                        return
-                    }
-                    do {
-                        try payload.write(to: url)
-                        result(url.path)
-                    } catch {
-                        result(FlutterError(code: AppConstants.saveFailedError, message: error.localizedDescription, details: nil))
-                    }
+                do {
+                    // datedDirectory统一默认路径；save独占创建，重名只增加序号。
+                    let directory = try ScreenshotStorage.datedDirectory(
+                        basePath: UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
+                        extension: "png")
+                    let url = try ScreenshotStorage.save(payload, directory: directory, name: name)
+                    result(url.path)
+                } catch {
+                    result(FlutterError(code: AppConstants.saveFailedError, message: error.localizedDescription, details: nil))
                 }
             case AppConstants.pinScreenshotMethod:
                 guard let x = args["x"] as? NSNumber, let y = args["y"] as? NSNumber else {
@@ -521,19 +497,16 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// compact 为无权限/失败时的小窗；成功时覆盖冻结帧所在显示器。
-    private func show(compact: Bool) {
+    /// compact为无权限/失败小窗；按冻结选区或长图结果配置窗口，返回结果是否已显示。
+    @discardableResult
+    private func show(compact: Bool) -> Bool {
+        let overlay = compact || displaysFrozenScreen
         if engine == nil {
             let engine = FlutterEngine(name: "screenshot", project: nil, allowHeadlessExecution: false)
             self.engine = engine
-            let channel = FlutterMethodChannel(
-                name: AppConstants.screenshotChannel,
-                binaryMessenger: engine.binaryMessenger
-            )
+            let channel = FlutterMethodChannel(name: AppConstants.screenshotChannel, binaryMessenger: engine.binaryMessenger)
             self.channel = channel
-            channel.setMethodCallHandler { [weak self] call, result in
-                self?.handle(call, result: result)
-            }
+            channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
             let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
             guard engine.run(withEntrypoint: AppConstants.screenshotEntrypoint) else {
                 channel.setMethodCallHandler(nil)
@@ -544,58 +517,82 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 alert.messageText = "截图预览启动失败"
                 alert.informativeText = "请退出并重新打开 TranslateApp。"
                 alert.runModal()
-                return
+                return false
             }
-        RegisterGeneratedPlugins(registry: flutter)
-        // 平台视图工厂按引擎注册，避免独立窗口缺少原生玻璃材料。
-        NativeGlassFactory.register(with: flutter)
-            // 无边框置顶编辑层覆盖冻结屏；编辑期可成为 key 以接收 Esc/文字。
-            let window = ScreenshotPanel(
-                contentRect: displayFrame,
-                styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
-                backing: .buffered,
-                defer: false
-            )
-            window.onEscape = { [weak self] in
-                // Dart 判断文字输入中只取消草稿；否则关闭编辑层。
-                self?.channel?.invokeMethod(AppConstants.escapePressedMethod, arguments: nil)
-            }
-            window.onUndo = { [weak self] in
-                self?.channel?.invokeMethod(AppConstants.undoPressedMethod, arguments: nil)
-            }
-            window.onRedo = { [weak self] in
-                self?.channel?.invokeMethod(AppConstants.redoPressedMethod, arguments: nil)
-            }
-            window.isFloatingPanel = true
-            window.level = .statusBar
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            window.animationBehavior = .none
-            window.hidesOnDeactivate = false
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.hasShadow = false
-            window.isReleasedWhenClosed = false
-            window.delegate = self
-            window.contentViewController = flutter
+            RegisterGeneratedPlugins(registry: flutter)
+            // 平台视图工厂按引擎注册，截图与长图结果共享同一编辑协议。
+            NativeGlassFactory.register(with: flutter)
             flutter.view.wantsLayer = true
             flutter.view.layer?.isOpaque = false
             flutter.view.layer?.backgroundColor = CGColor.clear
+            window = makeWindow(content: flutter, overlay: overlay)
             freezeView.imageScaling = .scaleAxesIndependently
             freezeView.wantsLayer = true
-            self.window = window
+        }
+        if let old = window, old.styleMask.contains(.nonactivatingPanel) != overlay {
+            // 非激活标记由初始化决定；转移同一引擎的视图，不在切换时清理图片或重建引擎。
+            let content = old.contentViewController!
+            old.contentViewController = nil
+            old.delegate = nil
+            old.close()
+            window = makeWindow(content: content, overlay: overlay)
         }
         let frame = compact
             ? NSRect(x: displayFrame.midX - 220, y: displayFrame.midY - 90, width: 440, height: 180)
-            : displayFrame
+            : overlay ? displayFrame : Self.imageResultFrame(pixels: pixels, scale: selectedScale, visible: displayFrame)
         window?.setFrame(frame, display: true)
         installFreezeImage(compact: compact)
         window?.displayIfNeeded()
         channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
-        // 不 activate：激活会把设置窗/菜单栏抢到前台，看起来像闪一下。
-        if NSApp.isHidden { NSApp.unhideWithoutActivation() }
-        window?.orderFrontRegardless()
-        window?.makeKey()
+        if overlay {
+            // 冻结选择不激活应用，避免设置窗跟随弹出；长图结果是正常可激活窗口。
+            if NSApp.isHidden { NSApp.unhideWithoutActivation() }
+            window?.orderFrontRegardless()
+            window?.makeKey()
+        } else {
+            NSApp.activate()
+            window?.makeKeyAndOrderFront(nil)
+        }
         installScreenshotKeys()
+        return window?.isVisible == true
+    }
+
+    /// content为共享编辑视图，overlay决定覆盖选区或普通结果；返回具备正确焦点与关闭契约的窗口。
+    private func makeWindow(content: NSViewController, overlay: Bool) -> ScreenshotPanel {
+        let style: NSWindow.StyleMask = overlay
+            ? [.borderless, .fullSizeContentView, .nonactivatingPanel] : AppConstants.captureResultWindowStyle
+        let panel = ScreenshotPanel(contentRect: displayFrame, styleMask: style, backing: .buffered, defer: false)
+        panel.onEscape = { [weak self] in
+            // Dart判断文字输入时取消草稿，其余状态立即关闭当前图片。
+            self?.channel?.invokeMethod(AppConstants.escapePressedMethod, arguments: nil)
+        }
+        panel.onUndo = { [weak self] in self?.channel?.invokeMethod(AppConstants.undoPressedMethod, arguments: nil) }
+        panel.onRedo = { [weak self] in self?.channel?.invokeMethod(AppConstants.redoPressedMethod, arguments: nil) }
+        panel.title = overlay ? "" : "长截图结果"
+        panel.isFloatingPanel = overlay
+        panel.level = overlay ? .statusBar : .normal
+        panel.collectionBehavior = overlay ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace, .fullScreenAuxiliary]
+        panel.animationBehavior = .none
+        panel.hidesOnDeactivate = false
+        panel.isOpaque = !overlay
+        panel.backgroundColor = overlay ? .clear : .windowBackgroundColor
+        panel.hasShadow = !overlay
+        if !overlay { panel.contentMinSize = NSSize(width: 320, height: 240) }
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        panel.contentViewController = content
+        return panel
+    }
+
+    /// pixels/scale为来源原图与倍率，visible为来源屏可用区；返回保留逻辑宽、允许纵向滚动的结果窗口框。
+    static func imageResultFrame(pixels: NSSize, scale: CGFloat, visible: NSRect) -> NSRect {
+        let style = AppConstants.captureResultWindowStyle
+        let available = NSWindow.contentRect(forFrameRect: visible, styleMask: style)
+        let size = NSSize(width: min(available.width, max(320, pixels.width / scale + 72)),
+                          height: min(available.height, max(240, pixels.height / scale + 16)))
+        let frame = NSWindow.frameRect(forContentRect: NSRect(origin: .zero, size: size), styleMask: style)
+        return NSRect(x: visible.midX - frame.width / 2, y: visible.midY - frame.height / 2,
+                      width: frame.width, height: frame.height)
     }
 
     /// compact 为失败小窗；成功时把冻结 PNG 垫在 Flutter 下面，避免透明首帧。
@@ -635,7 +632,8 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
 
     /// event 为按键；返回是否由当前截图处理，调用方据此消费事件。
     func routeScreenshotKey(_ event: NSEvent) -> Bool {
-        guard window?.isVisible == true, window?.attachedSheet == nil else { return false }
+        guard window?.isVisible == true, window?.attachedSheet == nil,
+              displaysFrozenScreen || window?.isKeyWindow == true else { return false }
         // 文字输入期间普通键和编辑命令交给Flutter/NSTextInputClient，不能先消费再丢弃。
         // Escape仍由Dart决定仅取消当前文字草稿，其他状态不受影响。
         if textInputActive && event.keyCode != AppConstants.escapeKeyCode { return false }
@@ -701,6 +699,8 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             if self?.routeScreenshotKey(event) == true { return nil }
             return event
         }
+        // 普通结果窗口只接收自身按键；切到其他应用后不截获全局Return/Escape或工具快捷键。
+        guard displaysFrozenScreen else { return }
         let mask = CGEventMask(1) << CGEventType.keyDown.rawValue
         let pointer = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
@@ -789,8 +789,9 @@ extension ScreenshotWindowController {
         channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
     }
 
-    /// data为完成或部分结果PNG，width/height为源像素，scale为来源倍率，warning为采集说明；复用编辑、复制、保存。
-    func presentImage(_ data: Data, width: Int, height: Int, scale: CGFloat, warning: String?) {
+    /// data为结果PNG，width/height为源像素，scale为来源倍率，warning为说明；展示编辑结果并返回窗口是否可见。
+    @discardableResult
+    func presentImage(_ data: Data, width: Int, height: Int, scale: CGFloat, warning: String?) -> Bool {
         // 长图保留来源倍率，Flutter用同一等比矩形绘制图像、标注并映射手势。
         displaysFrozenScreen = false
         selectedScale = scale
@@ -798,9 +799,12 @@ extension ScreenshotWindowController {
         captureId = UUID().uuidString
         capturedAt = Int64(Date().timeIntervalSince1970 * 1000)
         pixels = NSSize(width: width, height: height)
-        displayFrame = NSScreen.main?.frame ?? displayFrame
+        let source = NSScreen.screens.first {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == selectedDisplayID
+        } ?? NSScreen.main
+        displayFrame = source?.visibleFrame ?? displayFrame
         windowCrop = nil
         message = warning
-        show(compact: false)
+        return show(compact: false)
     }
 }

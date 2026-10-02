@@ -111,12 +111,12 @@ final class ScrollStitcher {
         var candidates: [(shift: Int, score: Double)] = []
         for shift in 1...(body - overlap) {
             let score = difference(old, current, oldStart: selected.top + shift,
-                                   newStart: selected.top, count: body - shift, samples: 12)
+                                   newStart: selected.top, count: body - shift, samples: 12, rasterization: true)
             if score < 8 { candidates.append((shift, score)) }
         }
         let verified = candidates.sorted { $0.score < $1.score }.prefix(12).map { candidate in
             (shift: candidate.shift, score: difference(old, current, oldStart: selected.top + candidate.shift,
-                newStart: selected.top, count: body - candidate.shift, samples: 96))
+                newStart: selected.top, count: body - candidate.shift, samples: 96, rasterization: true))
         }.sorted { $0.score < $1.score }
         guard let best = verified.first, best.score < 3,
               !verified.dropFirst().contains(where: { abs($0.shift - best.shift) > 1 && $0.score < max(1, best.score * 1.8) }) else {
@@ -153,7 +153,7 @@ final class ScrollStitcher {
             body = image.height - selected.top - selected.bottom
             // 收缩候选带后重新校验全部正文重叠，确保接缝可靠。
             guard body - best.shift >= 32, difference(old, current, oldStart: selected.top + best.shift,
-                newStart: selected.top, count: body - best.shift, samples: body) < 3 else {
+                newStart: selected.top, count: body - best.shift, samples: body, rasterization: true) < 3 else {
                 throw Failure(message: "无法可靠区分固定区域与正文，已保留确认部分。")
             }
         }
@@ -237,16 +237,34 @@ final class ScrollStitcher {
         zip(a, b).reduce(0) { $0 + abs($1.0 - $1.1) } / Double(a.count)
     }
 
-    /// 两帧及对应起始行、重叠行数、样本数；返回整段平均差，供位移与静止验证。
-    private func difference(_ a: Frame, _ b: Frame, oldStart: Int, newStart: Int, count: Int, samples: Int) -> Double {
+    /// 两帧及对应行范围、样本数；rasterization允许整段一致的亚像素插值，返回最低平均误差。
+    private func difference(_ a: Frame, _ b: Frame, oldStart: Int, newStart: Int, count: Int,
+                            samples: Int, rasterization: Bool = false) -> Double {
         let step = max(1, count / samples)
-        var total = 0.0
+        var totals = [Double](repeating: 0, count: rasterization ? 16 : 1)
         var used = 0
         for offset in stride(from: 0, to: count, by: step) {
-            // 单行差使用相同列采样，不能把纯色行错当文字特征。
-            total += rowDifference(a.rows[oldStart + offset], b.rows[newStart + offset])
+            let oldRow = a.rows[oldStart + offset]
+            let newRow = b.rows[newStart + offset]
+            // 原始行差仍承担静止判断；亚像素处理只归一化配准样本，不修改输出图像。
+            if rasterization {
+                let oldNext = a.rows[min(oldStart + offset + 1, a.rows.count - 1)]
+                let newNext = b.rows[min(newStart + offset + 1, b.rows.count - 1)]
+                for index in oldRow.indices {
+                    let delta = oldRow[index] - newRow[index]
+                    for oldQuarter in 0...3 {
+                        for newQuarter in 0...3 {
+                            // 两帧都可能已经落在亚像素位置；统一比较两侧插值，保留整段相同的相位组合。
+                            totals[oldQuarter * 4 + newQuarter] += abs(delta
+                                + (oldNext[index] - oldRow[index]) * Double(oldQuarter) / 4
+                                - (newNext[index] - newRow[index]) * Double(newQuarter) / 4)
+                        }
+                    }
+                }
+            } else { totals[0] += rowDifference(oldRow, newRow) }
             used += 1
         }
-        return total / Double(used)
+        // 同一个插值方向和比例必须解释全部重叠区；不能逐像素挑最小差来掩盖内容变化。
+        return totals.min()! / Double(used) / (rasterization ? Double(a.rows[0].count) : 1)
     }
 }

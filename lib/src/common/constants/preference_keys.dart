@@ -36,6 +36,12 @@ abstract final class PreferenceKeys {
   /// screenshotSaveDirectory 的稳定协议值，变更须同步两端及持久化调用方。
   static const screenshotSaveDirectory = 'screenshotSaveDirectory';
 
+  /// GIF完整视频导出的每秒采样帧数；与原生偏好键一致。
+  static const gifFramesPerSecond = 'gifFramesPerSecond';
+
+  /// GIF最大像素宽度；省略表示不限制，输出仍不会放大原视频。
+  static const gifMaximumWidth = 'gifMaximumWidth';
+
   /// screenshotShortcutKeyCode 的稳定协议值，变更须同步两端及持久化调用方。
   static const screenshotShortcutKeyCode = 'screenshotShortcutKeyCode';
 

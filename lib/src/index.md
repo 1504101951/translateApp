@@ -11,4 +11,4 @@
 7. [settings/](settings/index.md)：偏好设置、服务编辑、权限向导及截图工具配置。
 8. [translation/](translation/index.md)：语言方向、翻译数据契约、段落对照及分片流程。
 9. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
-10. [capture/](capture/index.md)：统一采集悬浮条、视频结果与GIF参数。
+10. [capture/](capture/index.md)：统一采集悬浮条、视频结果与全视频GIF导出。

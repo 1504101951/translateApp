@@ -194,11 +194,11 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             var settings = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
             settings["systemLanguage"] = Locale.preferredLanguages.first ?? "en"
             settings[AppConstants.launchAtLoginKey] = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
-            // 截图目录历史上独立存储；设置分段页与截图导出共用同一键。
+            // 设置页面展示解析后的根目录；空偏好使用系统Pictures下的截图目录。
             settings[AppConstants.screenshotSaveDirectoryKey] =
-                UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey)
-                ?? (settings[AppConstants.screenshotSaveDirectoryKey] as? String)
-                ?? ""
+                ScreenshotStorage.rootDirectory(
+                    UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey)
+                    ?? (settings[AppConstants.screenshotSaveDirectoryKey] as? String)).path
             result(settings)
         case AppConstants.chooseScreenshotDirectoryMethod:
             let panel = NSOpenPanel()

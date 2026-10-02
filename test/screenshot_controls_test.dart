@@ -641,7 +641,7 @@ void main() {
       expect(clipboard, isNotNull);
       expect(
         toolbar.overlaps(
-          tester.getRect(find.byKey(const Key('screenshot-copy-feedback'))),
+          tester.getRect(find.byKey(const Key('toolbar-feedback-bubble'))),
         ),
         isFalse,
       );
@@ -698,7 +698,7 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const ScreenshotApp(channel: channel));
     await tester.pumpAndSettle();
-    final feedback = find.byKey(const Key('screenshot-copy-feedback'));
+    final feedback = find.byKey(const Key('toolbar-feedback-bubble'));
     final copyButton = find.byKey(const Key('screenshot-copy'));
 
     /// 无参数；真实图像线程完成复制后返回，计时器保持在 Widget 测试时钟内。
@@ -837,7 +837,7 @@ void main() {
     await tester.pump();
     copyReply.complete();
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('screenshot-copy-feedback')), findsNothing);
+    expect(find.byKey(const Key('toolbar-feedback-bubble')), findsNothing);
     expect(find.text('已复制文字'), findsNothing);
     expect(find.byKey(const Key('screenshot-canvas')), findsOneWidget);
   });

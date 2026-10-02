@@ -11,7 +11,7 @@ abstract final class MethodNames {
   static const cancelCapture = 'cancelCapture';
   static const saveRecording = 'saveRecording';
 
-  /// 播放当前完整视频或指定的GIF片段。
+  /// 播放当前完整视频。
   static const previewRecording = 'previewRecording';
   static const exportRecordingGIF = 'exportRecordingGIF';
   static const cancelGIFExport = 'cancelGIFExport';

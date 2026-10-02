@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/capture/capture_app.dart';
-import 'package:translate_app/src/capture/gif_options.dart';
 import 'package:translate_app/src/common/constants/channel_names.dart';
 import 'package:translate_app/src/common/constants/method_names.dart';
 import 'package:translate_app/src/common/constants/screenshot_actions.dart';
@@ -18,7 +17,6 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   late Map<String, Object?> state;
-  late bool discardConfirmed;
 
   /// next为原生已发生的状态；模拟平台边界通知并渲染当前帧，无返回值。
   Future<void> notify(WidgetTester tester, Map<String, Object?> next) async {
@@ -35,7 +33,6 @@ void main() {
 
   setUp(() {
     state = {'id': 'session', 'phase': 'idle'};
-    discardConfirmed = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == MethodNames.setCapturePaused) {
         final paused = (call.arguments as Map)['paused'] == true;
@@ -45,7 +42,7 @@ void main() {
           ['recording', 'scrolling', 'paused'].contains(state['phase'])) {
         state = {...state, 'phase': 'finalizing'};
       }
-      if (call.method == MethodNames.cancelCapture && discardConfirmed) {
+      if (call.method == MethodNames.cancelCapture) {
         state = {'id': 'new-session', 'phase': 'idle'};
       }
       return state;
@@ -62,42 +59,6 @@ void main() {
     messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
   });
 
-  test('GIF输入边界与有界帧数遵循实际片段时长', () {
-    // 60秒×30fps恰好1800帧；多0.01秒需要第1801帧，应提示缩短。
-    const exact = GifOptions(start: 0, end: 60, fps: 30, width: 640);
-    expect(exact.validate(duration: 61, sourceWidth: 640), isNull);
-    expect(exact.frameCount, 1800);
-    expect(
-      const GifOptions(
-        start: 0,
-        end: 60.01,
-        fps: 30,
-        width: 640,
-      ).validate(duration: 61, sourceWidth: 640),
-      contains('1800'),
-    );
-    for (final options in [
-      const GifOptions(start: 0, end: 0, fps: 10, width: 640),
-      const GifOptions(start: -0.1, end: 1, fps: 10, width: 640),
-      const GifOptions(start: double.nan, end: 1, fps: 10, width: 640),
-      const GifOptions(start: 0, end: double.infinity, fps: 10, width: 640),
-      const GifOptions(start: 0, end: 1.01, fps: 10, width: 640),
-      const GifOptions(start: 0, end: 1, fps: 31, width: 640),
-      const GifOptions(start: 0, end: 1, fps: 0, width: 640),
-      const GifOptions(start: 0, end: 1, fps: 10, width: 641),
-      const GifOptions(start: 0, end: 1, fps: 10, width: 0),
-    ]) {
-      expect(options.validate(duration: 1, sourceWidth: 640), isNotNull);
-    }
-    const partial = GifOptions(start: 0.21, end: 0.84, fps: 10, width: 320);
-    expect(partial.frameCount, 7);
-    // 0.8-0.2存在二进制浮点余量，半开片段只能采样0.2到0.7共六帧。
-    expect(
-      const GifOptions(start: 0.2, end: 0.8, fps: 10, width: 32).frameCount,
-      6,
-    );
-  });
-
   testWidgets('两种采集共用四个独立气泡，上方提示且暂停放弃保持契约', (tester) async {
     // 320×84包含36pt上方提示空间；验证四个独立材料及两种内容的暂停、放弃、结束边界。
     tester.view.physicalSize = const Size(320, 84);
@@ -106,7 +67,6 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     for (final kind in ['recording', 'scrolling']) {
       await tester.pumpWidget(const SizedBox.shrink());
-      discardConfirmed = false;
       state = {
         'id': kind,
         'kind': kind,
@@ -123,13 +83,25 @@ void main() {
         expect(tooltip.preferBelow, isFalse);
       }
       expect(find.text(label), findsOneWidget);
+      // 84pt高面板只保留36pt提示区；长错误文字必须限制在气泡外，首击操作始终可命中。
+      await notify(tester, {
+        ...state,
+        'error': '相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。',
+      });
+      final feedback = find.byKey(const Key('toolbar-feedback-bubble'));
+      final feedbackRect = tester.getRect(feedback);
+      expect(feedbackRect.height, greaterThanOrEqualTo(28));
+      for (final action in ['暂停', '结束', '放弃']) {
+        final button = find.byTooltip(action);
+        expect(button.hitTestable(), findsOneWidget);
+        expect(feedbackRect.overlaps(tester.getRect(button)), isFalse);
+      }
+      await tester.pump(const Duration(seconds: 1));
+      expect(feedback, findsNothing);
       await tester.tap(find.byTooltip('暂停'));
       await tester.pumpAndSettle();
       expect(find.text('已暂停 · $label'), findsOneWidget);
       expect(find.byTooltip('开始'), findsOneWidget);
-      await tester.tap(find.byTooltip('放弃'));
-      await tester.pumpAndSettle();
-      expect(find.text('已暂停 · $label'), findsOneWidget);
       await tester.tap(find.byTooltip('开始'));
       await tester.pumpAndSettle();
       expect(find.text(label), findsOneWidget);
@@ -148,7 +120,6 @@ void main() {
             .onPressed,
         isNull,
       );
-      discardConfirmed = true;
       await tester.tap(find.byTooltip('放弃'));
       await tester.pumpAndSettle();
       expect(find.byType(IconButton), findsNothing);
@@ -183,7 +154,7 @@ void main() {
     final viewport = Offset.zero & const Size(1200, 900);
     final media = tester.getRect(video);
     Rect? previous;
-    for (final action in ['播放视频', '保存 MP4', '导出 GIF…', '关闭当前采集']) {
+    for (final action in ['播放视频', '保存 MP4', '导出 GIF', '关闭当前采集']) {
       expect(find.byTooltip(action).hitTestable(), findsOneWidget);
       final button = tester.getRect(find.byTooltip(action));
       expect(viewport.contains(button.topLeft), isTrue);
@@ -231,7 +202,7 @@ void main() {
     );
     expect(media.width / media.height, closeTo(16 / 9, 0.001));
     expect(media.top, greaterThanOrEqualTo(8));
-    for (final action in ['播放视频', '保存 MP4', '导出 GIF…', '关闭当前采集']) {
+    for (final action in ['播放视频', '保存 MP4', '导出 GIF', '关闭当前采集']) {
       final rect = tester.getRect(find.byTooltip(action));
       expect(rect.left, greaterThan(media.right));
       expect(rect.right, lessThanOrEqualTo(892));
@@ -242,8 +213,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('关闭与Escape都确认放弃，取消保留结果，转换中仍能关闭', (tester) async {
-    // 原生确认只返回实际会话状态；覆盖取消、转换中关闭以及默认窗口最小尺寸73×196pt。
+  testWidgets('关闭与Escape单击放弃，转换中仍能关闭', (tester) async {
+    // 关闭即丢弃会话；覆盖转换中关闭以及默认窗口最小尺寸73×196pt。
     tester.view.physicalSize = const Size(73, 196);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -261,13 +232,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭当前采集'));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('播放视频').hitTestable(), findsOneWidget);
+    expect(find.byType(IconButton), findsNothing);
     expect(tester.takeException(), isNull);
-    // Escape在结果页也进入同一确认；取消之后仍可继续保存。
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    // 新结果按一次Escape即可清理；不要求第二次键盘或确认输入。
+    await notify(tester, resultState);
     await tester.pumpAndSettle();
-    expect(find.byTooltip('保存 MP4').hitTestable(), findsOneWidget);
-    discardConfirmed = true;
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.byType(IconButton), findsNothing);
@@ -285,8 +254,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('GIF参数按需展开，进度保留草稿且非法片段禁用导出', (tester) async {
-    // 非整数结束时间保持源精度；同一会话的进度与取消不得重置用户输入。
+  testWidgets('GIF直接导出全视频，取消和保存反馈在工具栏外仅停留一秒', (tester) async {
+    // 非整数源时长由原生元数据决定；结果页不再要求用户重复输入尺寸和片段。
     state = {
       'id': 'video',
       'phase': 'videoReady',
@@ -295,50 +264,54 @@ void main() {
       'width': 640,
       'height': 480,
     };
-    await tester.pumpWidget(const CaptureApp(channel: channel));
-    await tester.pumpAndSettle();
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is AppKitView &&
-            widget.viewType == ChannelNames.captureVideoPreview,
-      ),
-      findsOneWidget,
-    );
-    expect(find.byType(TextField), findsNothing);
-    await tester.tap(find.byTooltip('导出 GIF…'));
-    await tester.pumpAndSettle();
-    final fields = find.byType(TextField);
-    expect(tester.widget<TextField>(fields.at(1)).controller!.text, '1.234567');
-    await tester.ensureVisible(fields.at(0));
-    await tester.enterText(fields.at(0), '0.4');
-    await tester.enterText(fields.at(1), '0.2');
-    await tester.pump();
-    final export = find.widgetWithText(FilledButton, '导出 GIF');
-    expect(tester.widget<FilledButton>(export).onPressed, isNull);
-    expect(find.textContaining('开始 < 结束'), findsOneWidget);
-    await tester.enterText(fields.at(1), '1.2');
-    await tester.pump();
-    expect(tester.widget<FilledButton>(export).onPressed, isNotNull);
-    await notify(tester, {...state, 'phase': 'converting', 'progress': 0.5});
-    expect(find.text('正在转换 50%'), findsOneWidget);
-    expect(tester.widget<TextField>(fields.at(0)).controller!.text, '0.4');
-    expect(tester.widget<FilledButton>(export).onPressed, isNull);
-    // 用实际鼠标命中验证取消后的可编辑状态，避免父级禁用区吞掉取消按钮。
     messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.exportRecordingGIF) {
+        state = {...state, 'phase': 'converting', 'progress': 0.5};
+      }
       if (call.method == MethodNames.cancelGIFExport) {
         state = {...state, 'phase': 'videoReady', 'error': 'GIF转换已取消，源视频保持不变。'};
       }
+      if (call.method == MethodNames.saveRecording) {
+        state = {
+          ...state,
+          'error': null,
+          'savedPath': '/截图/视频/2026-10-01/录屏.mp4',
+        };
+      }
       return state;
     });
-    final cancel = find.widgetWithText(TextButton, '取消转换');
-    await tester.ensureVisible(cancel);
-    await tester.tap(cancel);
+    await tester.pumpWidget(const CaptureApp(channel: channel));
     await tester.pumpAndSettle();
-    expect(tester.widget<FilledButton>(export).onPressed, isNotNull);
-    // 取消提示显示在独立消息气泡中，保留当前视频和导出设置。
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.byTooltip('导出 GIF'));
     await tester.pumpAndSettle();
+    expect(find.text('正在转换 50%'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.byTooltip('取消转换'));
+    await tester.pump();
+    final bubble = find.byKey(const Key('toolbar-feedback-bubble'));
     expect(find.textContaining('源视频保持不变'), findsOneWidget);
+    for (final button in tester.widgetList<IconButton>(
+      find.byType(IconButton),
+    )) {
+      final target = find.byTooltip(button.tooltip!);
+      expect(tester.getRect(bubble).overlaps(tester.getRect(target)), isFalse);
+      expect(target.hitTestable(), findsOneWidget);
+    }
+    await tester.pump(const Duration(milliseconds: 999));
+    expect(bubble, findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(bubble, findsNothing);
+    await tester.tap(find.byTooltip('保存 MP4'));
+    await tester.pump();
+    expect(find.text('已保存 MP4'), findsOneWidget);
+    expect(
+      tester.getRect(bubble).overlaps(tester.getRect(find.byTooltip('保存 MP4'))),
+      isFalse,
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(bubble, findsNothing);
+    expect(find.byTooltip('播放视频').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

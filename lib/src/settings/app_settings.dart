@@ -18,6 +18,8 @@ class AppSettings {
     this.screenshotShortcutLabel = 'S',
     this.screenshotShortcutModifiers = 6144,
     this.screenshotSaveDirectory = '',
+    this.gifFramesPerSecond = 10,
+    this.gifMaximumWidth,
     this.glassAppearance = AppearanceModes.system,
     this.glassOpacity = 0.8,
     this.launchAtLogin = false,
@@ -44,8 +46,12 @@ class AppSettings {
   String screenshotShortcutLabel;
   int screenshotShortcutModifiers;
 
-  /// 固定截图保存目录；空字符串表示每次保存时询问。
+  /// 采集文件的根目录；空字符串由原生解析为用户Pictures下的截图目录。
   String screenshotSaveDirectory;
+
+  /// 完整视频GIF导出的采样帧率，以及只缩小不放大的可选像素宽度上限。
+  int gifFramesPerSecond;
+  int? gifMaximumWidth;
 
   /// 视觉偏好与业务设置一同提交，不单独保存第二份配置。
   String glassAppearance;
@@ -110,6 +116,8 @@ class AppSettings {
           map[PreferenceKeys.screenshotShortcutModifiers] as int? ?? 6144,
       screenshotSaveDirectory:
           map[PreferenceKeys.screenshotSaveDirectory] as String? ?? '',
+      gifFramesPerSecond: map[PreferenceKeys.gifFramesPerSecond] as int? ?? 10,
+      gifMaximumWidth: map[PreferenceKeys.gifMaximumWidth] as int?,
       glassAppearance:
           map[PreferenceKeys.glassAppearance] as String? ??
           AppearanceModes.system,
@@ -125,6 +133,11 @@ class AppSettings {
   /// 无参数；校验可执行的语言方向及系统快捷键，非法配置抛 FormatException。
   void validate() {
     screenshotToolbar.validate();
+    if (gifFramesPerSecond < 1 ||
+        gifFramesPerSecond > 30 ||
+        (gifMaximumWidth != null && gifMaximumWidth! < 1)) {
+      throw const FormatException('GIF帧率须为1–30，最大宽度须为正整数或留空。');
+    }
     if (!AppearanceModes.values.contains(glassAppearance) ||
         !glassOpacity.isFinite ||
         glassOpacity < 0.2 ||
@@ -189,6 +202,8 @@ class AppSettings {
     PreferenceKeys.screenshotShortcutLabel: screenshotShortcutLabel,
     PreferenceKeys.screenshotShortcutModifiers: screenshotShortcutModifiers,
     PreferenceKeys.screenshotSaveDirectory: screenshotSaveDirectory,
+    PreferenceKeys.gifFramesPerSecond: gifFramesPerSecond,
+    PreferenceKeys.gifMaximumWidth: ?gifMaximumWidth,
     PreferenceKeys.glassAppearance: glassAppearance,
     PreferenceKeys.glassOpacity: glassOpacity,
     PreferenceKeys.launchAtLogin: launchAtLogin,
