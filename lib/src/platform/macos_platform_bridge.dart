@@ -4,9 +4,10 @@ import '../common/constants/channel_names.dart';
 import 'package:flutter/services.dart';
 
 import 'macos_bridge_event.dart';
+import 'settings_platform.dart';
 
 /// Dart 侧平台通道客户端。不包含翻译业务。
-class MacosPlatformBridge {
+class MacosPlatformBridge implements SettingsPlatform {
   /// methods/events为可注入通道，省略时使用macOS默认通道；构造不发起原生调用。
   MacosPlatformBridge({MethodChannel? methods, EventChannel? events})
     : _methods = methods ?? const MethodChannel(ChannelNames.macos),
@@ -23,7 +24,8 @@ class MacosPlatformBridge {
       });
 
   /// 通知现有历史窗口重载；无参数，返回原生转发完成的Future。
-  Future<void> notifyHistoryChanged() => _methods.invokeMethod<void>(MethodNames.historyChanged);
+  Future<void> notifyHistoryChanged() =>
+      _methods.invokeMethod<void>(MethodNames.historyChanged);
 
   /// sessionId绑定会话，x/y为屏幕锚点，width/height为逻辑尺寸；请求显示定位，返回操作完成的Future。
   Future<void> showOverlay({
@@ -102,6 +104,7 @@ class MacosPlatformBridge {
       .invokeMethod<bool>(MethodNames.isCurrentScreenshot, {'id': captureId}))!;
 
   /// settings 为经 Dart 校验的偏好字典；成功保存并应用系统能力后完成。
+  @override
   Future<void> applySettings(
     Map<String, Object> settings, {
     Map<String, Map<String, String>?> credentials = const {},
@@ -111,6 +114,7 @@ class MacosPlatformBridge {
   });
 
   /// id 为服务账户；返回仅在主引擎内存使用的凭据字典，不写入偏好。
+  @override
   Future<Map<String, String>> readCredentials(String id) async =>
       (await _methods.invokeMapMethod<String, String>(
         MethodNames.readCredentials,
@@ -118,12 +122,14 @@ class MacosPlatformBridge {
       ))!;
 
   /// ids 为服务账户列表；返回已保存凭据的账户 ID，不返回密钥。
+  @override
   Future<List<String>> credentialIds(List<String> ids) async => (await _methods
       .invokeListMethod<String>(MethodNames.credentialIds, {'ids': ids}))!;
 
-  /// handler 处理设置窗口及菜单请求；响应来自主 Dart 实例，避免双引擎状态分叉。
-  void handleSettings(Future<Object?> Function(MethodCall) handler) =>
-      _methods.setMethodCallHandler(handler);
+  /// handler路由跨窗口业务请求；设置、翻译与历史由主引擎对应模块处理，无返回值。
+  void handleApplicationRequests(
+    Future<Object?> Function(MethodCall) handler,
+  ) => _methods.setMethodCallHandler(handler);
 
   /// text 为待翻译原文；返回设备识别的 BCP-47 语言或 null，不联网。
   Future<String?> detectLanguage(String text) =>

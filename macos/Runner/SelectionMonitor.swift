@@ -281,7 +281,7 @@ final class SelectionMonitor {
                 MacPlatformBridge.Shared.instance?.invalidateSelection()
                 return
             }
-            // AX 矩形可能覆盖整段或整页；异步读取完成后以最新鼠标位置统一定位。
+            // 异步读取完成后以最新鼠标位置定位新会话。
             let anchor = NSEvent.mouseLocation
             MacPlatformBridge.Shared.instance?.emitSelectionCaptured(
                 text: text, gesture: gesture.rawValue, x: anchor.x, y: anchor.y, sourcePID: pid, sourceAppName: sourceAppName

@@ -60,8 +60,8 @@ final class ScrollStitcher {
     private var first: Frame?
     private var previous: Frame?
     private var strips: [CGImage] = []
-    private var bodyHeight = 0
     private(set) var acceptedFrames = 0
+    /// 已确认图像的总高度，包含固定首顶末底；每次追加正文成功后递增。
     private(set) var height = 0
 
     /// edges 为手动像素边界或自动检测意图；创建空会话，不分配图像缓冲。
@@ -169,11 +169,9 @@ final class ScrollStitcher {
         // 首次可靠位移之后才提交自动边界；顶部只使用首帧，正文条带不携带固定区。
         if edges == nil, let first {
             strips.append(try copyStrip(first.image, y: selected.top, height: body))
-            bodyHeight = body
             edges = selected
         }
         strips.append(try copyStrip(image, y: image.height - selected.bottom - best.shift, height: best.shift))
-        bodyHeight += best.shift
         previous = current
         acceptedFrames += 1
         height = nextHeight
@@ -186,8 +184,8 @@ final class ScrollStitcher {
         let image: CGImage
         if let edges {
             let width = first.image.width
-            let outputHeight = edges.top + bodyHeight + edges.bottom
-            guard let context = CGContext(data: nil, width: width, height: outputHeight,
+            // height在正文提交时更新，直接作为包含固定区域的最终图像高度。
+            guard let context = CGContext(data: nil, width: width, height: height,
                 bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
                 throw Failure(message: "无法分配长图内存，请缩短捕获范围。")
@@ -199,7 +197,7 @@ final class ScrollStitcher {
             var y = 0
             context.interpolationQuality = .none
             for piece in pieces {
-                context.draw(piece, in: CGRect(x: 0, y: outputHeight - y - piece.height, width: width, height: piece.height))
+                context.draw(piece, in: CGRect(x: 0, y: height - y - piece.height, width: width, height: piece.height))
                 y += piece.height
             }
             guard let result = context.makeImage() else { throw Failure(message: "无法合成长图。") }

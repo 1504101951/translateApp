@@ -18,23 +18,23 @@ enum AccessibilitySelection {
         }
     }
 
-    /// sourcePID 绑定来源，allowCopy 仅在明确翻译时开启；返回文字、AppKit 矩形及实际文字节点。
-    static func readFrontmostSelection(sourcePID: pid_t, allowCopy: Bool) async -> (text: String?, bounds: CGRect?, element: AXUIElement?) {
+    /// sourcePID绑定来源，allowCopy仅在明确翻译时开启；返回文字及实际文字节点，缺失项为nil。
+    static func readFrontmostSelection(sourcePID: pid_t, allowCopy: Bool) async -> (text: String?, element: AXUIElement?) {
         guard !Task.isCancelled, sourcePID != getpid(),
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return (nil, nil, nil) }
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return (nil, nil) }
         let app = AXUIElementCreateApplication(sourcePID)
         // 部分 Electron 应用只有开启手动辅助功能后才暴露文本。
         enableManualAccessibility(app)
         var result = readOnce(app: app)
         for delay in [80, 180] where !isUsable(result.text) {
-            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return (nil, nil, nil) }
+            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return (nil, nil) }
             // 重试期间切换应用时，不能读取或复制另一个应用的内容。
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return (nil, nil, nil) }
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID else { return (nil, nil) }
             result = readOnce(app: app)
         }
         guard !Task.isCancelled,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == sourcePID,
-              !isSecure(focusedElement(from: app)) else { return (nil, nil, nil) }
+              !isSecure(focusedElement(from: app)) else { return (nil, nil) }
         let copyRoles = focusedElement(from: app).map(ancestorRoles(of:)) ?? []
         // 网页的 AXSelectedText 会省略段落分隔；一次性复制保留浏览器生成的文本结构。
         if TextSelectionContext.shouldCopySelection(ancestorRoles: copyRoles, hasAXText: isUsable(result.text), allowCopy: allowCopy),
@@ -44,7 +44,7 @@ enum AccessibilitySelection {
                // 只允许浏览器补回空白；其他文本可能来自用户的新复制，不能恢复旧剪贴板覆盖它。
                return original.filter { !$0.isWhitespace } == copied.filter { !$0.isWhitespace }
            }) {
-            return (copied, result.bounds, result.element)
+            return (copied, result.element)
         }
         return result
     }
@@ -61,7 +61,7 @@ enum AccessibilitySelection {
         // 只有实际读到过文字的节点才可证明清空；复制回退没有 AX 节点时保持未知。
         guard let selectionElement else { return nil }
         // 浏览器跨节点选区由文本标记范围表示，不能用焦点容器的字符范围代替。
-        if let selection = selectedTextMarker(from: selectionElement) { return isUsable(selection.text) }
+        if let text = selectedTextMarker(from: selectionElement) { return isUsable(text) }
         if let text = stringAttribute(selectionElement, kAXSelectedTextAttribute as CFString) {
             return isUsable(text)
         }
@@ -82,12 +82,12 @@ enum AccessibilitySelection {
         return !isSecure(focused) && TextSelectionContext.shouldReadSelectedText(ancestorRoles: ancestorRoles(of: focused))
     }
 
-    /// app 为来源应用；返回可读文字、矩形与持有选区的节点，缺失时均为空。
-    private static func readOnce(app: AXUIElement) -> (text: String?, bounds: CGRect?, element: AXUIElement?) {
+    /// app为来源应用；返回可读文字与持有选区的节点，未找到时均为nil。
+    private static func readOnce(app: AXUIElement) -> (text: String?, element: AXUIElement?) {
         var candidates: [AXUIElement] = []
         if let focused = focusedElement(from: app) {
             guard !isSecure(focused), TextSelectionContext.shouldReadSelectedText(ancestorRoles: ancestorRoles(of: focused)) else {
-                return (nil, nil, nil)
+                return (nil, nil)
             }
             candidates.append(focused)
         }
@@ -101,13 +101,14 @@ enum AccessibilitySelection {
             candidates.append(window)
         }
         for element in candidates {
-            if isSecure(element) { return (nil, nil, nil) }
+            if isSecure(element) { return (nil, nil) }
             let roles = ancestorRoles(of: element)
             if !TextSelectionContext.shouldReadSelectedText(ancestorRoles: roles) {
                 continue
             }
-            if let hit = selection(from: element) {
-                return (hit.text, hit.bounds, element)
+            // selection按文本标记、已选文本和字符范围查找文字，节点用于后续选区失效监听。
+            if let text = selection(from: element) {
+                return (text, element)
             }
         }
         if let hit = searchSelectedText(roots: candidates.filter {
@@ -115,7 +116,7 @@ enum AccessibilitySelection {
         }) {
             return hit
         }
-        return (nil, nil, nil)
+        return (nil, nil)
     }
 
     /// app为来源应用的AX根节点；请求其暴露手动辅助功能属性以读取文本，无返回值。
@@ -139,29 +140,30 @@ enum AccessibilitySelection {
         return (value as! AXUIElement)
     }
 
-    /// element为候选文本节点；依次读取文本标记、已选文本和值范围，返回文本及AppKit坐标矩形，未找到时返回nil。
-    private static func selection(from element: AXUIElement) -> (text: String, bounds: CGRect?)? {
-        // 先读取浏览器的 anchor/focus 标记范围，覆盖跨多个 DOM 文本节点的全选。
-        if let selection = selectedTextMarker(from: element), isUsable(selection.text) {
-            return (selection.text, selectedBounds(of: element, marker: selection.marker))
+    /// element为候选文本节点；依次读取文本标记、已选文本和值范围，返回可用文本，未找到时返回nil。
+    private static func selection(from element: AXUIElement) -> String? {
+        // selectedTextMarker读取浏览器的anchor/focus标记文本，覆盖跨多个DOM节点的全选。
+        if let text = selectedTextMarker(from: element), isUsable(text) {
+            return text
         }
         if let text = stringAttribute(element, kAXSelectedTextAttribute as CFString), isUsable(text) {
-            return (text, selectedBounds(of: element))
+            return text
         }
+        // selectedTextFromValue按UTF-16范围截取仍未直接暴露选中文字的控件。
         if let text = selectedTextFromValue(element), isUsable(text) {
-            return (text, selectedBounds(of: element))
+            return text
         }
         return nil
     }
 
-    /// element 为 AX 节点；返回跨节点选区文本和对应标记范围，不支持该属性时返回 nil。
-    private static func selectedTextMarker(from element: AXUIElement) -> (text: String, marker: CFTypeRef)? {
+    /// element为AX节点；通过文本标记范围返回跨节点选区文本，不支持该属性时返回nil。
+    private static func selectedTextMarker(from element: AXUIElement) -> String? {
         guard let marker = attribute(element, kAXSelectedTextMarkerRangeAttribute as CFString),
               CFGetTypeID(marker) == AXTextMarkerRangeGetTypeID() else { return nil }
         var value: CFTypeRef?
         let status = AXUIElementCopyParameterizedAttributeValue(element, kAXStringForTextMarkerRangeParameterizedAttribute as CFString, marker, &value)
         guard status == .success, let text = value as? String else { return nil }
-        return (text, marker)
+        return text
     }
 
     /// element提供文本值和选区范围；返回对应UTF-16文本，属性缺失或范围无效时返回nil。
@@ -179,7 +181,7 @@ enum AccessibilitySelection {
     }
 
     /// roots 为待遍历的 AX 根节点；返回首个可读选区及其节点，80 个节点内未发现时返回 nil。
-    private static func searchSelectedText(roots: [AXUIElement]) -> (text: String, bounds: CGRect?, element: AXUIElement)? {
+    private static func searchSelectedText(roots: [AXUIElement]) -> (text: String, element: AXUIElement)? {
         var queue = roots
         var seen = 0
         while !queue.isEmpty, seen < 80 {
@@ -189,7 +191,8 @@ enum AccessibilitySelection {
             if let nodeRole = role(of: element), TextSelectionContext.nonTextRoles.contains(nodeRole) {
                 continue
             }
-            if let hit = selection(from: element) { return (hit.text, hit.bounds, element) }
+            // selection只接受可用文字，返回时保留提供文字的节点供会话监听。
+            if let text = selection(from: element) { return (text, element) }
             queue.append(contentsOf: children(of: element))
         }
         return nil
@@ -245,25 +248,6 @@ enum AccessibilitySelection {
     /// element为AX节点，name为属性名；返回字符串属性，缺失或非字符串时返回nil。
     private static func stringAttribute(_ element: AXUIElement, _ name: CFString) -> String? {
         attribute(element, name) as? String
-    }
-
-    /// element 为文字节点，marker 为可选的跨节点范围；返回 AppKit 坐标中的选区矩形。
-    private static func selectedBounds(of element: AXUIElement, marker: CFTypeRef? = nil) -> CGRect? {
-        guard let rangeValue = marker ?? attribute(element, kAXSelectedTextRangeAttribute as CFString) else { return nil }
-        var boundsValue: CFTypeRef?
-        let boundsStatus = AXUIElementCopyParameterizedAttributeValue(
-            element,
-            (marker == nil ? kAXBoundsForRangeParameterizedAttribute : kAXBoundsForTextMarkerRangeParameterizedAttribute) as CFString,
-            rangeValue,
-            &boundsValue
-        )
-        guard boundsStatus == .success, let boundsValue, CFGetTypeID(boundsValue) == AXValueGetTypeID() else { return nil }
-        var rect = CGRect.zero
-        guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) else { return nil }
-        // AX 原点位于菜单栏屏幕顶部，不随 key 窗口所在屏幕改变。
-        let maxY = NSScreen.screens.first?.frame.maxY ?? 0
-        rect.origin.y = maxY - rect.origin.y - rect.height
-        return rect
     }
 
     /// pasteboard 为剪贴板，copy 发起复制，accepts 确认文本仍属于当前选区；返回文字，失败或取消为 nil。

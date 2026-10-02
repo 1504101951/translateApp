@@ -377,6 +377,46 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(ready.phase, .imageReady)
     }
 
+    /// 无参数；保存后重复放弃只清空当前结果，已保存文件和下一份会话不受旧交付影响。
+    @MainActor
+    func testSavedScrollSurvivesRepeatedDiscardAndRejectsOldDelivery() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ScrollOwnership-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: false))
+        // 一张确认帧是可保留结果的最小边界，不申请屏幕权限或依赖实际滚动。
+        try stitcher.append(frame(offset: 0))
+        let image = try stitcher.finish()
+        let service = MediaCaptureService()
+        let previousID = service.id
+        service.publishFinishedScroll(png: image.png, width: image.width, height: image.height,
+            frames: image.frames, failure: nil, token: previousID)
+        // save写入真实独立目录，noteSavedScroll只公开已经成功写入的路径。
+        let saved = try ScreenshotStorage.save(image.png, directory: directory, name: "长截图.png")
+        service.noteSavedScroll(saved.path)
+        await service.cancel()
+        await service.cancel()
+        XCTAssertEqual(service.phase, .idle)
+        XCTAssertFalse(service.isBusy)
+        XCTAssertNil(service.snapshot()["imageBytes"])
+        XCTAssertEqual(try Data(contentsOf: saved), image.png)
+
+        // 同一服务复用新会话身份，前一次采集的迟到交付不能覆盖新结果或回填保存路径。
+        let currentID = service.id
+        XCTAssertNotEqual(currentID, previousID)
+        service.publishFinishedScroll(png: image.png, width: image.width, height: image.height,
+            frames: image.frames, failure: nil, token: currentID)
+        service.publishFinishedScroll(png: image.png, width: 1, height: 1, frames: 99,
+            failure: "旧会话", token: previousID)
+        XCTAssertEqual(service.phase, .imageReady)
+        XCTAssertEqual(service.snapshot()["width"] as? Int, image.width)
+        XCTAssertEqual(service.snapshot()["frames"] as? Int, image.frames)
+        XCTAssertNil(service.snapshot()["warning"])
+        XCTAssertNil(service.snapshot()["savedPath"])
+        await service.cancel()
+        XCTAssertEqual(try Data(contentsOf: saved), image.png)
+    }
+
     /// 无参数；首尾固定带各一次，40像素位移低于164像素正文的75%上限，逐像素验证完整拼接。
     func testAutomaticTopAndBottomAreKeptExactlyOnce() throws {
         let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))

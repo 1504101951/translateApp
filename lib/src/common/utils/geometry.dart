@@ -31,15 +31,6 @@ Rect mapRectToFitted(Rect src, Size image, Rect fitted) {
   );
 }
 
-/// src 为源图像素点，image 为源图尺寸，fitted 为显示矩形。
-/// 返回映射到显示坐标的点。
-Offset mapPointToFitted(Offset src, Size image, Rect fitted) {
-  return Offset(
-    fitted.left + src.dx / image.width * fitted.width,
-    fitted.top + src.dy / image.height * fitted.height,
-  );
-}
-
 /// crop 为源图像素裁剪框（左上原点），display 为 AppKit 屏幕矩形，image 为冻结帧像素尺寸。
 /// 返回选区左下角的 AppKit 点，贴图钉在选区而不是指针处。
 Offset pinOriginAppKit({

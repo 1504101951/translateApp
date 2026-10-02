@@ -1,39 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:translate_app/src/common/constants/permission_enums.dart';
 import 'package:translate_app/src/common/utils/permission_utils.dart';
 
-/// 无参数；验证首次授权向导的下一步决策，不点击系统 TCC。
+/// 无参数；验证两项权限齐备才允许进入应用，不点击系统TCC。
 void main() {
-  test('未授权时先辅助功能，再屏幕录制；都授权才结束', () {
-    // 冷启动两项都缺：从辅助功能开始。
+  test('只有两项权限均授权才允许进入应用', () {
+    // 两项权限有四种组合；缺少任一项都不能完成向导。
     expect(
-      permissionWizardStep(
-        accessibilityGranted: false,
-        screenRecordingGranted: false,
-      ),
-      PermissionWizardStep.accessibility,
+      canEnterApp(accessibilityGranted: false, screenRecordingGranted: false),
+      isFalse,
     );
     expect(
-      permissionWizardStep(
-        accessibilityGranted: true,
-        screenRecordingGranted: false,
-      ),
-      PermissionWizardStep.screenRecording,
-    );
-    expect(
-      permissionWizardStep(
-        accessibilityGranted: true,
-        screenRecordingGranted: true,
-      ),
-      PermissionWizardStep.done,
-    );
-    // 稍后只关窗口；缺权限时下一步仍是辅助功能，不能当成已完成。
-    expect(
-      permissionWizardStep(
-        accessibilityGranted: false,
-        screenRecordingGranted: false,
-      ),
-      PermissionWizardStep.accessibility,
+      canEnterApp(accessibilityGranted: true, screenRecordingGranted: false),
+      isFalse,
     );
     expect(
       canEnterApp(accessibilityGranted: false, screenRecordingGranted: true),

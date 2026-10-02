@@ -9,7 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
-import 'package:translate_app/main.dart' show TranslateApp;
+import 'package:translate_app/src/selection/selection_translation_app.dart'
+    show TranslateApp;
 import 'package:translate_app/src/history/translation_history.dart';
 import 'package:translate_app/src/platform/macos_platform_bridge.dart';
 import 'package:translate_app/src/translation/language_direction.dart';

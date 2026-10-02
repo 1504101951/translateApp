@@ -141,16 +141,16 @@ class ApiTranslationProvider implements TranslationProvider {
           });
           if (config.kind != 'anthropic') {
             http.headers.set('Authorization', 'Bearer ${secret['apiKey']}');
+            // 服务类型或官方地址均可识别DeepSeek协议，两个请求选项使用同一判定。
+            final isDeepSeek =
+                config.kind == 'deepseek' ||
+                Uri.parse(base).host == 'api.deepseek.com';
             body = {
               'model': config.model,
               'stream': true,
               // DeepSeek 用协议参数关闭思考；提示词中的 no_think 不能替代接口约束。
-              if (config.kind == 'deepseek' ||
-                  Uri.parse(base).host == 'api.deepseek.com')
-                'thinking': {'type': 'disabled'},
-              if (config.semanticPairs &&
-                  (config.kind == 'deepseek' ||
-                      Uri.parse(base).host == 'api.deepseek.com'))
+              if (isDeepSeek) 'thinking': {'type': 'disabled'},
+              if (config.semanticPairs && isDeepSeek)
                 'response_format': {'type': 'json_object'},
               'messages': [
                 {'role': 'system', 'content': system},

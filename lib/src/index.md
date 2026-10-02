@@ -4,7 +4,7 @@
 
 1. [common/](common/index.md)：跨模块复用的常量、工具和界面组件。
 2. [history/](history/index.md)：翻译记录的SQLite存储、分页与历史窗口。
-3. [overlay/](overlay/index.md)：非激活翻译浮层内容及布局探测。
+3. [overlay/](overlay/index.md)：非激活翻译浮层内容与交互。
 4. [platform/](platform/index.md)：Dart与macOS原生层之间的方法和事件协议。
 5. [screenshot/](screenshot/index.md)：截图编辑、标注渲染、工具栏布局与OCR翻译编排。
 6. [selection/](selection/index.md)：选区翻译会话状态、取消和失败恢复。

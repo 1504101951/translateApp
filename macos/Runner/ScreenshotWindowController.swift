@@ -349,7 +349,8 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             hasNativeResizeCursor = true
             result(nil)
         case AppConstants.saveDrawingPreferencesMethod:
-            MacPlatformBridge.Shared.instance?.requestSettings(call.method, arguments: call.arguments, result: result)
+            // routeWindowRequest把绘图偏好交给唯一设置提交入口。
+            MacPlatformBridge.Shared.instance?.routeWindowRequest(call, result: result)
         case AppConstants.getScreenshotMethod:
             result(snapshot())
         case AppConstants.recognizeBlocksMethod:
@@ -406,7 +407,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 result(FlutterError(code: AppConstants.ocrEmptyError, message: "没有可翻译的文字。", details: nil))
                 return
             }
-            MacPlatformBridge.Shared.instance?.requestSettings(
+            MacPlatformBridge.Shared.instance?.requestApplication(
                 AppConstants.translatePlainTextMethod,
                 // 保留捕获身份，主 Dart 引擎在翻译完成后再次核对再写历史。
                 arguments: ["text": text, "id": id],

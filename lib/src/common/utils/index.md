@@ -4,5 +4,5 @@
 
 1. [geometry.dart](geometry.dart)：提供截图坐标和矩形相关的共享几何计算。
 2. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
-3. [permission_utils.dart](permission_utils.dart)：提供权限状态与向导条件的共享判断。
+3. [permission_utils.dart](permission_utils.dart)：判断两项权限齐备时是否允许进入应用。
 4. [screenshot_filename.dart](screenshot_filename.dart)：生成截图导出使用的文件名称。

@@ -9,3 +9,4 @@
 5. [paragraph_translation.dart](paragraph_translation.dart)：按原文段落组织翻译并保留分隔结构。
 6. [segmented_translation.dart](segmented_translation.dart)：切分长文并管理串行翻译、滑动上下文和失败恢复。
 7. [translation_types.dart](translation_types.dart)：定义统一翻译请求、结果事件及进度数据契约。
+8. [provider_selection.dart](provider_selection.dart)：按已提交偏好选择翻译服务并提取对应历史模型信息。

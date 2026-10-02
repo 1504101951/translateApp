@@ -108,9 +108,8 @@ enum ScreenCaptureService {
         configuration.capturesAudio = false
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.colorSpaceName = CGColorSpace.sRGB
-        if #available(macOS 14.2, *) {
-            configuration.scalesToFit = false
-        }
+        // 按选定显示器的物理像素尺寸输出，禁止系统缩放捕获内容。
+        configuration.scalesToFit = false
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: filter,
             configuration: configuration

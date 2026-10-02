@@ -124,7 +124,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     /// 无参数；经主 Dart 修改全局开关，成功后刷新设置窗口，无返回值。
     @objc private func toggleAutomatic() {
-        MacPlatformBridge.Shared.instance?.requestSettings(AppConstants.toggleAutomaticMethod) { [weak self] value in
+        // requestApplication把菜单开关交给主引擎唯一设置队列。
+        MacPlatformBridge.Shared.instance?.requestApplication(AppConstants.toggleAutomaticMethod) { [weak self] value in
             if let error = value as? FlutterError {
                 let alert = NSAlert()
                 alert.messageText = "设置未保存"

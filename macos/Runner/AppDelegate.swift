@@ -70,7 +70,7 @@ class AppDelegate: FlutterAppDelegate {
         // 选区监听起不来，浮层窗口也合成不到屏幕上。
     }
 
-    /// notification 为激活通知；从系统设置返回后刷新权限向导步骤。
+    /// notification为激活通知；从系统设置返回后刷新权限状态。
     override func applicationDidBecomeActive(_ notification: Notification) {
         permissionWizard.notifyPermissionStatusChanged()
     }

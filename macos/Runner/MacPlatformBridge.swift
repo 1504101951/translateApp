@@ -444,8 +444,23 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         }
     }
 
-    /// method/arguments 为设置请求；转到主 Dart 引擎，由 result 返回唯一偏好快照。
-    func requestSettings(_ method: String, arguments: Any? = nil, result: @escaping FlutterResult) {
+    /// call为附属窗口请求；业务转发主Dart引擎，系统操作交给原生处理，通过result返回结果。
+    func routeWindowRequest(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        switch call.method {
+        case AppConstants.getSettingsMethod, AppConstants.saveSettingsMethod, AppConstants.testServiceMethod,
+             AppConstants.saveDrawingPreferencesMethod, AppConstants.toggleAutomaticMethod,
+             AppConstants.historyPageMethod, AppConstants.historyRecordingMethod,
+             AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod:
+            // requestApplication只跨越引擎边界；业务状态由主引擎所属模块管理。
+            requestApplication(call.method, arguments: call.arguments, result: result)
+        default:
+            // handle仅处理本进程的系统能力，不创建附属引擎的业务状态。
+            handle(call, result: result)
+        }
+    }
+
+    /// method/arguments为菜单或窗口的业务请求；转到主Dart引擎，由result返回所属模块的结果。
+    func requestApplication(_ method: String, arguments: Any? = nil, result: @escaping FlutterResult) {
         methods!.invokeMethod(method, arguments: arguments, result: result)
     }
 

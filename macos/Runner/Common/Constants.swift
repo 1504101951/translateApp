@@ -118,8 +118,6 @@ enum AppConstants {
     static let copyFailedError = "copy_failed"
     /// credentialIds 协议值；与Dart常量及持久化调用方同步。
     static let credentialIdsMethod = "credentialIds"
-    /// defaultServiceId 协议值；与Dart常量及持久化调用方同步。
-    static let defaultServiceIdKey = "defaultServiceId"
     /// detectLanguage 协议值；与Dart常量及持久化调用方同步。
     static let detectLanguageMethod = "detectLanguage"
     /// dragOverlay 协议值；与Dart常量及持久化调用方同步。
@@ -148,8 +146,6 @@ enum AppConstants {
     static let historyPageMethod = "historyPage"
     /// historyRecording 协议值；与Dart常量及持久化调用方同步。
     static let historyRecordingMethod = "historyRecording"
-    /// invalid_settings 协议值；与Dart常量及持久化调用方同步。
-    static let invalidSettingsError = "invalid_settings"
     /// isCurrentScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let isCurrentScreenshotMethod = "isCurrentScreenshot"
     /// keychain_failed 协议值；与Dart常量及持久化调用方同步。
@@ -176,8 +172,6 @@ enum AppConstants {
     static let pinScreenshotMethod = "pinScreenshot"
     /// preferences 协议值；与Dart常量及持久化调用方同步。
     static let preferencesKey = "preferences"
-    /// primaryLanguage 协议值；与Dart常量及持久化调用方同步。
-    static let primaryLanguageKey = "primaryLanguage"
     /// probeEmitSelection 协议值；与Dart常量及持久化调用方同步。
     static let probeEmitSelectionMethod = "probeEmitSelection"
     /// readCredentials 协议值；与Dart常量及持久化调用方同步。
@@ -218,22 +212,16 @@ enum AppConstants {
     static let screenshotShortcutLabelKey = "screenshotShortcutLabel"
     /// screenshotShortcutModifiers 协议值；与Dart常量及持久化调用方同步。
     static let screenshotShortcutModifiersKey = "screenshotShortcutModifiers"
-    /// secondaryLanguage 协议值；与Dart常量及持久化调用方同步。
-    static let secondaryLanguageKey = "secondaryLanguage"
     /// selectionCaptured 协议值；与Dart常量及持久化调用方同步。
     static let selectionCapturedEvent = "selectionCaptured"
     /// selectionInvalidated 协议值；与Dart常量及持久化调用方同步。
     static let selectionInvalidatedEvent = "selectionInvalidated"
-    /// services 协议值；与Dart常量及持久化调用方同步。
-    static let servicesKey = "services"
     /// setHistoryRecording 协议值；与Dart常量及持久化调用方同步。
     static let setHistoryRecordingMethod = "setHistoryRecording"
     /// setOverlaySize 协议值；与Dart常量及持久化调用方同步。
     static let setOverlaySizeMethod = "setOverlaySize"
     /// settingsMain 协议值；与Dart常量及持久化调用方同步。
     static let settingsEntrypoint = "settingsMain"
-    /// settings_conflict 协议值；与Dart常量及持久化调用方同步。
-    static let settingsConflictError = "settings_conflict"
     /// settings_failed 协议值；与Dart常量及持久化调用方同步。
     static let settingsFailedError = "settings_failed"
     /// shortcutKeyCode 协议值；与Dart常量及持久化调用方同步。
@@ -252,14 +240,10 @@ enum AppConstants {
     static let systemStatusMethod = "systemStatus"
     /// testService 协议值；与Dart常量及持久化调用方同步。
     static let testServiceMethod = "testService"
-    /// test_failed 协议值；与Dart常量及持久化调用方同步。
-    static let testFailedError = "test_failed"
     /// toggleAutomatic 协议值；与Dart常量及持久化调用方同步。
     static let toggleAutomaticMethod = "toggleAutomatic"
     /// translatePlainText 协议值；与Dart常量及持久化调用方同步。
     static let translatePlainTextMethod = "translatePlainText"
-    /// translate_failed 协议值；与Dart常量及持久化调用方同步。
-    static let translateFailedError = "translate_failed"
     /// translateapp/appearance 协议值；与Dart常量及持久化调用方同步。
     static let appearanceChannel = "translateapp/appearance"
     /// translateapp/macos 协议值；与Dart常量及持久化调用方同步。

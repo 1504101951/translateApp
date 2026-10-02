@@ -8,7 +8,7 @@ sealed class MacosBridgeEvent {
 
   final String sessionId;
 
-  /// map为Swift事件字典；按type解析事件，未知类型返回UnknownBridgeEvent，不改变门控状态。
+  /// map为Swift事件字典；按type构造事件，未知类型返回UnknownBridgeEvent，由调用方判断会话身份。
   factory MacosBridgeEvent.fromMap(Map<Object?, Object?> map) {
     final type = map['type'] as String? ?? '';
     final sessionId = map['sessionId'] as String? ?? '';
@@ -71,24 +71,4 @@ final class UnknownBridgeEvent extends MacosBridgeEvent {
   const UnknownBridgeEvent({required super.sessionId, required this.type});
 
   final String type;
-}
-
-/// 只接受当前 sessionId 的指令，避免过期 Overlay 命令生效。
-class OverlaySessionGate {
-  String? currentSessionId;
-
-  /// sessionId为待处理命令会话；返回是否与当前会话一致，不改变门控状态。
-  bool accept(String sessionId) {
-    return currentSessionId != null && currentSessionId == sessionId;
-  }
-
-  /// sessionId为新接管浮层的会话；将其设为唯一可接受身份，无返回值。
-  void begin(String sessionId) {
-    currentSessionId = sessionId;
-  }
-
-  /// 无参数；清除当前身份，后续命令全部拒绝，直到新会话接管，无返回值。
-  void clear() {
-    currentSessionId = null;
-  }
 }

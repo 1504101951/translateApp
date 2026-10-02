@@ -10,3 +10,4 @@
 6. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
 7. [macos.md](macos.md)：说明macOS运行要求、权限、固定签名及安装交付。
 8. [screenshot-editor-design.md](screenshot-editor-design.md)：定义截图编辑模块、状态、接口和统一渲染边界。
+9. [architecture-handoff.md](architecture-handoff.md)：说明面向功能扩展与Windows适配的架构优化方案、实施顺序和验收要求。

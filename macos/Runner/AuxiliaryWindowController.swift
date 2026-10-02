@@ -46,13 +46,8 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
         self.channel = channel
         channel.setMethodCallHandler { call, result in
             let bridge = MacPlatformBridge.Shared.instance!
-            switch call.method {
-            case AppConstants.getSettingsMethod, AppConstants.saveSettingsMethod, AppConstants.testServiceMethod,
-                 AppConstants.historyPageMethod, AppConstants.historyRecordingMethod, AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod:
-                bridge.requestSettings(call.method, arguments: call.arguments, result: result)
-            default:
-                bridge.handle(call, result: result)
-            }
+            // routeWindowRequest负责跨引擎分发，辅助窗口不保存业务方法表。
+            bridge.routeWindowRequest(call, result: result)
         }
         let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
         guard engine.run(withEntrypoint: entrypoint) else {

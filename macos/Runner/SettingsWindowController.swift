@@ -27,12 +27,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             switch call.method {
             case AppConstants.recordShortcutMethod:
                 self?.recordShortcut(result: result)
-            case AppConstants.getSettingsMethod, AppConstants.saveSettingsMethod, AppConstants.testServiceMethod,
-                 AppConstants.historyPageMethod, AppConstants.historyRecordingMethod, AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod:
-                bridge.requestSettings(call.method, arguments: call.arguments, result: result)
             default:
-                // 系统能力复用主桥，第二引擎不注册全局选区监听或覆盖单例。
-                bridge.handle(call, result: result)
+                // routeWindowRequest统一区分主引擎业务和系统操作，窗口仅保留快捷键录制。
+                bridge.routeWindowRequest(call, result: result)
             }
         }
         let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)

@@ -19,7 +19,7 @@ Source-Spec: #1。Codex-Thread: 01a0a9f5-d737-7871-a14f-c80c1fb51332。
 - 引擎入口名（`settingsMain`、`screenshotMain` 等）
 - 平台视图类型名
 - 错误码（`FlutterError(code:)`）
-- 状态机枚举（截图工具、标注种类、向导步骤、翻译阶段）
+- 状态机枚举（截图工具、标注种类、翻译阶段）
 - 跨引擎外观模式和通知名称；UI 尺寸复用 `GlassMetrics`，数值以 Spec #1 与 UI 规则为准
 
 调用处引用常量，不在业务文件里再写同一字符串。Dart 与 Swift 各自一份常量文件，字面量必须一致，不在两端各写一份散落的通道名或方法名。

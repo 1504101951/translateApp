@@ -75,14 +75,11 @@ CREATE TABLE IF NOT EXISTS history_meta (
     }
     database.execute('''CREATE INDEX IF NOT EXISTS history_completed_order
       ON translation_history(completed_at DESC, id DESC)''');
-    final existing = database.select(
-      "SELECT value FROM history_meta WHERE key = 'recording'",
-    );
-    if (existing.isEmpty) {
-      database.execute(
-        "INSERT INTO history_meta(key, value) VALUES('recording', '1')",
-      );
-    }
+    // 仅在缺少开关记录时填入默认值，主键冲突保留用户已有选择。
+    database.execute('''
+INSERT INTO history_meta(key, value) VALUES('recording', '1')
+ON CONFLICT(key) DO NOTHING
+''');
   }
 
   final Database database;

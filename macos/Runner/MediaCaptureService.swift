@@ -215,6 +215,8 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     /// 无参数；为已确认目标追加一段MP4，系统开始回调后才允许暂停或结束。
     private func startRecordingSegment() async throws {
         let token = id
+        // 系统开始回调可能早于startCapture返回；错误清理须绑定本次创建的流。
+        var startingStream: SCStream?
         recordingRequestedAt = .now
         let previousFrame = captureFrame
         details.removeValue(forKey: "error")
@@ -244,6 +246,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             let output = SCRecordingOutput(configuration: outputConfig, delegate: self)
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
             try stream.addRecordingOutput(output)
+            startingStream = stream
             CaptureStartupLog.record("screen-resources-sync", since: resourceStarted)
             self.stream = stream
             recordingOutput = output
@@ -256,24 +259,27 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             try await stream.startCapture()
             CaptureStartupLog.record("screen-start-await", since: captureStarted)
         } catch {
-            if token == id {
-                if recordingSegments.isEmpty { await fail(error) }
-                else {
-                    // 恢复失败不删除已完成内容；撤销本次输出身份，仍可结束合并或明确放弃。
-                    if let recorder = applicationRecorder {
-                        try? await recorder.finish(discard: true)
-                        applicationRecorder = nil
-                    }
-                    let active = stream
-                    stream = nil
-                    recordingOutput = nil
-                    try? await active?.stopCapture()
-                    guard token == id else { throw error }
-                    video = recordingSegments.last
-                    captureFrame = previousFrame
-                    update(.paused, ["error": error.localizedDescription])
-                }
+            guard token == id else { throw error }
+            // 同一会话暂停恢复也会更换流；旧启动等待不得清理后续分段。
+            if let startingStream, stream !== startingStream { throw error }
+            if recordingSegments.isEmpty {
+                await fail(error)
+                throw error
             }
+            // 恢复失败保留已完成分段；结束本次录制器后，再确认清理权仍属于当前请求。
+            if let recorder = applicationRecorder {
+                try? await recorder.finish(discard: true)
+                guard token == id, applicationRecorder === recorder else { throw error }
+                applicationRecorder = nil
+            }
+            let active = stream
+            stream = nil
+            recordingOutput = nil
+            try? await active?.stopCapture()
+            guard token == id else { throw error }
+            video = recordingSegments.last
+            captureFrame = previousFrame
+            update(.paused, ["error": error.localizedDescription])
             throw error
         }
     }
@@ -384,6 +390,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         guard paused, phase == .recording, let stream else {
             throw GIFExporter.ExportError(message: "当前采集状态不能切换暂停。")
         }
+        let token = id
         // 系统编码完成前保持pausing，防止恢复动作复用未完成的输出。
         if let startedAt { recordedElapsed += Date().timeIntervalSince(startedAt) }
         startedAt = nil
@@ -391,7 +398,11 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         timer = nil
         update(.pausing, ["elapsed": recordedElapsed])
         do { try await stream.stopCapture() }
-        catch { await fail(error); throw error }
+        catch {
+            // 暂停等待可能跨越放弃或下一分段；只清理仍由该流持有的会话。
+            if token == id, self.stream === stream { await fail(error) }
+            throw error
+        }
     }
 
     /// 无参数；显式结束活动或已暂停的采集，过渡态不执行清理，完成回调之前保持finalizing。
@@ -410,29 +421,42 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             return
         }
         guard phase == .recording, let stream else { return }
+        let token = id
         update(.finalizing)
         timer?.invalidate()
         timer = nil
         do { try await stream.stopCapture() }
-        catch { await fail(error); throw error }
+        catch {
+            // 完成回调已接管或会话已替换时，迟到的停止错误不再拥有清理权。
+            if token == id, self.stream === stream { await fail(error) }
+            throw error
+        }
     }
 
     /// 无参数；取消当前资源或丢弃预览，只清理本会话创建的私有目录。
     func cancel() async {
+        let token = id
         if let recorder = applicationRecorder {
             // 先撤销可提交身份，正在等待编码的结束任务不能再次发布结果。
             applicationRecorder = nil
             update(.finalizing)
             try? await recorder.finish(discard: true)
+            // 其他清理路径可能已完成并开放新采集；过期取消不能继续操作共享字段。
+            guard id == token else { return }
         }
         exportTask?.cancel()
-        if let exportTask { await exportTask.value }
+        if let exportTask {
+            await exportTask.value
+            guard id == token else { return }
+        }
         self.exportTask = nil
         scrollTask?.cancel()
-        if let scrollTask { await scrollTask.value }
+        if let scrollTask {
+            await scrollTask.value
+            guard id == token else { return }
+        }
         self.scrollTask = nil
         if let stream {
-            let token = id
             let alreadyStopping = [.pausing, .finalizing].contains(phase)
             discardRecording = true
             update(.finalizing)
@@ -478,14 +502,19 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
 
     /// error为系统实际错误；停止占用资源并保留原因，不交付损坏MP4。
     private func fail(_ error: Error) async {
+        let token = id
         if let recorder = applicationRecorder {
             applicationRecorder = nil
             try? await recorder.finish(discard: true)
+            // 结束编码期间可能已放弃并开始新会话；旧失败不得继续读取新资源。
+            guard id == token else { return }
         }
         let active = stream
         stream = nil
         recordingOutput = nil
         try? await active?.stopCapture()
+        // 停止捕获会让出主执行器，恢复后只清理发起失败的会话。
+        guard id == token else { return }
         clear()
         update(.failed, ["error": error.localizedDescription])
     }
