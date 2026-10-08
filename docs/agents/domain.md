@@ -25,4 +25,4 @@ Surface any conflict with an existing ADR explicitly instead of silently overrid
 
 ## 规格分类
 
-开始需求、UI或架构工作前读取[三类规格索引](../specs/README.md)。功能与交互、样式、架构设计约束分别维护；当前实现说明和上下文记录不替代Spec。
+开始需求、UI或架构工作前读取[三类规格索引](../specs/README.md)。功能与交互、样式、架构设计约束分别以对应 GitHub Issue 为准；本地索引提供导航，当前实现说明和上下文记录不替代 Issue 规格。

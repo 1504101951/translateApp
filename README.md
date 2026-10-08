@@ -99,7 +99,7 @@ flutter run -d macos
 xcodebuild test -workspace macos/Runner.xcworkspace -scheme Runner -destination 'platform=macOS,arch=arm64'
 ```
 
-架构实现见 [架构说明](docs/architecture.md)；需求规范按[功能与交互、样式、架构设计约束](docs/specs/README.md)三类维护，本地正文与对应GitHub Spec同步。
+架构实现见 [架构说明](docs/architecture.md)；需求规范以对应 GitHub Issue 为准，[规格索引](docs/specs/README.md)提供功能与交互、样式、架构设计约束三类导航及本地文档保留规则。
 
 ## 交付路线
 
@@ -121,7 +121,7 @@ xcodebuild test -workspace macos/Runner.xcworkspace -scheme Runner -destination 
 | 区域截图预览、复制、保存、自动命名与固定目录 | 已实现，实机验收保留在 #20、#25、#26 |
 | 截图 OCR、图片置顶与编辑 | 状态与验收见 #20、#22、#27 |
 | 显示器、窗口、区域录屏与 GIF 导出 | 已实现，实机验收保留在 #21、#23 |
-| 框选区域实时文字翻译 | 待实现，#24；持续 OCR，文字变化后更新译文 |
+| 框选区域实时文字翻译 | 完整方案与验收见[实时翻译 #24](https://github.com/1504101951/translateApp/issues/24)；交互与数值待确认，功能未实现 |
 | 手动滚动长截图与上下固定带去重 | 已实现，实机验收保留在 #28 |
 | 本地截图历史 | 待实现，#29 |
 | OCR 文字复制与翻译联动 | 待实现，#20 |
@@ -141,7 +141,7 @@ rtk proxy /tmp/translateapp-storage-check
 
 该检查使用合成数据验证重名追加序号、已有文件字节保留、目录不可用和越界文件名拒绝；不申请权限、不读取屏幕。
 
-设置顶部导航固定，正文独立滚动；辅助功能和屏幕录制入口统一在通用页的权限卡片。新建翻译服务提供谷歌翻译、百度翻译、OpenAI、Anthropic；现有服务配置保留端点、模型与凭据。界面行为以[功能规格](docs/specs/functional.md)、数值以[样式规格](docs/specs/style.md)、实现边界以[架构设计约束](docs/specs/architecture.md)为准。
+设置顶部导航固定，正文独立滚动；辅助功能和屏幕录制入口统一在通用页的权限卡片。新建翻译服务提供谷歌翻译、百度翻译、OpenAI、Anthropic；现有服务配置保留端点、模型与凭据。界面行为以[功能规格](https://github.com/1504101951/translateApp/issues/1)、数值以[样式规格](https://github.com/1504101951/translateApp/issues/67)、实现边界以[架构设计约束](https://github.com/1504101951/translateApp/issues/68)为准。
 
 设置修改在后台自动保存，正常保存不显示状态文字；失败保留草稿并提供重试。截图页底部“截图工具栏”默认收起，展开后支持14个带图标的顶层工具拖拽排序、录制和清除快捷键，以及眼睛按钮控制显隐，配置即时保存。隐藏工具保留顺序和快捷键，仍可通过快捷键调用。颜色、粗细、模式与字号按当前工具显示在第二行。快捷键仅在截图编辑器中响应，文字输入与输入法组词期间交给输入控件。
 

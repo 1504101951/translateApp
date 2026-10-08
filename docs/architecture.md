@@ -1,6 +1,6 @@
 # Flutter macOS 架构
 
-本文描述当前实现。规范性技术边界见[架构设计约束](specs/architecture.md)，产品行为与数值分别见[功能规格](specs/functional.md)、[样式规格](specs/style.md)。共享绘制样式与调色盘/粗细是Spec约束的待实施需求，本文不据此宣称已实现。
+本文描述当前实现。规范性技术边界见[架构设计约束](https://github.com/1504101951/translateApp/issues/68)，产品行为与数值分别见[功能规格](https://github.com/1504101951/translateApp/issues/1)、[样式规格](https://github.com/1504101951/translateApp/issues/67)。共享绘制样式与调色盘/粗细是Spec约束的待实施需求，本文不据此宣称已实现。
 
 当前只交付 macOS 26+。Flutter/Dart 是应用与业务主体，Swift 负责 macOS 启动壳、系统能力和原生 Liquid Glass 材料。
 

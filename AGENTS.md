@@ -22,9 +22,11 @@
 
 ## 先更新规格，再开发
 
-开发依据分为三类：[功能与交互规格 #1](docs/specs/functional.md)、[样式规格 #67](docs/specs/style.md)、[架构设计约束 #68](docs/specs/architecture.md)。职责与同步规则见 [规格索引](docs/specs/README.md)。实施已批准需求前，先同步受影响的本地文档与 GitHub Spec；界面数值必须明确，不得擅自偏离规格或将待确认参数视为已批准值。
+开发依据分为三类：[功能与交互规格 #1](https://github.com/1504101951/translateApp/issues/1)、[样式规格 #67](https://github.com/1504101951/translateApp/issues/67)、[架构设计约束 #68](https://github.com/1504101951/translateApp/issues/68)。规格来源和本地文档保留规则见 [规格索引](docs/specs/README.md)。实施已批准需求前，先更新受影响的 GitHub Issue；已同步或已关闭且有说明的本地规格副本删除，未同步内容先发布并回读确认。仅保留已确定且不适合写入未关闭 Issue 的本地规格。界面数值必须明确，不得擅自偏离规格或将待确认参数视为已批准值。
 
 ## 目录索引
+
+用户明确指定本地持久化的澄清记录，按[规格索引](docs/specs/README.md)列出的范围保留，不因同步 Issue 完成而自动删除。
 
 项目维护的每个目录通过 `index.md` 说明直接子文件和子目录的作用，每项一句话；新增、删除或重命名项目文件时同步所在目录索引。Git 元数据、依赖缓存、构建产物及个人工作区目录不纳入索引。
 

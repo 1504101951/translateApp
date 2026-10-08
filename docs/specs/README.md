@@ -1,25 +1,31 @@
-# Spec 分类与维护入口
+# 规格与工单导航
 
-Codex-Thread: 01a0b9b5-7646-76b0-9028-2402885d401b
+Codex-Thread: 01a0fa7e-90ee-7600-919f-2aba8d7000d4
+Source: 用户确认的 Issue 权威来源与本地规格保留规则。
 
-| 类别 | 本地规范正文 | GitHub规格 | 负责内容 |
-| --- | --- | --- | --- |
-| 功能与交互 | [functional.md](functional.md) | [#1](https://github.com/1504101951/translateApp/issues/1) | 能力、用户操作、状态变化、数据保留、功能验收 |
-| 样式 | [style.md](style.md) | [#67](https://github.com/1504101951/translateApp/issues/67) | 每个组件的尺寸、圆角、间距、颜色、字号、命中区、动效和数值边界 |
-| 架构设计约束 | [architecture.md](architecture.md) | [#68](https://github.com/1504101951/translateApp/issues/68) | 模块职责、数据契约、复用方式、依赖方向和技术验收 |
+| 类别 | GitHub 权威规格 | 负责内容 |
+| --- | --- | --- |
+| 功能与交互 | [#1](https://github.com/1504101951/translateApp/issues/1) | 能力、用户操作、状态变化、数据保留与功能验收 |
+| 样式 | [#67](https://github.com/1504101951/translateApp/issues/67) | 组件尺寸、圆角、间距、颜色、字号、命中区、动效与数值边界 |
+| 架构设计约束 | [#68](https://github.com/1504101951/translateApp/issues/68) | 模块职责、数据契约、复用方式、依赖方向与技术验收 |
 
-## 维护契约
+## Issue 与本地文档规则
 
-1. GitHub三类规格与本地同名文档保持同一规范正文；只因平台不同转换相对链接。#1是功能与交互Spec，也提供三类导航，不能把它作为唯一的样式或架构正文。
-2. 已批准需求先更新涉及类别的本地与GitHub Spec，再实施。跨类需求必须同时检查行为、数值和技术职责，避免只改其中一处。
-3. 执行工单注明Source-Spec、Style-Spec、Architecture-Spec，记录验收与真实阻塞。需求获批不表示实现完成；未定参数列出待确认字段，不用模糊形容词代替数值。
-4. docs/agents/liquid-glass-ui.md是样式阅读入口；docs/architecture.md描述当前实现；docs/screenshot-editor-design.md描述截图接口。实现文档不能自行改变规范，冲突时先核对用户授权并同步对应Spec。
-5. 功能行为以功能Spec为准，组件数值以样式Spec为准，技术边界以架构Spec为准。引用其他类别是为了完整验收，不另外复制一套可独立演变的数值。
-6. Issue标签用“规格”及“规格：功能交互/规格：样式/规格：架构”区分类别；执行工单按功能或缺陷、待实现/待澄清/待验收标注。只评论与打标签，不关闭Issue。
-7. 禁止computer-use。自动化检查、测试、构建和签名核验由智能体负责；用户确认界面效果。
+1. Issue 已关闭且有说明时，以 Issue 正文与说明为准，删除对应的本地规格副本；不以本地副本覆盖关闭结论。
+2. Issue 未关闭且内容已同步时，以 Issue 为准，删除本地规格副本。
+3. Issue 未关闭且内容未同步时，先将尚未同步的内容写入对应 Issue 并回读核对，再删除本地规格副本。
+4. Issue 未关闭，但已经确定的内容不适合在 Issue 中体现时，才保留一份本地规格。文档注明关联 Issue、Codex-Thread、保留理由与确定范围，不重复复制 Issue 正文。
+5. 本地索引、工作规则、当前实现说明和领域上下文各自承担导航、流程或代码解释职责，不作为覆盖 Issue 的另一份规范。
+6. 实施已批准需求前先更新对应 Issue。具体功能在其工单集中维护方案、参数、验收与待确认项，通过 Source-Spec、Style-Spec、Architecture-Spec 引用通用约束，避免同一规则多处独立维护。
+7. 需求获批不表示实现完成；未定数值和交互明确列为待确认，工单标“待澄清”，不能据此宣称可开发或已验收。Issue 使用既有中文标签，智能体只更新正文、评论和标签，不关闭 Issue。
+8. 禁止 computer-use；代码、自动化、构建和签名核验由智能体负责，界面效果由用户验收。
 
-## 本轮执行工单
+## 相关工单
 
-1. [屏幕录制](https://github.com/1504101951/translateApp/issues/21)：显示器、窗口或区域的无声MP4录制及本地预览保存。
-2. [GIF导出](https://github.com/1504101951/translateApp/issues/23)：按截图设置中的帧率与最大宽度导出完整录制视频。
-3. [手动滚动长截图](https://github.com/1504101951/translateApp/issues/28)：手动向下滚动、上下固定区去重；结束或拼接失败时打开可保存、复制、放弃的长图结果页（#88、#89）。
+用户指定保留的本地文档：[实时区域翻译澄清规格](live-region-translation.md)。仅记录 #24 的澄清问题与确认结论，确认内容同步 Issue 后仍按用户要求保留；推荐选项不视为批准。
+
+1. [区域实时文字翻译 #24](https://github.com/1504101951/translateApp/issues/24)：完整功能、采集与调度方案、窗口边界、待确认项及验收。
+2. [屏幕录制 #21](https://github.com/1504101951/translateApp/issues/21)：显示器、窗口或区域的无声 MP4 录制及本地预览保存。
+3. [GIF 导出 #23](https://github.com/1504101951/translateApp/issues/23)：录制视频的 GIF 导出范围与验收。
+4. [手动滚动长截图 #28](https://github.com/1504101951/translateApp/issues/28)：滚动拼接、固定区处理和结果操作，关联 #88、#89。
+5. [共享粗细 #72](https://github.com/1504101951/translateApp/issues/72)：线宽控件的范围、实现说明与验收记录。

@@ -24,6 +24,6 @@ PRs are not part of the feature-request triage surface.
 
 ## 三类规格与执行工单
 
-规格入口为[docs/specs/README.md](../specs/README.md)。功能、样式、架构规格分别维护本地与GitHub对应正文，Issue使用“规格”加对应中文分类标签。执行工单注明Source-Spec、Style-Spec、Architecture-Spec，功能工单挂到功能Spec下；样式和架构通过引用提供约束。
+规格入口为[docs/specs/README.md](../specs/README.md)。功能、样式、架构规格正文以对应 GitHub Issue 为准；已同步本地副本删除，未同步内容先发布并回读确认，其他本地规格仅按索引中的保留条件维护。Issue使用“规格”加对应中文分类标签。执行工单注明Source-Spec、Style-Spec、Architecture-Spec，功能工单挂到功能Spec下；样式和架构通过引用提供约束。
 
 “可开发”对应已具备实施条件；含未定数值的工单标“待澄清”，列出具体参数后才能实施相关部分。不得把待澄清工单一律标成可开发。
