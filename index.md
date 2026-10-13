@@ -22,3 +22,4 @@
 16. [pubspec.yaml](pubspec.yaml)：声明Flutter应用版本、运行约束和依赖。
 
 17. [CONTEXT.capture-tools.01a0db40-8de9-76f2-91d6-674a344135ee.md](CONTEXT.capture-tools.01a0db40-8de9-76f2-91d6-674a344135ee.md)：定义采集工具、选区、状态条与媒体结果的领域关系。
+18. [CONTEXT.live-translation.20261013-162455-863432.md](CONTEXT.live-translation.20261013-162455-863432.md)：定义实时翻译的段落块、段落块缓存、批次与在途规则。

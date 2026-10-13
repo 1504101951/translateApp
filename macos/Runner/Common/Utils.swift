@@ -15,6 +15,16 @@ enum CaptureStartupLog {
     }
 }
 
+/// 实时翻译的排查日志。只写数量与耗时，不写屏幕文字或译文。
+enum LiveRegionLog {
+    private static let logger = Logger(subsystem: "TranslateApp", category: "LiveRegion")
+
+    /// message 为“键=值”形式的一行数值字段；写入系统日志，无返回值。
+    static func note(_ message: String) {
+        logger.notice("\(message, privacy: .public)")
+    }
+}
+
 /// 窗口列表与显示器坐标换算；截图默认选区用。
 enum CaptureGeometry {
     /// cgBounds 为 CGWindow 顶左原点矩形；返回 AppKit 底左原点矩形。

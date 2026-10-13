@@ -3,6 +3,9 @@ abstract final class ChannelNames {
   /// 连续采集与媒体输出的独立窗口通道。
   static const capture = 'translateapp/capture';
 
+  /// 实时翻译结果窗。只接收业务快照，不持有翻译状态。
+  static const liveRegion = 'translateapp/live_region';
+
   /// 录制结果中的系统播放器视图。
   static const captureVideoPreview = 'translateapp/capture_video_preview';
 

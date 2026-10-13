@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # 打包失败立即退出，避免把上次残留的 ZIP 当作本轮产物安装。
+# 打包脚本会先删除本机旧副本；安装阶段不再扫描其它路径。
 bash scripts/package-macos.sh
 # 安装脚本负责验签、运行进程检查和失败回滚；此处不重复实现。
 bash scripts/install-macos.sh

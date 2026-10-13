@@ -135,6 +135,32 @@ enum ScreenCaptureService {
         try recognizeBlocks(png: png).compactMap { $0["text"] as? String }.joined(separator: "\n")
     }
 
+    /// pixelBuffer 为屏幕流帧。返回段落块：text 为整段原文，x/y/width/height 为段落外接矩形的像素框，坐标原点在图像左上。
+    static func recognizeParagraphs(pixelBuffer: CVPixelBuffer) async throws -> [[String: Any]] {
+        var request = RecognizeDocumentsRequest()
+        request.textRecognitionOptions.useLanguageCorrection = true
+        request.textRecognitionOptions.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"].map {
+            Locale.Language(identifier: $0)
+        }
+        let observations = try await request.perform(on: pixelBuffer)
+        let width = Double(CVPixelBufferGetWidth(pixelBuffer))
+        let height = Double(CVPixelBufferGetHeight(pixelBuffer))
+        // 段落识别把折行文字合成一段；列表项与表格单元格各自成段。
+        return observations.flatMap { $0.document.paragraphs }.compactMap { paragraph in
+            let text = paragraph.transcript
+            guard !text.isEmpty else { return nil }
+            // 识别框为归一化坐标、原点在左下，换成像素并翻到左上原点。
+            let box = paragraph.boundingRegion.boundingBox.cgRect
+            return [
+                "text": text,
+                "x": box.minX * width,
+                "y": (1 - box.maxY) * height,
+                "width": box.width * width,
+                "height": box.height * height,
+            ]
+        }
+    }
+
     /// png 为截图像素；返回带像素框的 OCR 块，坐标原点在左上。
     static func recognizeBlocks(png: Data) throws -> [[String: Any]] {
         guard let image = NSBitmapImageRep(data: png)?.cgImage else {
@@ -149,9 +175,12 @@ enum ScreenCaptureService {
         request.usesLanguageCorrection = true
         request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"]
         try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        let width = Double(image.width)
-        let height = Double(image.height)
-        return (request.results ?? []).compactMap { observation in
+        return blocks(from: request, width: Double(image.width), height: Double(image.height))
+    }
+
+    /// request 为已执行的识别，width/height 为图像像素。返回左上原点的文字块。
+    private static func blocks(from request: VNRecognizeTextRequest, width: Double, height: Double) -> [[String: Any]] {
+        (request.results ?? []).compactMap { observation in
             guard let text = observation.topCandidates(1).first?.string, !text.isEmpty else {
                 return nil
             }

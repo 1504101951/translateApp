@@ -18,6 +18,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     private var screenshotActive = false
     private var mediaActive = false
     /// 一个采集控制器持有当前媒体会话，菜单与独立窗口共享资源状态。
+    @MainActor lazy var live: LiveRegionCoordinator = LiveRegionCoordinator(bridge: self, controls: self.capture)
     @MainActor lazy var capture: CaptureWindowController = {
         let controller = CaptureWindowController(screenshot: screenshot)
         controller.onActiveChanged = { [weak self] active in
@@ -56,8 +57,19 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         super.init()
         screenshot.onPrepareCapture = { [weak self] source, scrolling, region in
             guard let self else { return }
+            if source["live"] as? Bool == true {
+                // 实时翻译复用目标选择，但不进入录屏编码器。
+                try await self.live.begin(source: source, region: region)
+                return
+            }
             // 截图工具栏的目标交给同一个媒体会话，截图控制器不持有录制资源。
             try self.capture.prepare(source: source, scrolling: scrolling, region: region)
+        }
+        screenshot.onPreviewLiveRegion = { [weak self] screen in
+            self?.live.preview(on: screen)
+        }
+        screenshot.onCancelLivePreview = { [weak self] in
+            self?.live.cancelPreview()
         }
         screenshot.onCaptureSources = { [weak self] preferred in
             guard let self else { throw CancellationError() }
@@ -281,6 +293,12 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         case AppConstants.historyChangedMethod:
             NotificationCenter.default.post(name: AppConstants.historyChangedNotification, object: nil)
             result(nil)
+        case AppConstants.publishLiveRegionMethod:
+            let state = call.arguments as? [String: Any] ?? [:]
+            Task { @MainActor in
+                self.live.publish(state)
+                result(nil)
+            }
         case AppConstants.openHistoryMethod:
             showHistory?()
             result(nil)

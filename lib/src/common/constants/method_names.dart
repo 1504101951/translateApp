@@ -2,6 +2,13 @@
 abstract final class MethodNames {
   /// 媒体采集协议，与Swift AppConstants逐项对应。
   static const getCaptureState = 'getCaptureState';
+  static const previewLiveRegion = 'previewLiveRegion';
+  static const cancelLivePreview = 'cancelLivePreview';
+  static const liveRegionCommand = 'liveRegionCommand';
+  static const liveRegionOcr = 'liveRegionOcr';
+  static const liveRegionState = 'liveRegionState';
+  static const publishLiveRegion = 'publishLiveRegion';
+  static const getLiveRegionState = 'getLiveRegionState';
   static const captureStateChanged = 'captureStateChanged';
   static const prepareCapture = 'prepareCapture';
   static const previewCaptureTarget = 'previewCaptureTarget';

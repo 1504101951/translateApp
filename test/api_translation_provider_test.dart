@@ -345,4 +345,128 @@ void main() {
     expect(pairs.map((pair) => pair.translation), ['第一段。', '\n\n第二段。']);
     await serving;
   });
+
+  /// events 为一次批量翻译的全部事件；返回各下标累计的译文。
+  Map<int, String> batchItems(List<BatchTranslationEvent> events) {
+    final items = <int, String>{};
+    for (final event in events.whereType<BatchItemUpdate>()) {
+      items[event.index] = (items[event.index] ?? '') + event.addition;
+    }
+    return items;
+  }
+
+  const batch = BatchTranslationRequest(
+    texts: ['Hello', 'World'],
+    detectedLanguage: 'en',
+    targetLanguage: 'zh-CN',
+  );
+
+  test('批量翻译：模型按编号流式归属到段落，Google 一次请求携带多个原文', () async {
+    // 作用：一批段落只发一次请求，译文按批次内下标返回。
+    // 边界：模型先输出 [2] 再输出 [1]，且 [1] 的译文跨两个流式事件；Google 的实体只解码一次。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    final serving = () async {
+      var count = 0;
+      await for (final incoming in server) {
+        final body =
+            jsonDecode(await utf8.decoder.bind(incoming).join()) as Map;
+        if (count++ == 0) {
+          expect(incoming.uri.path, '/chat/completions');
+          expect(
+            jsonDecode(body['messages'][1]['content'])['paragraphs'],
+            '[1] Hello\n[2] World',
+          );
+          incoming.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+            charset: 'utf-8',
+          );
+          for (final content in [r'[2] 世界\n[1] 你', '好']) {
+            incoming.response.write(
+              'data: {"choices":[{"index":0,"delta":{"content":"$content"},"finish_reason":null}]}\n\n',
+            );
+            await incoming.response.flush();
+          }
+          incoming.response.write(
+            'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+          );
+        } else {
+          expect(incoming.uri.path, '/language/translate/v2');
+          expect(body['q'], ['Hello', 'World']);
+          incoming.response.headers.contentType = ContentType.json;
+          incoming.response.write(
+            '{"data":{"translations":[{"translatedText":"你好"},{"translatedText":"A &amp;amp; B"}]}}',
+          );
+        }
+        await incoming.response.close();
+        if (count == 2) break;
+      }
+    }();
+    final model = await provider(
+      'openai',
+      server,
+    ).translateBatch(batch, client: client).toList();
+    expect(batchItems(model), {0: '你好', 1: '世界'});
+    expect(model.last, isA<BatchCompleted>());
+    final google = await provider(
+      'google',
+      server,
+    ).translateBatch(batch, client: client).toList();
+    expect(batchItems(google), {0: '你好', 1: 'A &amp; B'});
+    expect(google.last, isA<BatchCompleted>());
+    await serving;
+  });
+
+  test('批量失败带错误类别：认证与限流为服务级，服务端错误为临时，输出截断为段落级', () async {
+    // 作用：会话依据类别决定停止发送、放弃该段或重试。
+    // 边界：499 仍为服务级，500 起为临时错误；finish_reason 为 length 时为段落级。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    const statuses = [401, 429, 499, 500];
+    final serving = () async {
+      var count = 0;
+      await for (final incoming in server) {
+        await incoming.drain<void>();
+        if (count < statuses.length) {
+          incoming.response.statusCode = statuses[count];
+          incoming.response.write('secret upstream body');
+        } else {
+          incoming.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+            charset: 'utf-8',
+          );
+          incoming.response.write(
+            'data: {"choices":[{"index":0,"delta":{"content":"[1] 你"},"finish_reason":"length"}]}\n\n',
+          );
+        }
+        await incoming.response.close();
+        if (++count == statuses.length + 1) break;
+      }
+    }();
+    final kinds = <TranslationFailureKind>[];
+    for (var i = 0; i < statuses.length + 1; i++) {
+      final events = await provider(
+        'openai',
+        server,
+      ).translateBatch(batch, client: client).toList();
+      final failure = events.last as BatchFailure;
+      expect(failure.message.contains('secret upstream body'), isFalse);
+      expect(events.whereType<BatchCompleted>(), isEmpty);
+      kinds.add(failure.kind);
+    }
+    expect(kinds, [
+      TranslationFailureKind.service,
+      TranslationFailureKind.service,
+      TranslationFailureKind.service,
+      TranslationFailureKind.transient,
+      TranslationFailureKind.paragraph,
+    ]);
+    await serving;
+  });
 }

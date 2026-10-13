@@ -11,6 +11,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var automaticItem: NSMenuItem?
     private var accessItem: NSMenuItem?
     private var stopCaptureItem: NSMenuItem?
+    private var liveAbort = false
+    private var abortLiveTranslation: (() -> Void)?
     var showSettings: (() -> Void)?
     var refreshSettings: (() -> Void)?
     var showHistory: (() -> Void)?
@@ -82,7 +84,41 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
-        statusItem?.menu = menu
+        statusItem?.menu = liveAbort ? nil : menu
+    }
+
+    /// active 为实时翻译正在运行。图标变为中止按钮，点击执行结束并保留结果。
+    func setLiveAbort(_ active: Bool, abort: (() -> Void)? = nil) {
+        liveAbort = active
+        abortLiveTranslation = abort
+        let button = statusItem?.button
+        if active {
+            statusItem?.menu = nil
+            if let image = NSImage(systemSymbolName: "stop.circle", accessibilityDescription: "中止实时翻译") {
+                image.isTemplate = true
+                button?.image = image
+            }
+            button?.action = #selector(abortLive)
+            button?.target = self
+            button?.toolTip = "中止实时翻译"
+            button?.setAccessibilityLabel("中止实时翻译")
+            return
+        }
+        button?.action = nil
+        button?.target = nil
+        if let image = NSImage(systemSymbolName: "translate", accessibilityDescription: "选区翻译")
+            ?? NSImage(systemSymbolName: "globe", accessibilityDescription: "选区翻译") {
+            image.isTemplate = true
+            button?.image = image
+        }
+        button?.toolTip = "选区翻译"
+        button?.setAccessibilityLabel("选区翻译")
+        reloadMenu()
+    }
+
+    /// 无参数。菜单栏中止执行结束语义，不放弃本次结果。
+    @objc private func abortLive() {
+        abortLiveTranslation?()
     }
 
     /// enabled 为主 Dart 已成功保存的自动按钮设置；更新菜单状态，无返回值。
@@ -112,6 +148,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     /// active为连续采集状态；更新提示与停止能力，保持图标入口宽度不变。
     func setCaptureActive(_ active: Bool) {
+        if liveAbort { return }
         statusItem?.button?.title = ""
         let description = active ? "选区翻译，采集中" : "选区翻译"
         statusItem?.button?.toolTip = description

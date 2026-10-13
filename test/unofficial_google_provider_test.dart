@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -100,5 +101,73 @@ void main() {
 
   test('unconfigured provider id is unofficial-google', () {
     expect(UnofficialGoogleProvider().id, 'unofficial-google');
+  });
+
+  test('批量翻译按换行拆回各段，行数对不上时不给出译文，限流为服务级错误', () async {
+    // 作用：多个段落合成一次请求后仍能一一对应。
+    // 边界：返回 2 行对 2 段时逐段给出；返回 1 行对 2 段时全部缺失但整批完成；HTTP 429 不可重试。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    var count = 0;
+    server.listen((incoming) async {
+      final form = Uri.splitQueryString(
+        await utf8.decoder.bind(incoming).join(),
+      );
+      expect(form['q'], 'Hello\nWorld');
+      switch (count++) {
+        case 0:
+          incoming.response.write(
+            jsonEncode([
+              [
+                ['你好\n', 'Hello\n'],
+                ['世界', 'World'],
+              ],
+            ]),
+          );
+        case 1:
+          incoming.response.write(
+            jsonEncode([
+              [
+                ['你好世界', 'Hello World'],
+              ],
+            ]),
+          );
+        default:
+          incoming.response.statusCode = 429;
+      }
+      await incoming.response.close();
+    });
+    final provider = UnofficialGoogleProvider(
+      endpoint: 'http://127.0.0.1:${server.port}/translate',
+    );
+    const batch = BatchTranslationRequest(
+      texts: ['Hello', 'World'],
+      detectedLanguage: 'en',
+      targetLanguage: 'zh-CN',
+    );
+    expect(provider.allowsParallelBatches, isFalse);
+    final matched = await provider
+        .translateBatch(batch, client: client)
+        .toList();
+    expect(
+      matched.whereType<BatchItemUpdate>().map(
+        (event) => (event.index, event.addition),
+      ),
+      [(0, '你好'), (1, '世界')],
+    );
+    expect(matched.last, isA<BatchCompleted>());
+    final mismatched = await provider
+        .translateBatch(batch, client: client)
+        .toList();
+    expect(mismatched.single, isA<BatchCompleted>());
+    final limited = await provider
+        .translateBatch(batch, client: client)
+        .toList();
+    expect(
+      (limited.single as BatchFailure).kind,
+      TranslationFailureKind.service,
+    );
   });
 }

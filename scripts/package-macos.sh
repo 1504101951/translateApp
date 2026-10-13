@@ -1,12 +1,18 @@
 #!/bin/bash
-# 无参数；构建并校验 Release App，输出 dist/TranslateApp.zip；环境变量可指定固定签名证书。
+# 无参数；先清除本机同 Bundle ID 的 TranslateApp.app 与 translate_app.app，再构建并校验 Release App，输出 dist/TranslateApp.zip；环境变量可指定固定签名证书。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 built_app="build/macos/Build/Products/Release/translate_app.app"
 archive="dist/TranslateApp.zip"
 identity="${TRANSLATEAPP_SIGN_IDENTITY:-TranslateApp Local Signing}"
-# 身份缺失立即失败，避免产出每次更新都会失去TCC授权的临时签名包。
+bundle_id="com.coolyang.translateApp"
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+stage=""
+candidate_file=""
+normalized_file=""
+ordered_file=""
+# 身份缺失立即失败，避免产出每次更新都会失去TCC授权的临时签名包。先于删除执行，证书不可用时不碰已安装副本。
 if [[ "$identity" == "-" ]]; then
   echo "禁止ad-hoc交付；请配置固定代码签名证书。" >&2
   exit 1
@@ -16,16 +22,175 @@ if ! /usr/bin/grep -Fq "\"$identity\"" <<< "$identities"; then
   echo "未找到有效代码签名身份：$identity。请在钥匙串中完成证书和私钥配置。" >&2
   exit 1
 fi
-if pgrep -f "^$PWD/$built_app/Contents/MacOS/translate_app([[:space:]]|$)" >/dev/null; then
-  echo "请先退出直接从 build 运行的 TranslateApp，再打包。" >&2
+# 运行中的包删不干净，签名也会继续指向旧进程。
+if pgrep -x translate_app >/dev/null; then
+  echo "请先退出所有 TranslateApp，再打包。" >&2
   exit 1
 fi
+
+# 作用：判断路径最后一级是不是本仓库的 App 包名。
+# 参数：app 为任意路径。
+# 返回：0 表示包名是 TranslateApp.app、translate_app.app，或废纸篓重名后追加的「空格 + 时间戳」；大小写不敏感。1 表示不是。
+is_target_app_name() {
+  local base
+  base="$(basename "$1")"
+  base="$(printf '%s' "$base" | /usr/bin/tr '[:upper:]' '[:lower:]')"
+  [[ "$base" == "translateapp.app" || "$base" == "translate_app.app" ]] && return 0
+  # 废纸篓遇到重名会把副本改成 “TranslateApp 20-46-05-824.app”。
+  [[ "$base" == translateapp\ *.app || "$base" == translate_app\ *.app ]]
+}
+
+# 作用：判断磁盘上的目录是否属于本应用，避免误删同名包。
+# 参数：app 为已存在的 .app 目录。
+# 返回：0 表示应删除；1 表示跳过。Bundle ID 匹配，或没有 Info.plist 但可执行文件是 translate_app 时删除。
+should_remove_app() {
+  local app="$1"
+  local id
+  # is_target_app_name：只接受打包名和 Flutter 产物名。
+  is_target_app_name "$app" || return 1
+  [[ -d "$app" ]] || return 1
+  id="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ "$id" == "$bundle_id" ]]; then
+    return 0
+  fi
+  # 测试中断会留下没有 Info.plist 的半成品，只认本仓库可执行文件。
+  [[ -z "$id" && -f "$app/Contents/MacOS/translate_app" ]]
+}
+
+# 作用：列出磁盘和 LaunchServices 中的候选路径。
+# 参数：无。
+# 返回：标准输出每行一个路径。Spotlight 覆盖已索引卷；find 覆盖索引不到的临时目录、废纸篓和 DerivedData。
+list_app_candidates() {
+  mdfind "kMDItemCFBundleIdentifier == '${bundle_id}'" 2>/dev/null || true
+  mdfind 'kMDItemFSName == "TranslateApp.app" || kMDItemFSName == "translate_app.app"' 2>/dev/null || true
+  local root
+  for root in /Applications /Users /opt /usr/local /private/tmp /tmp /var/folders; do
+    [[ -d "$root" ]] || continue
+    # 第三、四种名字是废纸篓为重名副本追加的时间戳，Spotlight 经常不索引这些路径。
+    find "$root" \( -iname 'TranslateApp.app' -o -iname 'translate_app.app' -o -iname 'TranslateApp *.app' -o -iname 'translate_app *.app' \) -prune -print 2>/dev/null || true
+  done
+  # 目录删除后启动服务仍保留测试副本和 dist/package.* 暂存路径，屏幕录制列表会继续显示它们。
+  "$lsregister" -dump 2>/dev/null | /usr/bin/awk -v bundle="$bundle_id" '
+    function emit() {
+      if (matched && path != "") print path
+    }
+    /^--------------------------------------------------------------------------------$/ { emit(); path=""; matched=0; next }
+    /^path:[[:space:]]/ {
+      line = $0
+      sub(/^path:[[:space:]]+/, "", line)
+      sub(/[[:space:]]+\(0x[0-9A-Fa-f]+\)$/, "", line)
+      path = line
+      next
+    }
+    /^identifier:[[:space:]]/ {
+      if ($2 == bundle) matched = 1
+      next
+    }
+    END { emit() }
+  '
+}
+
+# 作用：注销并删除一个已核对的应用副本。
+# 参数：app 为 .app 路径。目录不存在时只注销 LaunchServices。
+# 返回：无。目录仍在时以非零状态退出。当前用户删不掉时请求管理员权限。
+remove_app_copy() {
+  local app="$1"
+  local escaped
+  if [[ -d "$app" ]]; then
+    echo "删除旧副本：$app"
+    "$lsregister" -u "$app" >/dev/null 2>&1 || true
+    if ! rm -rf "$app" 2>/dev/null; then
+      escaped="$(printf '%q' "$app")"
+      osascript -e "do shell script \"/bin/rm -rf -- $escaped\" with administrator privileges"
+    fi
+    if [[ -e "$app" ]]; then
+      echo "无法删除：$app" >&2
+      exit 1
+    fi
+    return 0
+  fi
+  echo "注销已不在磁盘上的登记：$app"
+  "$lsregister" -u "$app" >/dev/null 2>&1 || true
+}
+
+# 作用：清除本机旧副本和启动服务里的残留登记。
+# 参数：无。读写外层 candidate_file、normalized_file、ordered_file。
+# 返回：无。找不到副本时照常继续打包。
+remove_existing_copies() {
+  local path line physical
+  echo "正在查找本机 TranslateApp 与 translate_app 副本…"
+  candidate_file="$(mktemp)"
+  normalized_file="$(mktemp)"
+  ordered_file="$(mktemp)"
+  # list_app_candidates：汇总磁盘路径和 LaunchServices 登记。
+  list_app_candidates > "$candidate_file"
+  while IFS= read -r path || [[ -n "$path" ]]; do
+    [[ -n "$path" ]] || continue
+    if [[ -d "$path" ]]; then
+      physical="$(cd "$path" && pwd -P)" || physical="$path"
+    else
+      physical="$path"
+    fi
+    printf '%s\n' "$physical"
+  done < "$candidate_file" | sort -u > "$normalized_file"
+  while IFS= read -r path || [[ -n "$path" ]]; do
+    [[ -n "$path" ]] || continue
+    printf '%07d %s\n' "${#path}" "$path"
+  done < "$normalized_file" | sort -nr > "$ordered_file"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    path="${line:8}"
+    [[ -n "$path" ]] || continue
+    case "$path" in
+      /Volumes/.timemachine/*|*/Backups.backupdb/*|*/.MobileBackups/*)
+        echo "跳过备份卷：$path" >&2
+        continue
+        ;;
+    esac
+    if [[ -d "$path" ]]; then
+      # should_remove_app：只放行本应用包。remove_app_copy：注销并删除。
+      if should_remove_app "$path"; then
+        remove_app_copy "$path"
+      else
+        echo "跳过非本应用副本：$path" >&2
+      fi
+    elif is_target_app_name "$path"; then
+      # is_target_app_name：缺失路径只注销这两种包名。remove_app_copy：目录不在时只注销。
+      remove_app_copy "$path"
+    fi
+  done < "$ordered_file"
+  # -u 读不到已删除的 bundle；压缩数据库才会丢掉这些登记。
+  "$lsregister" -gc >/dev/null
+}
+
+# 作用：退出时注销并删除本次产物，保留进入 trap 时的状态码。
+# 参数：无。使用外层 stage、built_app 和临时列表文件。
+# 返回：以进入 trap 时的状态码退出。清理命令成功不能把打包失败变成成功退出。
+cleanup_build_outputs() {
+  local status=$?
+  if [[ -n "$stage" && -d "$stage/TranslateApp.app" ]]; then
+    "$lsregister" -u "$stage/TranslateApp.app" >/dev/null 2>&1 || true
+  fi
+  if [[ -d "$built_app" ]]; then
+    "$lsregister" -u "$PWD/$built_app" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$stage" ]]; then
+    rm -rf "$stage"
+  fi
+  rm -rf "$built_app"
+  [[ -n "$candidate_file" ]] && rm -f "$candidate_file"
+  [[ -n "$normalized_file" ]] && rm -f "$normalized_file"
+  [[ -n "$ordered_file" ]] && rm -f "$ordered_file"
+  exit "$status"
+}
+trap cleanup_build_outputs EXIT
+
+# remove_existing_copies：打包前清掉测试副本和旧安装，避免启动服务继续打开旧路径。
+remove_existing_copies
 
 # 每次从空目录打包，避免已移除的资源残留并破坏签名。
 mkdir -p dist
 stage="$(mktemp -d dist/package.XXXXXX)"
-# 只留下 ZIP 交付物，避免 Spotlight 收录构建副本；运行中的安装版不在清理范围。
-trap 'rm -rf "$stage" "$built_app"' EXIT
 flutter build macos --release
 ditto "$built_app" "$stage/TranslateApp.app"
 sign_flags=(--force --sign "$identity")

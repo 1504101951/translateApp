@@ -31,3 +31,5 @@ macOS应用生命周期、系统能力与窗口控制器。
 27. [GIFExporter.swift](GIFExporter.swift)：按设置逐帧解码完整MP4并生成有界、等比缩小的GIF。
 28. [ScrollStitcher.swift](ScrollStitcher.swift)：识别垂直位移和上下固定带并生成保持原始像素的长图。
 29. [ApplicationRecorder.swift](ApplicationRecorder.swift)：将所选应用在全部显示器上的可见窗口合成为固定黑底画布并编码视频。
+30. [LiveRegionCapture.swift](LiveRegionCapture.swift)：以未编码画面帧持续识别区域、窗口或全屏文字。
+31. [LiveRegionWindowController.swift](LiveRegionWindowController.swift)：承载不抢焦点的实时翻译结果窗，并连接捕获与主引擎会话。

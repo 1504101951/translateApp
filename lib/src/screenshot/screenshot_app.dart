@@ -79,6 +79,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   final FocusNode _focusNode = FocusNode();
   // 录制目标属于当前截图草稿；应用异步查询按截图身份和目标隔离。
   bool _recordingExpanded = false;
+  bool _liveExpanded = false;
   CaptureTarget _recordingTarget = CaptureTarget.region;
   Map<Object?, Object?>? _recordingApplication;
   List<Map<Object?, Object?>> _recordingApplications = [];
@@ -199,10 +200,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         // 原生键路由与 Flutter 键盘共用确认语义，过期捕获不能触发导出。
         await _confirmScreenshot();
       } else if (call.method == MethodNames.escapePressed) {
-        if (_recordingExpanded) {
+        if (_recordingExpanded || _liveExpanded) {
           setState(() {
             _recordingExpanded = false;
+            _liveExpanded = false;
             unawaited(_syncRecordingPreview());
+            unawaited(_syncLivePreview());
           });
           return;
         }
@@ -260,6 +263,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   void _replace(Map<Object?, Object?> value) {
     if (!mounted) return;
     _recordingExpanded = false;
+    _liveExpanded = false;
+    unawaited(_syncLivePreview());
     _recordingTarget = CaptureTarget.region;
     _recordingApplication = null;
     _recordingApplications = [];
@@ -554,6 +559,23 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
   }
 
+  /// 无参数；展开时显示可调整的空结果窗，收起时关闭尚未开始的预览。
+  Future<void> _syncLivePreview() async {
+    final id = _capture['id'];
+    try {
+      await widget.channel.invokeMethod<void>(
+        _liveExpanded
+            ? MethodNames.previewLiveRegion
+            : MethodNames.cancelLivePreview,
+        {'id': id},
+      );
+    } on PlatformException catch (error) {
+      if (mounted && _capture['id'] == id && _liveExpanded) {
+        setState(() => _message = error.message);
+      }
+    }
+  }
+
   /// 无参数；同步当前录制预览身份，原生仅负责其他显示器的穿透遮罩。
   Future<void> _syncRecordingPreview() async {
     final id = _capture['id'];
@@ -562,8 +584,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         MethodNames.previewCaptureTarget,
         {
           'id': id,
-          'kind': (_recordingExpanded ? _recordingTarget : CaptureTarget.region)
-              .name,
+          'kind':
+              (_recordingExpanded || _liveExpanded
+                      ? _recordingTarget
+                      : CaptureTarget.region)
+                  .name,
           'applicationID': _recordingApplication?['applicationID'],
         },
       );
@@ -576,7 +601,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// 无参数；返回所选应用在冻结显示器上的源像素窗口矩形，null表示尚未选择应用。
   List<Rect>? get _recordingWindows {
-    if (!_recordingExpanded ||
+    if ((!_recordingExpanded && !_liveExpanded) ||
         _recordingTarget != CaptureTarget.application ||
         _recordingApplication == null) {
       return null;
@@ -652,6 +677,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   Future<void> _prepareCapture(
     CaptureTarget kind, {
     bool scrolling = false,
+    bool live = false,
   }) async {
     if (_busy || _capture['canCaptureMedia'] != true) return;
     final id = _capture['id'];
@@ -661,6 +687,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         'id': id,
         'kind': kind.name,
         'scrolling': scrolling,
+        'live': live,
         if (kind == CaptureTarget.application)
           'applicationID': _recordingApplication!['applicationID'],
         if (kind == CaptureTarget.region) ...{
@@ -700,13 +727,13 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   Future<void> _confirmScreenshot() async {
     if (_styleDialogOpen) return;
     if (_busy) return;
-    if (_recordingExpanded) {
+    if (_recordingExpanded || _liveExpanded) {
       if (_recordingTarget == CaptureTarget.application &&
           _recordingApplication == null) {
         return;
       }
       // 与开始按钮共用校验后的采集入口，回车不能误复制截图。
-      await _prepareCapture(_recordingTarget);
+      await _prepareCapture(_recordingTarget, live: _liveExpanded);
       return;
     }
     if (_textInputOpen) {
@@ -1559,10 +1586,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         onKeyEvent: (node, event) {
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
           if (event.logicalKey == LogicalKeyboardKey.escape) {
-            if (_recordingExpanded) {
+            if (_recordingExpanded || _liveExpanded) {
               setState(() {
                 _recordingExpanded = false;
+                _liveExpanded = false;
                 unawaited(_syncRecordingPreview());
+                unawaited(_syncLivePreview());
               });
               return KeyEventResult.handled;
             }
@@ -1623,18 +1652,18 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   dragCurrent: _dragCurrent,
                   previewAnnotation: _previewAnnotation,
                   previewCrop:
-                      _recordingExpanded &&
+                      (_recordingExpanded || _liveExpanded) &&
                           _recordingTarget != CaptureTarget.region
                       ? Offset.zero & _document.imageSize
                       : _previewCrop,
                   recordingWindows: _recordingWindows,
                   recordingPreview:
-                      _recordingExpanded &&
+                      (_recordingExpanded || _liveExpanded) &&
                       _recordingTarget != CaptureTarget.region,
                   pixelRatio: _pixelRatio,
                   busy:
                       _busy ||
-                      (_recordingExpanded &&
+                      ((_recordingExpanded || _liveExpanded) &&
                           _recordingTarget != CaptureTarget.region),
                   textInputOpen: _textInputOpen && !_styleDialogOpen,
                   sourceImage: _sourceImage,
@@ -1656,7 +1685,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   onCropTap: _onCropTap,
                   cropSelected:
                       _cropSelected &&
-                      !(_recordingExpanded &&
+                      !((_recordingExpanded || _liveExpanded) &&
                           _recordingTarget != CaptureTarget.region),
                   activeHandle: _resizeHandle,
                   onDoubleTapDown: (point) => _doubleTapPoint = point,
@@ -1705,8 +1734,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                           )
                           .length +
                       (_busy ? 1 : 0),
+                  // 两种准备共用行数。工具栏厚度和按钮行宽都靠它留在屏幕安全区内。
                   recordingRows:
-                      _recordingExpanded && _tool == ScreenshotTool.crop
+                      (_recordingExpanded || _liveExpanded) &&
+                          _tool == ScreenshotTool.crop
                       ? (_recordingTarget == CaptureTarget.application ? 2 : 1)
                       : 0,
                   applicationCount: _recordingApplications.length,
@@ -1849,8 +1880,22 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       if (_tool == ScreenshotTool.crop) ...{
         ScreenshotActions.record: _capture['canCaptureMedia'] == true
             ? () {
-                setState(() => _recordingExpanded = !_recordingExpanded);
+                setState(() {
+                  _recordingExpanded = !_recordingExpanded;
+                  if (_recordingExpanded) _liveExpanded = false;
+                });
                 unawaited(_syncRecordingPreview());
+                unawaited(_syncLivePreview());
+              }
+            : null,
+        ScreenshotActions.live: _capture['canCaptureMedia'] == true
+            ? () {
+                setState(() {
+                  _liveExpanded = !_liveExpanded;
+                  if (_liveExpanded) _recordingExpanded = false;
+                });
+                unawaited(_syncRecordingPreview());
+                unawaited(_syncLivePreview());
               }
             : null,
         ScreenshotActions.scrolling: _capture['canCaptureMedia'] == true
@@ -1874,7 +1919,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         entry.key: () => setState(() {
           _tool = entry.value;
           _recordingExpanded = false;
+          _liveExpanded = false;
           unawaited(_syncRecordingPreview());
+          unawaited(_syncLivePreview());
           _recordingApplication = null;
           _selectedShapeId = null;
           _selectedTextId = null;
@@ -1920,6 +1967,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final icons = <String, IconData>{
       ...ScreenshotActions.icons,
       ScreenshotActions.record: Icons.videocam_outlined,
+      ScreenshotActions.live: Icons.subtitles_outlined,
       ScreenshotActions.scrolling: Icons.unfold_more,
       ScreenshotActions.palette: Icons.palette_outlined,
       ScreenshotActions.width: Icons.line_weight,
@@ -2056,7 +2104,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final rows = <Widget>[
       row(top, 'screenshot-tools-row', loading: _busy),
       if (attributes.isNotEmpty) row(attributes, 'screenshot-attributes-row'),
-      if (_recordingExpanded && _tool == ScreenshotTool.crop)
+      if ((_recordingExpanded || _liveExpanded) &&
+          _tool == ScreenshotTool.crop)
         captureRow('recording-targets-row', [
           for (final target in const {
             CaptureTarget.region: ('当前选区', Icons.crop),
@@ -2070,25 +2119,30 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               selected: _recordingTarget == target.key,
             ),
           captureButton(
-            '开始录制',
+            _liveExpanded ? '开始实时翻译' : '开始录制',
             const Icon(Icons.fiber_manual_record, size: 16),
             _loadingApplications ||
                     (_recordingTarget == CaptureTarget.application &&
                         _recordingApplication == null)
                 ? null
-                : () => _prepareCapture(_recordingTarget),
+                : () => _prepareCapture(
+                    _recordingTarget,
+                    live: _liveExpanded,
+                  ),
           ),
           captureButton(
-            '取消录制',
+            _liveExpanded ? '取消实时翻译' : '取消录制',
             const Icon(Icons.close, size: 16),
             () => setState(() {
               _recordingExpanded = false;
+              _liveExpanded = false;
               unawaited(_syncRecordingPreview());
+              unawaited(_syncLivePreview());
               _recordingApplication = null;
             }),
           ),
         ]),
-      if (_recordingExpanded &&
+      if ((_recordingExpanded || _liveExpanded) &&
           _tool == ScreenshotTool.crop &&
           _recordingTarget == CaptureTarget.application)
         captureRow('recording-applications-row', [

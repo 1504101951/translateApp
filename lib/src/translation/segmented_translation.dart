@@ -157,11 +157,14 @@ Stream<TranslationEvent> translateSegmented(
             sourceText: segment,
             detectedLanguage: request.detectedLanguage,
             targetLanguage: request.targetLanguage,
-            previousSourceTail: usesSlidingContext && i > 0
-                ? checkpoint.sourceTail
+            // 第一片沿用调用方带来的相邻块尾部，后面的片仍只用本请求自己的检查点。
+            previousSourceTail: usesSlidingContext
+                ? (i > 0 ? checkpoint.sourceTail : request.previousSourceTail)
                 : null,
-            previousTranslationTail: usesSlidingContext && i > 0
-                ? checkpoint.translationTail
+            previousTranslationTail: usesSlidingContext
+                ? (i > 0
+                      ? checkpoint.translationTail
+                      : request.previousTranslationTail)
                 : null,
           );
           current = StreamIterator(translate(sliding));

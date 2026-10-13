@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../common/constants/translation_phase.dart';
 export '../common/constants/translation_phase.dart';
 
@@ -114,4 +116,70 @@ abstract class TranslationProvider {
   bool get usesSlidingContext => false;
   /// request提供文本、语言方向及前片上下文；返回有序增量、完成或失败事件流。
   Stream<TranslationEvent> translate(TranslationRequest request);
+}
+
+/// 批量翻译请求；texts 为同一批次的段落原文，下标即批次内编号。
+class BatchTranslationRequest {
+  /// texts 为待译段落；detectedLanguage 为整批的识别语言，可为空；targetLanguage 为目标语言。
+  const BatchTranslationRequest({
+    required this.texts,
+    required this.targetLanguage,
+    this.detectedLanguage,
+  });
+  final List<String> texts;
+  final String? detectedLanguage;
+  final String targetLanguage;
+}
+
+/// 批量翻译失败的类别；会话据此决定停止发送、放弃该段落或重试。
+enum TranslationFailureKind {
+  /// 认证失败、额度或频率受限、服务拒绝配置。
+  service,
+
+  /// 模型拒绝翻译或输出达到长度上限，只与本次原文有关。
+  paragraph,
+
+  /// 无法连接、超时、服务端错误、响应不完整或无法解析。
+  transient,
+}
+
+/// 批量翻译向会话发布的事件；增量带批次内下标。
+sealed class BatchTranslationEvent {
+  /// 无参数；创建事件基类。
+  const BatchTranslationEvent();
+}
+
+/// 批次内某个段落的新增译文；按顺序追加。
+final class BatchItemUpdate extends BatchTranslationEvent {
+  /// index 为批次内下标，addition 为该段落新增的译文。
+  const BatchItemUpdate(this.index, this.addition);
+  final int index;
+  final String addition;
+}
+
+/// 整批完成的终态；此前没有收到译文的段落视为缺失。
+final class BatchCompleted extends BatchTranslationEvent {
+  /// 无参数；构造完成事件。
+  const BatchCompleted();
+}
+
+/// 整批失败的终态；本批次已收到的译文不作为结果。
+final class BatchFailure extends BatchTranslationEvent {
+  /// message 为用户可读原因，kind 为错误类别。
+  const BatchFailure(this.message, this.kind);
+  final String message;
+  final TranslationFailureKind kind;
+}
+
+/// 支持一次请求翻译一批段落的服务；实时翻译使用这一契约。
+abstract class BatchTranslationProvider implements TranslationProvider {
+  /// 无参数；返回是否允许多个批次同时在途。
+  bool get allowsParallelBatches;
+
+  /// request 为一批段落与语言方向，client 为会话持有的连接；
+  /// 返回带下标的增量及整批完成或失败事件，取消订阅即中止本次请求。
+  Stream<BatchTranslationEvent> translateBatch(
+    BatchTranslationRequest request, {
+    required HttpClient client,
+  });
 }

@@ -91,7 +91,9 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     let pins = PinOverlayController()
     var onCapturingChanged: ((Bool) -> Void)?
     /// source为已选择来源，scrolling指定长截图，region为校验后的选区；协调器启动真实采集。
-    var onPrepareCapture: (@MainActor ([String: Any], Bool, MediaCaptureService.Region?) throws -> Void)?
+    var onPrepareCapture: (@MainActor ([String: Any], Bool, MediaCaptureService.Region?) async throws -> Void)?
+    var onPreviewLiveRegion: (@MainActor (NSScreen?) -> Void)?
+    var onCancelLivePreview: (@MainActor () -> Void)?
     /// 用户已展开有效录制目标；提前准备隐藏控制界面，不启动采集或改变截图草稿。
     var onPrepareCaptureControls: (@MainActor () -> Void)?
     /// 应用ID为截图前台应用；返回去重、有序且携带PNG图标的可录制应用。
@@ -309,6 +311,17 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                     result(FlutterError(code: AppConstants.captureFailedError, message: error.localizedDescription, details: nil))
                 }
             }
+        case AppConstants.previewLiveRegionMethod:
+            guard let id = args["id"] as? String, id == liveCaptureID else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "请在当前屏幕截图中开始实时翻译。", details: nil))
+                return
+            }
+            let screen = window?.screen
+            Task { @MainActor in self.onPreviewLiveRegion?(screen) }
+            result(nil)
+        case AppConstants.cancelLivePreviewMethod:
+            Task { @MainActor in self.onCancelLivePreview?() }
+            result(nil)
         case AppConstants.prepareCaptureMethod:
             guard !capturing, let id = args["id"] as? String, id == liveCaptureID,
                   let kind = args["kind"] as? String, [CaptureTarget.region.rawValue, CaptureTarget.display.rawValue, CaptureTarget.application.rawValue].contains(kind),
@@ -327,7 +340,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                     // 所有目标保留冻结显示器身份，供控制条固定在同一显示器。
                     source["sourceID"] = selectedDisplayID
                     // 选区只在开始时提交，显示器由冻结帧身份决定，不接受其他显示器坐标。
-                    try prepare(source, scrolling, kind == CaptureTarget.region.rawValue ? captureRegion(args) : nil)
+                    try await prepare(source, scrolling, kind == CaptureTarget.region.rawValue ? captureRegion(args) : nil)
                     result(nil)
                 } catch {
                     result(FlutterError(code: AppConstants.captureFailedError, message: error.localizedDescription, details: nil))

@@ -141,7 +141,10 @@ class _CaptureAppState extends State<CaptureApp> {
     final seconds = ((_state['elapsed'] as num?)?.toDouble() ?? 0).floor();
     final elapsed =
         '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
-    final progress = scrolling
+    final liveDetail = (_state['detail'] as String?) ?? '';
+    final progress = _state['kind'] == 'liveTranslation'
+        ? (liveDetail.isEmpty ? '实时翻译' : liveDetail)
+        : scrolling
         ? '长截图：${_state['height'] ?? 0} 像素'
         : '录制：$elapsed';
     final label = switch (_phase) {

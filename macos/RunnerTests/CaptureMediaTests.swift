@@ -12,6 +12,23 @@ import XCTest
 
 /// 使用真实位图与本地编码文件验证输出；不调用屏幕权限，不控制其他应用。
 final class CaptureMediaTests: XCTestCase {
+    /// 旧识别尚未结束时只保留新代次的最新帧，结束后才开始下一次。
+    func testLiveOcrSlotKeepsOnePendingFrameForTheCurrentGeneration() {
+        var slot = LiveOcrSlot()
+        slot.adopt(1)
+        XCTAssertTrue(slot.offer(generation: 1))
+        XCTAssertFalse(slot.offer(generation: 1))
+        XCTAssertTrue(slot.finish())
+        XCTAssertFalse(slot.finish())
+        XCTAssertTrue(slot.offer(generation: 1))
+        slot.adopt(2)
+        XCTAssertFalse(slot.offer(generation: 1))
+        XCTAssertFalse(slot.offer(generation: 2))
+        XCTAssertTrue(slot.finish())
+        slot.adopt(3)
+        XCTAssertFalse(slot.finish())
+        XCTAssertTrue(slot.offer(generation: 3))
+    }
     /// 无参数；没有真实冻结帧时，即使请求结构完整也必须拒绝启动，不能把任意ID当作屏幕身份。
     @MainActor
     func testCaptureToolbarRejectsMissingScreenFrame() throws {

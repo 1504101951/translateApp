@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
 
+import '../common/constants/text_limits.dart';
 import '../translation/language_direction.dart';
 import '../translation/segmented_translation.dart';
 import '../translation/translation_types.dart';
@@ -15,7 +16,7 @@ class SelectionSession extends ChangeNotifier {
     LanguageDirection? language,
   }) : language = language ?? LanguageDirection.systemDefault();
 
-  static const selectionLimit = 50000;
+  static const selectionLimit = TextLimits.translationInput;
 
   // 设置更新供下一次翻译使用；已激活的请求保留自己的服务与语言方向。
   TranslationProvider provider;

@@ -1,12 +1,12 @@
 # macOS 安装
 
-串行打包并安装运行 `./scripts/package-and-install-macos.sh`。脚本先运行打包，成功后才运行安装；失败立即退出。运行前保存内容并退出 TranslateApp，安装脚本会拒绝覆盖运行中的应用。仍可分别运行两个原有脚本。
+串行打包并安装运行 `./scripts/package-and-install-macos.sh`。脚本先运行打包，成功后才运行安装；失败立即退出。打包前保存内容并退出所有 TranslateApp；仍有 `translate_app` 进程时打包停止。仍可分别运行两个原有脚本。
 
 ## 可直接启动的 App
 
-`scripts/package-macos.sh` 构建、签名并验证 Release App，生成 `dist/TranslateApp.zip`；`scripts/install-macos.sh` 在暂存目录解压并验签，安装到 `/Applications/TranslateApp.app`（访达「应用程序」）并注册 LaunchServices。可双击安装后的 App，或从 Spotlight 搜索 TranslateApp。
+`scripts/package-macos.sh` 构建前删除本机已有副本，再签名并验证 Release App，生成 `dist/TranslateApp.zip`。`scripts/install-macos.sh` 在暂存目录解压并验签，安装到 `/Applications/TranslateApp.app`（访达「应用程序」）并注册 LaunchServices。可双击安装后的 App，或从 Spotlight 搜索 TranslateApp。
 
-安装更新前从菜单栏退出 App，再执行安装脚本；构建 ZIP 可以保留已安装版本运行。安装脚本验证签名、检查归档和目标 Bundle ID，使用暂存目录替换整个 bundle，失败时恢复已有 App。偏好保存在 UserDefaults，安装不会清理偏好。
+打包会先删除 `/Applications/TranslateApp.app`。安装脚本验证签名、检查归档和目标 Bundle ID，并把新 ZIP 安装到该路径。串行流程里安装失败时没有可恢复的上一份 App。单独运行安装脚本时，仍会在替换前保留上一份，失败则恢复。偏好保存在 UserDefaults，两种脚本都不清理偏好。
 
 ## 辅助功能授权与签名
 
@@ -36,9 +36,11 @@ App 不修改 TCC 数据库，也不添加只匹配 Bundle ID 的宽松自定义
 
 ## 旧 App 副本
 
-打包脚本退出时清理本次暂存目录及 `build/macos/Build/Products/Release/translate_app.app`，交付目录只保留 ZIP。开发和原生测试产生的 Debug、Xcode DerivedData 及临时目录中的 `translate_app.app` 在验证结束后清理，仅删除经路径与 Bundle ID 核对的生成 App；不删除整个 DerivedData、源码或偏好文件。清理前确认目标副本没有运行。
+打包开始前清除本机 `TranslateApp.app` 与 `translate_app.app`。废纸篓里的重名副本带时间戳后缀，同样按 Bundle ID 删除。搜索范围是 Spotlight 已索引的卷，以及 `/Applications`、`/Users`、`/opt`、`/usr/local`、`/tmp`、`/private/tmp` 和 `/var/folders`。只删除 Bundle ID 为 `com.coolyang.translateApp` 的包；没有 Info.plist 时，仅当可执行文件是 `translate_app` 才删除。同一 Bundle ID 在 LaunchServices 中的登记会注销，包括文件已经不在的测试副本和打包暂存副本，然后压缩数据库。不删除源码、偏好、整个 DerivedData、整个 build 目录、ZIP 或 Time Machine 备份。
 
-日常启动入口只保留 `/Applications/TranslateApp.app`；ZIP 归档不作为已安装应用登记。用户主目录下的 `~/Applications/TranslateApp.app` 在安装到「应用程序」后删除，避免两份副本抢 TCC。
+正在运行的副本不删除。脚本退出时注销并删除本次暂存目录和 `build/macos/Build/Products/Release/translate_app.app`，避免新的暂存路径留在启动服务里。交付目录只保留 `dist/TranslateApp.zip`。
+
+安装脚本会删除 `~/Applications/TranslateApp.app`（Bundle ID 匹配时），避免只运行安装时用户目录和「应用程序」各留一份。
 
 
 ## 本机固定签名

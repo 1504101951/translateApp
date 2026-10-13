@@ -27,6 +27,10 @@ class MacosPlatformBridge implements SettingsPlatform {
   Future<void> notifyHistoryChanged() =>
       _methods.invokeMethod<void>(MethodNames.historyChanged);
 
+  /// state 为实时翻译快照。转发给结果窗，返回原生接收完成的 Future。
+  Future<void> publishLiveRegion(Map<String, Object?> state) =>
+      _methods.invokeMethod<void>(MethodNames.publishLiveRegion, state);
+
   /// sessionId绑定会话，x/y为屏幕锚点，width/height为逻辑尺寸；请求显示定位，返回操作完成的Future。
   Future<void> showOverlay({
     required String sessionId,

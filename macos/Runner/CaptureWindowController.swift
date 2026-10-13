@@ -23,9 +23,18 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     private var originScreen: NSScreen?
     private var captureShades: [CGDirectDisplayID: NSWindow] = [:]
     var onActiveChanged: ((Bool) -> Void)?
+    var onLivePause: ((Bool) -> Void)?
+    var onLiveStop: (() -> Void)?
+    var onLiveCancel: (() -> Void)?
+    private var liveControlID: String?
+    private var livePaused = false
+    private var liveDetail = ""
+    private var liveShadeFrame: NSRect?
 
     /// 无参数；返回菜单与悬浮条停止可作用的真实资源阶段。
-    var canStop: Bool { [.recording, .scrolling, .paused].contains(service.phase) }
+    var canStop: Bool {
+        liveControlID != nil || [.recording, .scrolling, .paused].contains(service.phase)
+    }
 
     /// 无参数；有资源或结果时必须明确处理，不能被另一工具入口覆盖。
     var hasPendingCapture: Bool { ![.idle, .failed].contains(service.phase) }
@@ -215,9 +224,58 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
 
     /// 无参数；在资源快照中补充实际采集状态，Flutter与原生窗口使用同一生命周期。
     private func captureState() -> [String: Any] {
+        if let liveControlID {
+            return [
+                "id": liveControlID,
+                "phase": livePaused ? CapturePhase.paused.rawValue : CapturePhase.recording.rawValue,
+                "kind": "liveTranslation",
+                "elapsed": 0,
+                "detail": liveDetail,
+                "previewScale": originScreen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1,
+            ]
+        }
         var state = service.snapshot()
         state["previewScale"] = originScreen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         return state
+    }
+
+    /// id 为本次实时翻译控制身份，screen 为结果窗所在显示器。显示既有悬浮条，不启动录屏。
+    func showLiveControls(id: String, screen: NSScreen?) {
+        liveControlID = id
+        livePaused = false
+        if let screen { originScreen = screen }
+        // present 按紧凑控制条显示面板并通知界面，与录制、长截图是同一段流程。
+        present()
+    }
+
+    /// text 为运行中的状态。暂停和结束后清空，悬浮条回到「实时翻译」。
+    func setLiveDetail(_ text: String) {
+        guard liveControlID != nil, liveDetail != text else { return }
+        liveDetail = text
+        channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: captureState())
+    }
+
+    /// paused 为悬浮条上的暂停或恢复。只更新实时翻译控制，不改变录屏阶段。
+    func setLivePaused(_ paused: Bool) {
+        guard liveControlID != nil else { return }
+        livePaused = paused
+        channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: captureState())
+    }
+
+    /// 无参数。撤下实时翻译悬浮条。录屏结果仍由媒体阶段决定。
+    func hideLiveControls() {
+        liveControlID = nil
+        livePaused = false
+        liveDetail = ""
+        // present 按媒体阶段收起控制条，或恢复仍在展示的采集结果。
+        present()
+        channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: captureState())
+    }
+
+    /// frame 为当前捕获范围。nil 表示移除区域标记。
+    func setLiveShade(_ frame: NSRect?) {
+        liveShadeFrame = frame
+        updateCaptureShades()
     }
 
     /// force表示用户重新打开隐藏结果；资源通知只同步所需布局和可见录制范围。
@@ -225,10 +283,12 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         let previous = lastPhase
         lastPhase = service.phase
         guard !shuttingDown else { return }
-        let showingResult = [.videoReady, .converting, .imageReady].contains(service.phase)
+        // 实时翻译不占用媒体阶段；进行中时与采集中一样显示紧凑控制条。
+        let live = liveControlID != nil
+        let showingResult = !live && [.videoReady, .converting, .imageReady].contains(service.phase)
         // 结果先就位再撤遮罩；采集中仍立即更新选区阴影。
         if !showingResult { updateCaptureShades() }
-        if [.idle, .failed].contains(service.phase) {
+        if !live, [.idle, .failed].contains(service.phase) {
             window?.orderOut(nil)
             compactPresentation = nil
             releasePlayer()
@@ -244,7 +304,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             return
         }
         createPanel()
-        let compact = [.preparing, .recording, .scrolling, .pausing, .paused, .finalizing].contains(service.phase)
+        let compact = live || [.preparing, .recording, .scrolling, .pausing, .paused, .finalizing].contains(service.phase)
         // NSPanel的非激活标记必须在初始化时确定；仅转移内容，不重建Flutter引擎或媒体。
         if let old = window, old.styleMask.contains(.nonactivatingPanel) != compact {
             let content = old.contentViewController
@@ -268,8 +328,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             compactPresentation = compact
             (window.contentViewController as? NativeGlassWindowContent)?.windowCanvas.isHidden = compact
         }
-        if service.phase == .preparing {
-            // 隐藏的idle界面没有可提交内容；先通知准备态，再缩放，避免Flutter同步等待空白帧直到超时。
+        if live || service.phase == .preparing {
+            // 隐藏的idle界面没有可提交内容；先通知准备态或实时翻译状态，再缩放，避免Flutter同步等待空白帧直到超时。
             channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: captureState())
         }
         if !compact { applyResultChrome(to: window) }
@@ -342,8 +402,9 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
 
     /// 无参数；在与采集范围相交的显示器上绘制实时阴影，透明洞和全部窗口均穿透鼠标。
     private func updateCaptureShades() {
-        guard !shuttingDown, [.preparing, .recording, .scrolling, .pausing, .paused].contains(service.phase),
-              let frame = service.captureFrame else {
+        let mediaFrame = !shuttingDown && [.preparing, .recording, .scrolling, .pausing, .paused].contains(service.phase)
+            ? service.captureFrame : nil
+        guard let frame = liveShadeFrame ?? mediaFrame else {
             for window in captureShades.values { window.close() }
             captureShades.removeAll()
             return
@@ -381,6 +442,10 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
 
     /// sender为用户关闭的结果窗口；返回false，由立即放弃后的资源状态统一撤下窗口。
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if liveControlID != nil {
+            onLiveCancel?()
+            return false
+        }
         Task { @MainActor in
             // discard统一系统关闭和Flutter操作；内部窗口切换已移除delegate，不经过此入口。
             await discard()
@@ -400,6 +465,10 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
 
     /// 无参数；由菜单发出停止请求，完成后的状态通知负责展示结果。
     func stop() {
+        if liveControlID != nil {
+            onLiveStop?()
+            return
+        }
         Task { @MainActor in
             do { try await service.stop() }
             catch { if service.phase != .failed { showError(error) } }
@@ -436,6 +505,30 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         let args = call.arguments as? [String: Any] ?? [:]
         Task { @MainActor in
             do {
+                if let liveControlID {
+                    guard call.method == AppConstants.getCaptureStateMethod || args["id"] as? String == liveControlID else {
+                        throw GIFExporter.ExportError(message: "采集会话已改变，请重试。")
+                    }
+                    switch call.method {
+                    case AppConstants.getCaptureStateMethod:
+                        break
+                    case AppConstants.setCapturePausedMethod:
+                        guard let paused = args["paused"] as? Bool else {
+                            throw GIFExporter.ExportError(message: "缺少暂停状态。")
+                        }
+                        // 先反映到回包，避免异步暂停完成前把界面又刷回运行中。
+                        livePaused = paused
+                        onLivePause?(paused)
+                    case AppConstants.stopCaptureMethod:
+                        onLiveStop?()
+                    case AppConstants.cancelCaptureMethod:
+                        onLiveCancel?()
+                    default:
+                        throw GIFExporter.ExportError(message: "实时翻译没有这个媒体操作。")
+                    }
+                    result(captureState())
+                    return
+                }
                 guard call.method == AppConstants.getCaptureStateMethod || args["id"] as? String == service.id else {
                     throw GIFExporter.ExportError(message: "采集会话已改变，请重试。")
                 }

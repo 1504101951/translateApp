@@ -6,7 +6,8 @@ import 'providers/unofficial_google_provider.dart';
 import 'translation_types.dart';
 
 /// settings为启动请求时的配置，platform提供凭据读取；返回对应服务，凭据在请求前读取。
-TranslationProvider providerForSettings(
+/// 返回值同时支持单篇翻译和实时翻译使用的批量翻译。
+BatchTranslationProvider providerForSettings(
   AppSettings settings,
   SettingsPlatform platform,
 ) {

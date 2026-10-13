@@ -13,6 +13,7 @@ abstract final class ScreenshotActions {
   static const crop = 'screenshot-tool-crop';
   // 采集是截图工具组的二级动作，不新增可排序、可绑定的顶层工具。
   static const record = 'screenshot-record';
+  static const live = 'screenshot-live';
   static const scrolling = 'screenshot-scrolling';
   static const rect = 'screenshot-tool-rect';
   static const arrow = 'screenshot-tool-arrow';
@@ -64,6 +65,7 @@ abstract final class ScreenshotActions {
     cursor: '光标',
     crop: '截图',
     record: '录制',
+    live: '实时翻译',
     scrolling: '滚动长截图',
     rect: '图形',
     arrow: '箭头',

@@ -19,6 +19,8 @@ import 'src/settings/app_settings.dart';
 import 'src/settings/permission_wizard_app.dart';
 import 'src/settings/settings_app.dart';
 import 'src/settings/settings_controller.dart';
+import 'src/capture/live_region_app.dart';
+import 'src/translation/live_region_session.dart';
 import 'src/translation/provider_selection.dart';
 
 /// 无参数；装配主引擎唯一的配置、翻译会话、历史存储与跨窗口请求入口，无返回值。
@@ -38,6 +40,15 @@ Future<void> main() async {
     detectLanguage: bridge.detectLanguage,
     language: initial.direction,
   );
+  // 实时翻译会话只留在主引擎。原生盖层按快照绘制，不持有服务或密钥。
+  final live = LiveRegionSession(
+    providerFor: (settings) => providerForSettings(settings, bridge),
+    detectLanguage: bridge.detectLanguage,
+    clock: SystemLiveRegionClock(),
+    onView: (view) {
+      unawaited(bridge.publishLiveRegion(view.toMap()));
+    },
+  );
   final settings = SettingsController(
     initial: initial,
     platform: bridge,
@@ -47,6 +58,8 @@ Future<void> main() async {
       session.language = candidate.direction;
       // providerForSettings在下一次请求前按已提交配置读取对应服务凭据。
       session.provider = providerForSettings(candidate, bridge);
+      // 实时翻译之后发送的批次使用新配置，不重译画面上未变化的段落块。
+      live.noteSettings(candidate);
     },
   );
 
@@ -65,6 +78,44 @@ Future<void> main() async {
       case MethodNames.setHistoryRecording:
         // handleHistoryRequest访问同一个历史库，不等待设置提交或服务测试。
         return handleHistoryRequest(history, call);
+      case MethodNames.liveRegionCommand:
+        final command = Map<Object?, Object?>.from(call.arguments as Map);
+        final generation = command['generation'] as int;
+        final action = command['action'] as String;
+        final current = settings.current;
+        return switch (action) {
+          'start' => live.start(current, generation).toMap(),
+          'pause' => live.pause(generation).toMap(),
+          'resume' => live.resume(generation).toMap(),
+          'end' => live.end(generation).toMap(),
+          'discard' => live.discard(generation).toMap(),
+          'captureFailed' => live
+              .captureUnavailable(generation, command['failure'] as String)
+              .toMap(),
+          _ => throw ArgumentError('未知实时翻译操作：$action'),
+        };
+      case MethodNames.liveRegionOcr:
+        final sample = Map<Object?, Object?>.from(call.arguments as Map);
+        final blocks = <LiveTextBlock>[
+          for (final item in sample['blocks'] as List? ?? const [])
+            if (item is Map)
+              LiveTextBlock(
+                text: '${item['text'] ?? ''}',
+                x: (item['x'] as num?)?.toDouble(),
+                y: (item['y'] as num?)?.toDouble(),
+                width: (item['width'] as num?)?.toDouble(),
+                height: (item['height'] as num?)?.toDouble(),
+              ),
+        ];
+        final view = await live.onOcr(
+          LiveOcrSample(
+            generation: sample['generation'] as int,
+            text: sample['text'] as String?,
+            failure: sample['failure'] as String?,
+            blocks: blocks,
+          ),
+        );
+        return view.toMap();
       case MethodNames.translatePlainText:
         final map = Map<Object?, Object?>.from(call.arguments as Map);
         final captureId = map['id'] as String;
@@ -109,6 +160,13 @@ void settingsMain() {
 void screenshotMain() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ScreenshotApp());
+}
+
+/// 无参数；实时翻译结果窗只渲染快照，翻译会话留在主引擎。
+@pragma('vm:entry-point')
+void liveRegionMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const LiveRegionApp());
 }
 
 /// 无参数；采集引擎只管理录制、GIF 与长截图界面，原生持有媒体资源。
