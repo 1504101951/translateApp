@@ -80,6 +80,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   // 录制目标属于当前截图草稿；应用异步查询按截图身份和目标隔离。
   bool _recordingExpanded = false;
   bool _liveExpanded = false;
+
+  /// 实时翻译是否同步录制；只对区域与全屏目标生效，每次展开实时翻译时为关闭。
+  bool _liveRecord = false;
   CaptureTarget _recordingTarget = CaptureTarget.region;
   Map<Object?, Object?>? _recordingApplication;
   List<Map<Object?, Object?>> _recordingApplications = [];
@@ -688,6 +691,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         'kind': kind.name,
         'scrolling': scrolling,
         'live': live,
+        // 窗口目标的录制不含译文盖层，实时翻译不对它同步录制。
+        'record': live && _liveRecord && kind != CaptureTarget.application,
         if (kind == CaptureTarget.application)
           'applicationID': _recordingApplication!['applicationID'],
         if (kind == CaptureTarget.region) ...{
@@ -1892,6 +1897,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             ? () {
                 setState(() {
                   _liveExpanded = !_liveExpanded;
+                  _liveRecord = false;
                   if (_liveExpanded) _recordingExpanded = false;
                 });
                 unawaited(_syncRecordingPreview());
@@ -2117,6 +2123,13 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               Icon(target.value.$2, size: 16),
               () => _selectRecordingTarget(target.key),
               selected: _recordingTarget == target.key,
+            ),
+          if (_liveExpanded && _recordingTarget != CaptureTarget.application)
+            captureButton(
+              '同时录制',
+              const Icon(Icons.videocam, size: 16),
+              () => setState(() => _liveRecord = !_liveRecord),
+              selected: _liveRecord,
             ),
           captureButton(
             _liveExpanded ? '开始实时翻译' : '开始录制',

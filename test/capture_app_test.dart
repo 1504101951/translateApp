@@ -656,6 +656,72 @@ void main() {
     expect(find.byKey(const Key('screenshot-canvas')), findsOneWidget);
   });
 
+  testWidgets('实时翻译同步录制时控制条在翻译状态前显示录制时长', (tester) async {
+    // 作用：同一个控制条同时表达录制与翻译两种状态。
+    // 边界：recording 为真时显示“录制：1:05 · 状态”（65 秒）；为假时只显示翻译状态，不出现录制时长。
+    tester.view.physicalSize = const Size(320, 84);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    state = {
+      'id': 'live',
+      'kind': 'liveTranslation',
+      'phase': 'recording',
+      'recording': true,
+      'elapsed': 65.0,
+      'detail': '正在翻译',
+    };
+    await tester.pumpWidget(const CaptureApp(channel: channel));
+    await tester.pumpAndSettle();
+    expect(find.text('录制：1:05 · 正在翻译'), findsOneWidget);
+    await notify(tester, {...state, 'recording': false, 'elapsed': 0});
+    await tester.pumpAndSettle();
+    expect(find.text('正在翻译'), findsOneWidget);
+    expect(find.textContaining('录制'), findsNothing);
+  });
+
+  testWidgets('实时翻译准备态的同时录制开关默认关闭，打开后随开始请求提交', (tester) async {
+    // 作用：是否同步录制由用户在开始前决定，并随同一次开始请求交给原生。
+    // 边界：未点开关时 record 为 false；点一次后为 true；录制准备态不出现该开关。
+    final png = await tester.runAsync(_selectionImage);
+    const selectionChannel = MethodChannel('test/live-record');
+    final started = <Map>[];
+    messenger.setMockMethodCallHandler(selectionChannel, (call) async {
+      if (call.method == MethodNames.getScreenshot) {
+        return {
+          'id': 'selection',
+          'bytes': png,
+          'width': 320,
+          'height': 240,
+          'canCaptureMedia': true,
+          'cropActive': true,
+        };
+      }
+      if (call.method == MethodNames.prepareCapture) {
+        started.add(call.arguments as Map);
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(selectionChannel, null),
+    );
+    await tester.pumpWidget(const ScreenshotApp(channel: selectionChannel));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key(ScreenshotActions.record)));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('同时录制'), findsNothing);
+    await tester.tap(find.byKey(const Key(ScreenshotActions.live)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('开始实时翻译'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('同时录制'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('开始实时翻译'));
+    await tester.pumpAndSettle();
+    expect([for (final call in started) call['live']], [true, true]);
+    expect([for (final call in started) call['record']], [false, true]);
+  });
+
   testWidgets('全屏选区准备按钮使用独立材料且保持可点，开始提交源像素并防重复', (tester) async {
     // 320×240冻结画面置于更大视口；输出仍是源图像素，异步确认不可重复提交。
     final png = await tester.runAsync(_selectionImage);

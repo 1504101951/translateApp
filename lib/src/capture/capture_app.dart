@@ -142,8 +142,12 @@ class _CaptureAppState extends State<CaptureApp> {
     final elapsed =
         '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
     final liveDetail = (_state['detail'] as String?) ?? '';
+    final liveStatus = liveDetail.isEmpty ? '实时翻译' : liveDetail;
     final progress = _state['kind'] == 'liveTranslation'
-        ? (liveDetail.isEmpty ? '实时翻译' : liveDetail)
+        // 同步录制时在翻译状态前显示录制时长。
+        ? (_state['recording'] == true
+              ? '录制：$elapsed · $liveStatus'
+              : liveStatus)
         : scrolling
         ? '长截图：${_state['height'] ?? 0} 像素'
         : '录制：$elapsed';

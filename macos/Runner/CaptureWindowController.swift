@@ -225,11 +225,14 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     /// 无参数；在资源快照中补充实际采集状态，Flutter与原生窗口使用同一生命周期。
     private func captureState() -> [String: Any] {
         if let liveControlID {
+            // 实时翻译同步录制时带上录制时长；未录制时媒体阶段为 idle。
+            let recording = [.preparing, .recording, .pausing, .paused].contains(service.phase)
             return [
                 "id": liveControlID,
                 "phase": livePaused ? CapturePhase.paused.rawValue : CapturePhase.recording.rawValue,
                 "kind": "liveTranslation",
-                "elapsed": 0,
+                "recording": recording,
+                "elapsed": recording ? service.snapshot()["elapsed"] ?? 0 : 0,
                 "detail": liveDetail,
                 "previewScale": originScreen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1,
             ]
@@ -281,10 +284,11 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     /// force表示用户重新打开隐藏结果；资源通知只同步所需布局和可见录制范围。
     func present(force: Bool = false) {
         let previous = lastPhase
-        lastPhase = service.phase
-        guard !shuttingDown else { return }
         // 实时翻译不占用媒体阶段；进行中时与采集中一样显示紧凑控制条。
         let live = liveControlID != nil
+        // 同步录制在实时翻译期间失败时先不记为已处理，实时翻译结束后的下一次调用才提示失败。
+        if !(live && service.phase == .failed) { lastPhase = service.phase }
+        guard !shuttingDown else { return }
         let showingResult = !live && [.videoReady, .converting, .imageReady].contains(service.phase)
         // 结果先就位再撤遮罩；采集中仍立即更新选区阴影。
         if !showingResult { updateCaptureShades() }

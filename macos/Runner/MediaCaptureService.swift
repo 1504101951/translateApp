@@ -44,6 +44,8 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     private var details: [String: Any] = [:]
     var onChange: (([String: Any]) -> Void)?
     var onActiveChanged: ((Bool) -> Void)?
+    /// 本应用中需要进入区域或全屏录制画面的窗口编号；为空时本应用窗口全部排除。
+    var includedWindowIDs: Set<CGWindowID> = []
 
     /// 无参数；返回仍占有采集/编码资源的状态，供菜单和窗口关闭判断。
     var isBusy: Bool { [.preparing, .recording, .pausing, .paused, .finalizing, .scrolling, .converting].contains(phase) }
@@ -142,7 +144,12 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             // 应用的控制、翻译、编辑窗口全部从显示器捕获中排除。
             let own = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
             guard !own.isEmpty else { throw GIFExporter.ExportError(message: "无法排除采集控制窗口，请重新开始。") }
-            filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
+            // 指定的本应用窗口作为例外留在画面里；找不全时明确失败，不录制缺少这些窗口的画面。
+            let included = content.windows.filter { includedWindowIDs.contains($0.windowID) }
+            guard included.count == includedWindowIDs.count else {
+                throw GIFExporter.ExportError(message: "无法把译文盖层加入录制，请重新开始。")
+            }
+            filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: included)
             targetFrame = display.frame
             if kind == CaptureTarget.region.rawValue, let region {
                 guard abs(CGFloat(filter.pointPixelScale) - region.scale) < 0.01 else {

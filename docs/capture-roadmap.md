@@ -42,7 +42,7 @@ Codex-Thread: 01a0db40-8de9-76f2-91d6-674a344135ee
 
 ## 实时文字翻译的行为边界
 
-[#24](https://github.com/1504101951/translateApp/issues/24) 集中维护 Live Region Translation Session 的功能、调度、界面边界与验收：用户指定区域，设备 OCR 持续识别，最新文字更新译文；切换 App 后继续，不录制视频、不处理音频、不上传图像。
+[#24](https://github.com/1504101951/translateApp/issues/24) 集中维护 Live Region Translation Session 的功能、调度、界面边界与验收：用户指定区域，设备 OCR 持续识别，最新文字更新译文；切换 App 后继续，默认不录制视频（同步录制见 #90）、不处理音频、不上传图像。
 
 行为、调度初始值和验收以 #24 为准。结果窗复用译文窗 720×420、截图结果最小 320×240 和 8pt 屏幕边距；界面效果仍由用户验收。
 

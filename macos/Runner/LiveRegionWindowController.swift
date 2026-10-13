@@ -196,50 +196,78 @@ final class LiveFitTextView: NSView {
     }
 }
 
-/// 点击穿透的译文盖层。每个段落块一个窗口，全部属于本应用，因此不会被再次捕获。
+/// 点击穿透的译文盖层。每个显示器一个透明窗口，段落块是窗口里的子视图。
+/// 窗口属于本应用，识别用的捕获流不会再次捕获它；同步录制通过窗口编号把它加入录制画面。
 @MainActor
 final class LiveTextOverlay {
-    private var panels: [NSPanel] = []
+    private var panels: [(screen: NSRect, panel: NSPanel)] = []
 
-    /// chips 为已归属译文的屏幕矩形。空列表撤掉全部盖层。
-    func apply(_ chips: [[String: Any]]) {
-        while panels.count < chips.count {
-            panels.append(makePanel())
+    /// 无参数。返回当前盖层窗口的系统窗口编号，供录制把这些窗口加入画面。
+    var windowIDs: Set<CGWindowID> {
+        Set(panels.map { CGWindowID($0.panel.windowNumber) })
+    }
+
+    /// 无参数。在每个显示器上铺一个空的透明窗口并显示；会话开始时调用。
+    func open() {
+        close()
+        for screen in NSScreen.screens {
+            let panel = makePanel(frame: screen.frame)
+            panel.orderFrontRegardless()
+            panels.append((screen.frame, panel))
         }
-        for index in chips.indices {
-            let chip = chips[index]
+    }
+
+    /// chips 为已归属译文的屏幕矩形。按矩形中心所在的显示器放进对应窗口；空列表撤掉全部译文。
+    func apply(_ chips: [[String: Any]]) {
+        var grouped: [[(String, NSRect)]] = panels.map { _ in [] }
+        for chip in chips {
             guard let text = chip["text"] as? String,
                   let x = chip["x"] as? Double,
                   let y = chip["y"] as? Double,
                   let width = chip["width"] as? Double,
                   let height = chip["height"] as? Double,
-                  width > 1, height > 1 else {
-                panels[index].orderOut(nil)
-                continue
-            }
-            let panel = panels[index]
-            panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
-            (panel.contentView as? LiveFitTextView)?.text = text
-            panel.orderFrontRegardless()
+                  width > 1, height > 1 else { continue }
+            let rect = NSRect(x: x, y: y, width: width, height: height)
+            let center = NSPoint(x: rect.midX, y: rect.midY)
+            guard let index = panels.firstIndex(where: { $0.screen.contains(center) }) else { continue }
+            // 屏幕坐标换成该窗口内的坐标。
+            grouped[index].append((text, rect.offsetBy(dx: -panels[index].screen.minX, dy: -panels[index].screen.minY)))
         }
-        if chips.count < panels.count {
-            for panel in panels[chips.count...] {
-                panel.orderOut(nil)
+        for (index, items) in grouped.enumerated() {
+            guard let canvas = panels[index].panel.contentView else { continue }
+            // 复用已有的段落视图，只补建不够的部分。
+            while canvas.subviews.count < items.count {
+                canvas.addSubview(LiveFitTextView(frame: .zero))
+            }
+            for (position, view) in canvas.subviews.enumerated() {
+                guard position < items.count, let label = view as? LiveFitTextView else {
+                    view.isHidden = true
+                    continue
+                }
+                label.frame = items[position].1
+                label.text = items[position].0
+                label.isHidden = false
             }
         }
     }
 
-    /// 无参数。隐藏盖层，不释放窗口池。
+    /// 无参数。撤掉全部译文，窗口保持显示。
     func clear() {
-        for panel in panels {
-            panel.orderOut(nil)
-        }
+        apply([])
     }
 
-    /// 无参数。返回不接收鼠标、不成为 key 的盖层窗。
-    private func makePanel() -> NSPanel {
+    /// 无参数。关闭全部盖层窗口；会话结束时调用。
+    func close() {
+        for item in panels {
+            item.panel.orderOut(nil)
+        }
+        panels = []
+    }
+
+    /// frame 为显示器的屏幕矩形。返回铺满该显示器、不接收鼠标、不成为 key 的透明窗口。
+    private func makePanel(frame: NSRect) -> NSPanel {
         let panel = NSPanel(
-            contentRect: .zero,
+            contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -251,8 +279,9 @@ final class LiveTextOverlay {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.contentView = LiveFitTextView(frame: .zero)
+        panel.contentView = NSView(frame: NSRect(origin: .zero, size: frame.size))
         return panel
     }
 }
@@ -270,6 +299,8 @@ final class LiveRegionCoordinator {
     private var busy = false
     private var source: [String: Any] = [:]
     private var region: MediaCaptureService.Region?
+    /// 本次实时翻译是否同步录制。
+    private var recording = false
 
     /// bridge 转发主引擎命令，controls 复用采集悬浮条。
     init(bridge: MacPlatformBridge, controls: CaptureWindowController) {
@@ -318,7 +349,10 @@ final class LiveRegionCoordinator {
         let screen = NSScreen.screens.first {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
         }
-        overlay.clear()
+        // 同步录制只支持区域与全屏；窗口目标的录制由另一套逐屏合成实现，不含译文盖层。
+        recording = source["record"] as? Bool == true
+            && source["kind"] as? String != CaptureTarget.application.rawValue
+        overlay.open()
         bridge.screenshot.hideForCapture()
         controls.showLiveControls(id: "live-\(token)", screen: screen)
         StatusBarController.shared.setLiveAbort(true) { [weak self] in
@@ -327,12 +361,19 @@ final class LiveRegionCoordinator {
         do {
             try await command("start", generation: token)
             try await capture.start(source: source, region: region, generation: token)
+            if recording {
+                // 录制与识别各用一路捕获；录制把译文盖层窗口加入画面，控制条和遮罩仍被排除。
+                controls.service.includedWindowIDs = overlay.windowIDs
+                if let region { try controls.service.select(region) }
+                try await controls.service.startRecording(source)
+            }
         } catch {
             generation += 1
             await capture.stop()
+            await cancelRecording()
             if token != generation { try? await command("discard", generation: generation) }
             running = false
-            overlay.clear()
+            overlay.close()
             bridge.screenshot.restoreAfterCapturePreparation()
             controls.hideLiveControls()
             throw error
@@ -349,6 +390,7 @@ final class LiveRegionCoordinator {
         generation += 1
         await capture.pause(generation: generation)
         overlay.clear()
+        await pauseRecording(true)
         controls.setLivePaused(true)
         try? await command("pause", generation: generation)
     }
@@ -362,6 +404,7 @@ final class LiveRegionCoordinator {
         do {
             try await command("resume", generation: token)
             try await capture.resume(source: source, region: region, generation: token)
+            await pauseRecording(false)
             controls.setLivePaused(false)
         } catch {
             await unavailable(error.localizedDescription)
@@ -376,9 +419,11 @@ final class LiveRegionCoordinator {
         ended = true
         running = false
         await capture.stop()
+        // 先结束录制再撤控制条；控制条随后按媒体阶段显示完成进度与录制结果。
+        await stopRecording()
         controls.hideLiveControls()
         controls.setLiveShade(nil)
-        overlay.clear()
+        overlay.close()
         StatusBarController.shared.setLiveAbort(false)
         try? await command("end", generation: generation)
     }
@@ -392,9 +437,10 @@ final class LiveRegionCoordinator {
         running = false
         ended = false
         await capture.stop()
+        await cancelRecording()
         controls.hideLiveControls()
         controls.setLiveShade(nil)
-        overlay.clear()
+        overlay.close()
         StatusBarController.shared.setLiveAbort(false)
         try? await command("discard", generation: token)
     }
@@ -405,11 +451,43 @@ final class LiveRegionCoordinator {
         running = false
         ended = true
         await capture.stop()
+        // 采集失效时保留已经录到的内容，交给录制结果窗口处理。
+        await stopRecording()
         controls.hideLiveControls()
         controls.setLiveShade(nil)
-        overlay.clear()
+        overlay.close()
         StatusBarController.shared.setLiveAbort(false)
         try? await command("captureFailed", generation: generation, failure: message)
+    }
+
+    /// paused 为真暂停录制，为假继续录制。未同步录制时不做任何事；失败写入排查日志。
+    private func pauseRecording(_ paused: Bool) async {
+        guard recording else { return }
+        do {
+            try await controls.service.setPaused(paused)
+        } catch {
+            LiveRegionLog.note("record pause=\(paused) error=\(error.localizedDescription)")
+        }
+    }
+
+    /// 无参数。结束同步录制并保留结果；未同步录制时不做任何事，失败写入排查日志。
+    private func stopRecording() async {
+        guard recording else { return }
+        recording = false
+        controls.service.includedWindowIDs = []
+        do {
+            try await controls.service.stop()
+        } catch {
+            LiveRegionLog.note("record stop error=\(error.localizedDescription)")
+        }
+    }
+
+    /// 无参数。丢弃同步录制及其临时文件；未同步录制时不做任何事。
+    private func cancelRecording() async {
+        guard recording else { return }
+        recording = false
+        controls.service.includedWindowIDs = []
+        await controls.service.cancel()
     }
 
     private var windowVisible: Bool { running || ended }
