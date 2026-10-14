@@ -21,7 +21,9 @@ class ScreenshotDefaults {
   static const double fontSize = 18;
 
   /// 点击落字时的默认文本框；拖拽创建时用实际矩形。
-  static const Size textBox = Size(240, 80);
+  /// 点击创建文字框时的默认宽度与最小宽度，单位为屏幕点；高度随文字内容决定。
+  static const double textBoxWidth = 240;
+  static const double textBoxMinWidth = 24;
 
   /// 可选文字颜色，顺序即工具栏色点顺序。
   static const List<Color> textColors = [

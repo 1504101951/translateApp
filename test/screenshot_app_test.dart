@@ -46,6 +46,45 @@ void main() {
     );
   });
 
+  test('编辑文档：删除标注可撤销并回到原位置，重做再次删除', () async {
+    // 作用：清空文字后文字框被删除，这一步必须能撤销。
+    // 边界：删除三个标注中间的一个，撤销后它回到下标 1 而不是末尾；删除不存在的 id 不产生撤销步骤。
+    final document = EditDocument();
+    document.loadCapture(await _pngCheckerboard(), 8, 8);
+    final ids = [
+      for (final text in ['a', 'b', 'c'])
+        document.addAnnotation(
+          EditAnnotation(
+            id: '',
+            kind: AnnotationKind.text,
+            bounds: const Rect.fromLTWH(0, 0, 4, 4),
+            text: text,
+          ),
+        ),
+    ];
+    document.removeAnnotation(ids[1]);
+    expect(document.annotations.map((item) => item.text), ['a', 'c']);
+    document.undo();
+    expect(document.annotations.map((item) => item.text), ['a', 'b', 'c']);
+    document.redo();
+    expect(document.annotations.map((item) => item.text), ['a', 'c']);
+    document.undo();
+    document.removeAnnotation('missing');
+    document.undo();
+    // 最后一次撤销撤的是添加 c，说明删除不存在的标注没有入栈。
+    expect(document.annotations.map((item) => item.text), ['a', 'b']);
+  });
+
+  test('文字框高度随宽度换行增长，空文字仍占一行', () {
+    // 作用：拖动左右手柄改变宽度后，高度按内容重新计算。
+    // 边界：同一段文字在宽度减半后行数增加、高度变大；空文字的高度等于一行文字的高度。
+    const text = 'aaaa aaaa aaaa aaaa';
+    final wide = textBoxHeight(text: text, fontSize: 18, width: 2000);
+    final narrow = textBoxHeight(text: text, fontSize: 18, width: 100);
+    expect(narrow, greaterThan(wide));
+    expect(textBoxHeight(text: '', fontSize: 18, width: 2000), wide);
+  });
+
   test('编辑文档：裁剪改变导出尺寸，标注改像素，撤销重做可逆，遮挡导出不可还原', () async {
     // 左上红、右下蓝的 8x8，便于断言裁剪边界与遮挡覆盖。
     final source = await _pngCheckerboard();
@@ -239,14 +278,6 @@ void main() {
     // 在画布上拖出遮挡块；8x8 放大后需足够大的屏幕拖拽才能跨过 ≥1 源图像素。
     await tester.drag(canvas, const Offset(220, 220));
     await tester.pumpAndSettle();
-    // 遮挡提交后撤销应可用，证明手势已写入文档。
-    expect(
-      tester
-          .widget<IconButton>(find.byKey(const Key('screenshot-undo')))
-          .onPressed,
-      isNotNull,
-    );
-
     calls.clear();
     copiedBytes = null;
     await _tapExport(tester, const Key('screenshot-copy'));
@@ -385,7 +416,9 @@ void main() {
     expect(find.byKey(const Key('screenshot-canvas')), findsNothing);
   });
 
-  testWidgets('复制文字走 OCR 通道且无字不复制', (tester) async {
+  testWidgets('识别文字只打开结果弹窗，点复制全部才写剪贴板，弹窗不自动关闭', (tester) async {
+    // 作用：识别结果先给用户看，由用户决定复制哪些。
+    // 边界：识别完成后剪贴板调用为 0 次；点“复制全部”后恰好 1 次且为全文；2 秒后弹窗仍在。
     tester.view.physicalSize = const Size(960, 740);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -419,11 +452,22 @@ void main() {
       calls.where((c) => c.method == MethodNames.recognizeText),
       isNotEmpty,
     );
+    // 识别完成只打开弹窗，不写剪贴板；弹窗里是识别到的全部文字。
+    expect(calls.where((c) => c.method == MethodNames.copyText), isEmpty);
+    expect(find.text('Hello\nWorld'), findsOneWidget);
+    await tester.tap(find.byTooltip('复制全部'));
+    await tester.pump();
     expect(
       calls.where((c) => c.method == MethodNames.copyText).single.arguments,
       {'text': 'Hello\nWorld'},
     );
     expect(find.text('已复制文字'), findsOneWidget);
+    // 复制后弹窗不自动关闭；点关闭才消失。
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Hello\nWorld'), findsOneWidget);
+    await tester.tap(find.byTooltip('关闭').last);
+    await tester.pump();
+    expect(find.text('Hello\nWorld'), findsNothing);
   });
 
   testWidgets('截图翻译完成后在识别位置显示译文', (tester) async {
@@ -466,7 +510,7 @@ void main() {
     expect(find.text('已在图上显示译文'), findsOneWidget);
   });
 
-  testWidgets('Esc 关闭会话不复制；文字输入回车写入标注', (tester) async {
+  testWidgets('Esc 关闭会话不复制；文字输入按 Esc 写入标注', (tester) async {
     tester.view.physicalSize = const Size(960, 740);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -552,7 +596,7 @@ void main() {
     image.dispose();
   });
 
-  testWidgets('文字工具经编辑器输入回车后导出含该标注；输入中 Esc 只取消草稿', (tester) async {
+  testWidgets('文字工具输入后按 Esc 保留文字并导出；空文字框按 Esc 不留标注', (tester) async {
     tester.view.physicalSize = const Size(640, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -612,7 +656,7 @@ void main() {
       find.byKey(const Key('screenshot-text-field')),
       'HelloEdit',
     );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     expect(find.byKey(const Key('screenshot-text-field')), findsNothing);
 
@@ -667,12 +711,6 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(
-      tester
-          .widget<IconButton>(find.byKey(const Key('screenshot-undo')))
-          .onPressed,
-      isNotNull,
-    );
 
     await tester.runAsync(() async {
       await tester.tap(find.byKey(const Key('screenshot-copy')));
@@ -702,12 +740,22 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await tester.pump();
-    expect(
-      tester
-          .widget<IconButton>(find.byKey(const Key('screenshot-undo')))
-          .onPressed,
-      isNull,
+    // ⌘Z 之后再次导出：画笔痕迹消失，全部像素回到原图的纯蓝。
+    copied = null;
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('screenshot-copy')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
+    final undone = await tester.runAsync(() => _decode(copied!));
+    final undoneData = await tester.runAsync(
+      () => undone!.toByteData(format: ui.ImageByteFormat.rawRgba),
     );
+    undone!.dispose();
+    final restored = undoneData!.buffer.asUint8List();
+    for (var i = 0; i < restored.length; i += 4) {
+      expect(restored.sublist(i, i + 3), [0, 0, 0xFF]);
+    }
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 400));
   });
@@ -755,7 +803,7 @@ void main() {
     image.dispose();
   });
 
-  testWidgets('文字工具有颜色字号；回车后可再点选编辑', (tester) async {
+  testWidgets('文字工具有颜色字号；结束输入后单击选中、再次点击进入编辑', (tester) async {
     // 边界：提交后点同一位置应带回原文；改字后导出不再是上一版。
     tester.view.physicalSize = const Size(640, 640);
     tester.view.devicePixelRatio = 1;
@@ -796,7 +844,7 @@ void main() {
       find.byKey(const Key('screenshot-text-field')),
       'Hello',
     );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.byKey(const Key('screenshot-text-field')), findsNothing);
@@ -805,6 +853,10 @@ void main() {
       find.byKey(const Key('screenshot-canvas')),
     );
     // 点文本框内部，不点边角，避免被当成拉伸/移动。
+    // 单击选中，不进入编辑；紧接着再次点击同一文字框才进入编辑。
+    await tester.tapAt(canvasBox.center + const Offset(120, 120));
+    await tester.pump();
+    expect(find.byKey(const Key('screenshot-text-field')), findsNothing);
     await tester.tapAt(canvasBox.center + const Offset(120, 120));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
@@ -814,7 +866,7 @@ void main() {
       find.byKey(const Key('screenshot-text-field')),
       'World',
     );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 400));

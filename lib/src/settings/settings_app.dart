@@ -785,6 +785,16 @@ class _SettingsPageState extends State<_SettingsPage>
                   ),
                   NativeGlassGroup(
                     children: [
+                      NativeGlassSwitchTile(
+                        title: '实时翻译时同时录制',
+                        value: settings.liveRecording,
+                        onChanged: (v) =>
+                            _edit(() => settings.liveRecording = v),
+                      ),
+                    ],
+                  ),
+                  NativeGlassGroup(
+                    children: [
                       ..._shortcutBlock(
                         title: '区域截图快捷键',
                         code: settings.screenshotShortcutModifiers,

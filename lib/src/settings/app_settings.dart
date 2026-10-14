@@ -19,6 +19,7 @@ class AppSettings {
     this.screenshotShortcutModifiers = 6144,
     this.screenshotSaveDirectory = '',
     this.gifFramesPerSecond = 10,
+    this.liveRecording = false,
     this.gifMaximumWidth,
     this.glassAppearance = AppearanceModes.system,
     this.glassOpacity = 0.8,
@@ -51,6 +52,9 @@ class AppSettings {
 
   /// 完整视频GIF导出的采样帧率，以及只缩小不放大的可选像素宽度上限。
   int gifFramesPerSecond;
+
+  /// 实时翻译时是否同步录制；对区域、窗口和全屏目标都生效。
+  bool liveRecording;
   int? gifMaximumWidth;
 
   /// 视觉偏好与业务设置一同提交，不单独保存第二份配置。
@@ -117,6 +121,7 @@ class AppSettings {
       screenshotSaveDirectory:
           map[PreferenceKeys.screenshotSaveDirectory] as String? ?? '',
       gifFramesPerSecond: map[PreferenceKeys.gifFramesPerSecond] as int? ?? 10,
+      liveRecording: map[PreferenceKeys.liveRecording] as bool? ?? false,
       gifMaximumWidth: map[PreferenceKeys.gifMaximumWidth] as int?,
       glassAppearance:
           map[PreferenceKeys.glassAppearance] as String? ??
@@ -203,6 +208,7 @@ class AppSettings {
     PreferenceKeys.screenshotShortcutModifiers: screenshotShortcutModifiers,
     PreferenceKeys.screenshotSaveDirectory: screenshotSaveDirectory,
     PreferenceKeys.gifFramesPerSecond: gifFramesPerSecond,
+    PreferenceKeys.liveRecording: liveRecording,
     PreferenceKeys.gifMaximumWidth: ?gifMaximumWidth,
     PreferenceKeys.glassAppearance: glassAppearance,
     PreferenceKeys.glassOpacity: glassOpacity,

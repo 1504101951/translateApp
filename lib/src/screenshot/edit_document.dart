@@ -114,6 +114,46 @@ class _UpdateAnnotationCommand extends _EditCommand {
   void revert(EditDocument document) => document._replaceAnnotation(before);
 }
 
+/// 删除标注命令；执行按稳定标识删除，撤销把同一标注放回原位置。
+class _RemoveAnnotationCommand extends _EditCommand {
+  /// annotation为被删除的标注，index为它在列表中的位置；构造不立即修改文档。
+  _RemoveAnnotationCommand(this.annotation, this.index);
+
+  final EditAnnotation annotation;
+  final int index;
+
+  @override
+  void apply(EditDocument document) =>
+      document._annotations.removeWhere((item) => item.id == annotation.id);
+
+  @override
+  void revert(EditDocument document) =>
+      document._annotations.insert(index, annotation);
+}
+
+/// text 为文字内容，fontSize 为字号，width 为文字框宽度，单位均为源图像素。
+/// 返回按该宽度换行后的段落；预览、导出与高度测量共用同一种排版。
+ui.Paragraph layoutTextBox({
+  required String text,
+  required double fontSize,
+  required double width,
+  Color color = const Color(0xFF000000),
+}) {
+  final builder =
+      ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: fontSize))
+        ..pushStyle(ui.TextStyle(color: color, fontSize: fontSize))
+        ..addText(text.isEmpty ? ' ' : text);
+  return builder.build()
+    ..layout(ui.ParagraphConstraints(width: width.clamp(1, 4000).toDouble()));
+}
+
+/// text/fontSize/width 同 layoutTextBox；返回文字框容纳全部文字所需的高度（源图像素）。
+double textBoxHeight({
+  required String text,
+  required double fontSize,
+  required double width,
+}) => layoutTextBox(text: text, fontSize: fontSize, width: width).height;
+
 /// 截图编辑文档：持有源 PNG、裁剪框与平铺标注，并合成导出位图。
 class EditDocument extends ChangeNotifier {
   Uint8List? _sourcePng;
@@ -215,6 +255,13 @@ class EditDocument extends ChangeNotifier {
     if (index < 0) return;
     final before = _annotations[index];
     _push(_UpdateAnnotationCommand(before, annotation));
+  }
+
+  /// id 为要删除的标注；找不到对应项时忽略。删除记入撤销栈，无返回值。
+  void removeAnnotation(String id) {
+    final index = _annotations.indexWhere((item) => item.id == id);
+    if (index < 0) return;
+    _push(_RemoveAnnotationCommand(_annotations[index], index));
   }
 
   /// 无参数；撤销最近一次标注变更，无返回值。
@@ -478,24 +525,16 @@ class EditDocument extends ChangeNotifier {
         }
         canvas.drawPath(path, paint);
       case AnnotationKind.text:
-        final builder =
-            ui.ParagraphBuilder(
-                ui.ParagraphStyle(fontSize: annotation.fontSize),
-              )
-              ..pushStyle(
-                ui.TextStyle(
-                  color: annotation.color,
-                  fontSize: annotation.fontSize,
-                ),
-              )
-              ..addText(annotation.text.isEmpty ? ' ' : annotation.text);
-        final paragraph = builder.build()
-          ..layout(
-            ui.ParagraphConstraints(
-              width: annotation.bounds.width.clamp(1, 4000).toDouble(),
-            ),
-          );
-        canvas.drawParagraph(paragraph, annotation.bounds.topLeft);
+        // layoutTextBox 按文字框宽度换行，与编辑时的高度测量一致。
+        canvas.drawParagraph(
+          layoutTextBox(
+            text: annotation.text,
+            fontSize: annotation.fontSize,
+            width: annotation.bounds.width,
+            color: annotation.color,
+          ),
+          annotation.bounds.topLeft,
+        );
     }
   }
 

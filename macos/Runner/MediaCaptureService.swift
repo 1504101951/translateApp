@@ -44,7 +44,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     private var details: [String: Any] = [:]
     var onChange: (([String: Any]) -> Void)?
     var onActiveChanged: ((Bool) -> Void)?
-    /// 本应用中需要进入区域或全屏录制画面的窗口编号；为空时本应用窗口全部排除。
+    /// 本应用中需要进入录制画面的窗口编号；为空时本应用窗口全部排除。
     var includedWindowIDs: Set<CGWindowID> = []
 
     /// 无参数；返回仍占有采集/编码资源的状态，供菜单和窗口关闭判断。
@@ -306,7 +306,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         let segmentID = UUID()
         applicationSegmentID = segmentID
         let recorder = try await ApplicationRecorder(content: content, applicationID: applicationID,
-            expected: applicationCanvas, url: url) { [weak self] error in
+            expected: applicationCanvas, url: url, includedWindowIDs: includedWindowIDs) { [weak self] error in
             guard let self, self.id == token, self.applicationSegmentID == segmentID, self.phase == .recording else { return }
             // 系统中断保留本段已编码画面及以前完成的分段，错误随结果交付。
             Task { @MainActor in

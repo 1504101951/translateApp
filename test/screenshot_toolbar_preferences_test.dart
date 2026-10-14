@@ -48,6 +48,53 @@ void main() {
     );
   });
 
+  test('旧配置补上实时翻译并丢弃已移除的撤销与重做', () {
+    // 作用：升级前保存的工具栏配置在新版本里仍能读取，不因顶层动作增减而校验失败。
+    // 边界：旧顺序含撤销、重做且不含实时翻译；实时翻译插到默认顺序中它前一个动作（翻译文字）之后；
+    // 撤销的快捷键和隐藏状态一并丢弃，其余动作的相对顺序不变。
+    const old = [
+      ScreenshotActions.close,
+      'screenshot-undo',
+      ScreenshotActions.ocrTranslate,
+      ScreenshotActions.cursor,
+      'screenshot-redo',
+      ScreenshotActions.crop,
+      ScreenshotActions.rect,
+      ScreenshotActions.arrow,
+      ScreenshotActions.text,
+      ScreenshotActions.brush,
+      ScreenshotActions.pin,
+      ScreenshotActions.save,
+      ScreenshotActions.copy,
+      ScreenshotActions.ocrCopy,
+    ];
+    final migrated = ScreenshotToolbarPreferences.fromMap({
+      PreferenceKeys.screenshotToolbarOrder: old,
+      PreferenceKeys.screenshotToolbarHidden: ['screenshot-redo'],
+      PreferenceKeys.screenshotToolbarShortcuts: {
+        'screenshot-undo': {'keyId': 49, 'modifiers': 0},
+        ScreenshotActions.crop: {'keyId': 50, 'modifiers': 0},
+      },
+    });
+    expect(migrated.order, [
+      ScreenshotActions.close,
+      ScreenshotActions.ocrTranslate,
+      ScreenshotActions.live,
+      ScreenshotActions.cursor,
+      ScreenshotActions.crop,
+      ScreenshotActions.rect,
+      ScreenshotActions.arrow,
+      ScreenshotActions.text,
+      ScreenshotActions.brush,
+      ScreenshotActions.pin,
+      ScreenshotActions.save,
+      ScreenshotActions.copy,
+      ScreenshotActions.ocrCopy,
+    ]);
+    expect(migrated.hidden, isEmpty);
+    expect(migrated.shortcuts.keys, [ScreenshotActions.crop]);
+  });
+
   test('顶层工具顺序/快捷键持久化，重复和保留键拒绝', () {
     final order = ScreenshotActions.icons.keys.toList().reversed.toList();
     final first = ToolbarShortcut(LogicalKeyboardKey.digit1.keyId, 0);

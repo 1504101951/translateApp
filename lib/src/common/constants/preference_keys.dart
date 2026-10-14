@@ -39,6 +39,9 @@ abstract final class PreferenceKeys {
   /// GIF完整视频导出的每秒采样帧数；与原生偏好键一致。
   static const gifFramesPerSecond = 'gifFramesPerSecond';
 
+  /// 实时翻译时是否同步录制；与原生偏好键一致。
+  static const liveRecording = 'liveRecording';
+
   /// GIF最大像素宽度；省略表示不限制，输出仍不会放大原视频。
   static const gifMaximumWidth = 'gifMaximumWidth';
 

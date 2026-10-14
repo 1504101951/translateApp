@@ -225,8 +225,10 @@ final class ApplicationRecorder: NSObject, SCStreamDelegate {
     private var finishTask: Task<Void, Error>?
     private let onFailure: @MainActor (Error) -> Void
 
-    /// content为当前授权来源，applicationID为用户选择的Bundle ID，expected为暂停前拓扑，url为本段文件。
+    /// content为当前授权来源，applicationID为用户选择的Bundle ID，expected为暂停前拓扑，url为本段文件；
+    /// includedWindowIDs为本应用中需要进入画面的窗口编号，为空时画面只含所选应用。
     init(content: SCShareableContent, applicationID: String, expected: ApplicationCaptureCanvas?, url: URL,
+         includedWindowIDs: Set<CGWindowID> = [],
          onFailure: @escaping @MainActor (Error) -> Void) async throws {
         let apps = content.applications.filter { $0.bundleIdentifier == applicationID }
         guard applicationID != Bundle.main.bundleIdentifier, !apps.isEmpty,
@@ -235,8 +237,21 @@ final class ApplicationRecorder: NSObject, SCStreamDelegate {
         }
         self.applicationID = applicationID
         self.onFailure = onFailure
+        var included = apps
+        var excepted: [SCWindow] = []
+        if !includedWindowIDs.isEmpty {
+            // 把本应用加入画面，再排除它除指定窗口以外的全部窗口（含当前未显示的），控制条和遮罩不进入录制。
+            let all = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+            let pid = ProcessInfo.processInfo.processIdentifier
+            let own = all.windows.filter { $0.owningApplication?.processID == pid }
+            guard own.filter({ includedWindowIDs.contains($0.windowID) }).count == includedWindowIDs.count else {
+                throw GIFExporter.ExportError(message: "无法把译文盖层加入录制，请重新开始。")
+            }
+            included += all.applications.filter { $0.processID == pid }
+            excepted = own.filter { !includedWindowIDs.contains($0.windowID) }
+        }
         let filters = content.displays.map { display in
-            (display, SCContentFilter(display: display, including: apps, exceptingWindows: []))
+            (display, SCContentFilter(display: display, including: included, exceptingWindows: excepted))
         }
         canvas = try ApplicationCaptureCanvas(displays: filters.map {
             .init(id: $0.0.displayID, frame: $0.0.frame, scale: CGFloat($0.1.pointPixelScale))

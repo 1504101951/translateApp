@@ -11,7 +11,7 @@ abstract final class ScreenshotActions {
   static const shapeMode = 'screenshot-shape-mode';
   static const cursor = 'screenshot-tool-cursor';
   static const crop = 'screenshot-tool-crop';
-  // 采集是截图工具组的二级动作，不新增可排序、可绑定的顶层工具。
+  // 录制与滚动长截图是截图工具组的二级动作；实时翻译是可排序、可隐藏、可绑定的顶层工具。
   static const record = 'screenshot-record';
   static const live = 'screenshot-live';
   static const scrolling = 'screenshot-scrolling';
@@ -20,8 +20,6 @@ abstract final class ScreenshotActions {
   static const text = 'screenshot-tool-text';
   static const mask = 'screenshot-tool-mask';
   static const brush = 'screenshot-tool-brush';
-  static const undo = 'screenshot-undo';
-  static const redo = 'screenshot-redo';
   static const pin = 'screenshot-pin';
   static const save = 'screenshot-save';
   static const copy = 'screenshot-copy';
@@ -41,13 +39,12 @@ abstract final class ScreenshotActions {
     arrow: Icons.north_east,
     text: Icons.text_fields,
     brush: Icons.brush,
-    undo: Icons.undo,
-    redo: Icons.redo,
     pin: Icons.push_pin_outlined,
     save: Icons.save_outlined,
     copy: Icons.copy_outlined,
     ocrCopy: Icons.text_snippet_outlined,
     ocrTranslate: Icons.translate,
+    live: Icons.subtitles_outlined,
     close: Icons.close,
   };
 
@@ -72,12 +69,10 @@ abstract final class ScreenshotActions {
     text: '文字',
     mask: '图形',
     brush: '画笔',
-    undo: '撤销',
-    redo: '重做',
     pin: '贴图',
     save: '保存',
     copy: '复制图片',
-    ocrCopy: '复制文字',
+    ocrCopy: '识别文字',
     ocrTranslate: '翻译文字',
     close: '关闭',
     for (var i = 0; i < ScreenshotDefaults.textColors.length; i++)

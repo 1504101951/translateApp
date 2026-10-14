@@ -17,10 +17,12 @@ import '../common/utils/geometry.dart';
 import '../common/utils/screenshot_filename.dart';
 import '../common/widgets/native_glass.dart';
 import '../common/widgets/toolbar_feedback.dart';
+import '../common/widgets/native_brush_cursor.dart';
 import '../common/widgets/native_resize_cursor.dart';
 import 'edit_document.dart';
 import 'drawing_style.dart';
 import 'drawing_controls.dart';
+import 'recognized_text_panel.dart';
 import 'screenshot_editor_layout.dart';
 import '../settings/screenshot_toolbar_preferences.dart';
 import '../common/constants/screenshot_actions.dart';
@@ -80,9 +82,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   // 录制目标属于当前截图草稿；应用异步查询按截图身份和目标隔离。
   bool _recordingExpanded = false;
   bool _liveExpanded = false;
-
-  /// 实时翻译是否同步录制；只对区域与全屏目标生效，每次展开实时翻译时为关闭。
-  bool _liveRecord = false;
   CaptureTarget _recordingTarget = CaptureTarget.region;
   Map<Object?, Object?>? _recordingApplication;
   List<Map<Object?, Object?>> _recordingApplications = [];
@@ -133,6 +132,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   String? _savedPath;
   List<_OcrOverlay> _ocrOverlays = [];
+
+  /// “识别文字”得到的全部文字；非空时显示结果弹窗。
+  String? _recognizedText;
+
+  /// 结果弹窗相对窗口中心的拖动位移。
+  Offset _recognizedOffset = Offset.zero;
   // 双击位置只用于松开确认后的编辑/复制，第二次按下不能提前导出。
   Offset? _doubleTapPoint;
   Offset? _dragStart;
@@ -147,6 +152,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// 已提交且当前选中的文字标注 id。
   String? _selectedTextId;
+
+  /// 文字工具下最近一次点中的文字框及时刻，用于识别双击进入编辑。
+  String? _lastTextTapId;
+  DateTime _lastTextTapAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 正在改内容的文字标注 id；新建时为 null。
   String? _editingTextId;
@@ -216,8 +225,14 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           Navigator.of(_editorKey.currentContext!).pop();
           return;
         }
+        // 识别结果弹窗打开时，Esc 先关闭弹窗，不关闭截图。
+        if (_recognizedText != null) {
+          setState(() => _recognizedText = null);
+          return;
+        }
         if (_textInputOpen) {
-          _cancelText();
+          // Esc 结束输入并保留文字。
+          _commitText();
         } else {
           await _close();
         }
@@ -228,29 +243,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       }
     });
     _load();
-    // 多行文本框默认把回车当换行；这里拦住未按 Shift 的回车，当作确认。
-    _textFocus.onKeyEvent = (node, event) {
-      if (event is! KeyDownEvent) return KeyEventResult.ignored;
-      if (event.logicalKey != LogicalKeyboardKey.enter &&
-          event.logicalKey != LogicalKeyboardKey.numpadEnter) {
-        return KeyEventResult.ignored;
-      }
-      final shift =
-          HardwareKeyboard.instance.logicalKeysPressed.contains(
-            LogicalKeyboardKey.shiftLeft,
-          ) ||
-          HardwareKeyboard.instance.logicalKeysPressed.contains(
-            LogicalKeyboardKey.shiftRight,
-          );
-      if (shift) return KeyEventResult.ignored;
-      // 输入法尚在组词时，Return 必须交给输入法完成候选确认。
-      if (!_textController.value.composing.isCollapsed &&
-          _textController.value.composing.isValid) {
-        return KeyEventResult.ignored;
-      }
-      _commitText();
-      return KeyEventResult.handled;
-    };
+    // 文字内容变化时让文字框高度跟随内容。
+    _textController.addListener(_fitEditingText);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
@@ -301,6 +295,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _textController.clear();
       _strokePoints.clear();
       _ocrOverlays = [];
+      _recognizedText = null;
       _tool = ScreenshotTool.crop;
       _selectedTextId = null;
       _selectedShapeId = null;
@@ -691,8 +686,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         'kind': kind.name,
         'scrolling': scrolling,
         'live': live,
-        // 窗口目标的录制不含译文盖层，实时翻译不对它同步录制。
-        'record': live && _liveRecord && kind != CaptureTarget.application,
         if (kind == CaptureTarget.application)
           'applicationID': _recordingApplication!['applicationID'],
         if (kind == CaptureTarget.region) ...{
@@ -858,9 +851,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
   }
 
-  /// 无参数；识别当前合成图文字并复制，无字不改剪贴板。
-  Future<void> _copyOcrText() async {
-    // 识别和剪贴板回复均可跨越换图；两次等待都必须保留同一捕获身份。
+  /// 无参数；识别截图中的文字并打开结果弹窗，不写剪贴板；无字时只提示。
+  Future<void> _showRecognizedText() async {
+    // 识别可跨越换图；等待结束后必须仍是同一捕获身份。
     final id = _capture['id'];
     final text = await _recognizeOcr();
     if (!mounted || _capture['id'] != id || text == null) return;
@@ -871,6 +864,17 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       });
       return;
     }
+    setState(() {
+      _recognizedText = text;
+      _recognizedOffset = Offset.zero;
+    });
+  }
+
+  /// 无参数；把弹窗中的全部文字写入剪贴板，成功后显示一秒提示，弹窗保持打开。
+  Future<void> _copyRecognizedText() async {
+    final id = _capture['id'];
+    final text = _recognizedText;
+    if (text == null) return;
     try {
       await widget.channel.invokeMethod<void>(MethodNames.copyText, {
         'text': text,
@@ -993,6 +997,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// imagePoint 为源图像素坐标；按当前工具开始拖拽或打开文本输入，无返回值。
   void _onDragStart(Offset imagePoint) {
+    // 输入中在文字框外按下：结束输入并保留文字，这次按下不再创建新内容。
+    if (_textInputOpen) {
+      _commitText();
+      return;
+    }
     if (_tool == ScreenshotTool.cursor &&
         !_busy &&
         !_textInputOpen &&
@@ -1080,8 +1089,13 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             .where((item) => item.id == _selectedTextId)
             .firstOrNull;
         if (current != null) {
+          // _fittedTextBounds 只采纳宽度变化，高度按文字内容重新计算。
           _previewAnnotation = current.copyWith(
-            bounds: _resizedRect(current.bounds, _resizeHandle!, imagePoint),
+            bounds: _fittedTextBounds(
+              current,
+              _resizedRect(current.bounds, _resizeHandle!, imagePoint),
+              moved: _resizeHandle == 'move',
+            ),
           );
         }
         return;
@@ -1147,15 +1161,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
     if (_tool == ScreenshotTool.text) {
       final rect = Rect.fromPoints(start, end);
-      final box = (rect.width < 8 || rect.height < 8)
-          ? Rect.fromLTWH(
-              start.dx,
-              start.dy,
-              ScreenshotDefaults.textBox.width,
-              ScreenshotDefaults.textBox.height,
-            )
-          : rect;
-      _openTextInput(box.topLeft, bounds: box);
+      // 拖出的宽度够大时按该宽度创建，否则按点击创建默认宽度的文字框。
+      if (rect.width < ScreenshotDefaults.textBoxMinWidth * _pixelRatio) {
+        _openTextInput(start);
+      } else {
+        _openTextInput(rect.topLeft, width: rect.width);
+      }
       return;
     }
     if (_tool == ScreenshotTool.brush) {
@@ -1206,7 +1217,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         .where((item) => item.id == _selectedTextId)
         .firstOrNull;
     if (selected != null) {
-      final handle = _handleAt(selected.bounds, imagePoint);
+      final handle = textBoxHandle(_handleAt(selected.bounds, imagePoint));
       if (handle != null && handle != 'move') {
         setState(() {
           _cropSelected = false;
@@ -1223,7 +1234,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       setState(() {
         _cropSelected = false;
         _selectedTextId = hit.id;
-        _resizeHandle = _handleAt(hit.bounds, imagePoint) ?? 'move';
+        _resizeHandle =
+            textBoxHandle(_handleAt(hit.bounds, imagePoint)) ?? 'move';
         _dragStart = imagePoint;
         _dragCurrent = imagePoint;
         _previewAnnotation = hit;
@@ -1391,11 +1403,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
   }
 
-  /// point 为点击位置；bounds 为文本框，缺省用默认尺寸。打开就地输入。
-  void _openTextInput(Offset point, {Rect? bounds}) {
+  /// point 为文字框左上角；width 为拖出的宽度，缺省用默认宽度。打开就地输入。
+  void _openTextInput(Offset point, {double? width}) {
     _textColor = _drawing.styles[ScreenshotTool.text]!.color;
     _fontSize = _drawing.fontSize;
-    final box = _clampedTextBox(point, bounds: bounds);
+    final box = _newTextBox(point, width: width);
     setState(() {
       _setTextInput(true);
       _cropSelected = false;
@@ -1434,7 +1446,21 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _previewAnnotation = null;
       _editingTextId = null;
     });
-    if (text.isEmpty || preview == null) return;
+    if (preview == null) return;
+    if (text.isEmpty) {
+      // 空的文字框不保留；正在编辑的已有文字框一并删除。
+      if (editingId != null) _document.removeAnnotation(editingId);
+      setState(() => _selectedTextId = null);
+      return;
+    }
+    final fontSize = _toImageFont(_fontSize);
+    // 提交时高度按最终文字计算，导出与编辑时的换行一致。
+    final bounds = Rect.fromLTWH(
+      preview.bounds.left,
+      preview.bounds.top,
+      preview.bounds.width,
+      textBoxHeight(text: text, fontSize: fontSize, width: preview.bounds.width),
+    );
     if (editingId != null) {
       final current = _document.annotations
           .where((item) => item.id == editingId)
@@ -1443,9 +1469,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _document.updateAnnotation(
         current.copyWith(
           text: text,
-          bounds: preview.bounds,
+          bounds: bounds,
           color: _textColor,
-          fontSize: _toImageFont(_fontSize),
+          fontSize: fontSize,
         ),
       );
       setState(() => _selectedTextId = editingId);
@@ -1455,44 +1481,81 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       EditAnnotation(
         id: '',
         kind: AnnotationKind.text,
-        bounds: preview.bounds,
+        bounds: bounds,
         text: text,
         color: _textColor,
-        fontSize: _toImageFont(_fontSize),
+        fontSize: fontSize,
       ),
     );
     setState(() => _selectedTextId = id);
   }
 
-  /// point 为落点，bounds 为拖出的框；裁到图内，避免测试小图上文本框跑出画布。
-  Rect _clampedTextBox(Offset point, {Rect? bounds}) {
+  /// point 为文字框左上角，width 为拖出的宽度（源图像素），缺省用默认宽度。
+  /// 返回留在图内的一行高文字框；高度之后随文字内容增长。
+  Rect _newTextBox(Offset point, {double? width}) {
     final image = _document.imageSize;
-    if (bounds != null) {
-      final left = bounds.left.clamp(0, math.max(0, image.width - 8));
-      final top = bounds.top.clamp(0, math.max(0, image.height - 8));
-      final right = bounds.right.clamp(left + 8, image.width);
-      final bottom = bounds.bottom.clamp(top + 8, image.height);
-      return Rect.fromLTRB(
-        left.toDouble(),
-        top.toDouble(),
-        right.toDouble(),
-        bottom.toDouble(),
-      );
-    }
-    final width = math.min(
-      ScreenshotDefaults.textBox.width,
-      math.max(24, image.width - point.dx),
-    );
-    final height = math.min(
-      ScreenshotDefaults.textBox.height,
-      math.max(20, image.height - point.dy),
-    );
+    final minWidth = ScreenshotDefaults.textBoxMinWidth * _pixelRatio;
+    final wanted = width ?? ScreenshotDefaults.textBoxWidth * _pixelRatio;
+    final left = point.dx
+        .clamp(0, math.max(0, image.width - minWidth))
+        .toDouble();
+    final boxWidth = wanted
+        .clamp(minWidth, math.max(minWidth, image.width - left))
+        .toDouble();
+    final fontSize = _toImageFont(_fontSize);
+    final height = textBoxHeight(text: '', fontSize: fontSize, width: boxWidth);
+    final top = point.dy
+        .clamp(0, math.max(0, image.height - height))
+        .toDouble();
+    return Rect.fromLTWH(left, top, boxWidth, height);
+  }
+
+  /// annotation 为文字标注，raw 为拖动得到的矩形，moved 表示整体移动。
+  /// 移动时原样返回；拖手柄时只采纳左右边界，宽度不小于最小宽度，高度按文字内容计算。
+  Rect _fittedTextBounds(
+    EditAnnotation annotation,
+    Rect raw, {
+    required bool moved,
+  }) {
+    if (moved) return raw;
+    final minWidth = ScreenshotDefaults.textBoxMinWidth * _pixelRatio;
+    final width = math.max(minWidth, raw.width);
+    // 拖左侧手柄时右边界不动；宽度被最小值限制时左边界跟着收住。
+    final left = raw.left == annotation.bounds.left
+        ? raw.left
+        : annotation.bounds.right - width;
     return Rect.fromLTWH(
-      point.dx.clamp(0, math.max(0, image.width - width)),
-      point.dy.clamp(0, math.max(0, image.height - height)),
-      width.toDouble(),
-      height.toDouble(),
+      left,
+      annotation.bounds.top,
+      width,
+      textBoxHeight(
+        text: annotation.text,
+        fontSize: annotation.fontSize,
+        width: width,
+      ),
     );
+  }
+
+  /// 无参数；输入中文字或字号变化后，让文字框高度等于当前内容所需高度。
+  void _fitEditingText() {
+    final preview = _previewAnnotation;
+    if (!_textInputOpen || preview == null) return;
+    final height = textBoxHeight(
+      text: _textController.text,
+      fontSize: preview.fontSize,
+      width: preview.bounds.width,
+    );
+    if (height == preview.bounds.height) return;
+    setState(() {
+      _previewAnnotation = preview.copyWith(
+        bounds: Rect.fromLTWH(
+          preview.bounds.left,
+          preview.bounds.top,
+          preview.bounds.width,
+          height,
+        ),
+      );
+    });
   }
 
   /// imagePoint 为点击位置；点在裁剪框内选中，点外面取消选中。未选中时仍可拖出新框。
@@ -1508,7 +1571,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// imagePoint 为点击位置；点已有文字再编辑，点空白落默认文本框。
   void _onTextTap(Offset imagePoint) {
-    if (!_document.hasImage || _busy || _textInputOpen) return;
+    // 输入中点击文字框外：结束输入并保留文字。
+    if (_textInputOpen) {
+      _commitText();
+      return;
+    }
+    if (!_document.hasImage || _busy) return;
     final hit = _hitText(imagePoint);
     if (_tool == ScreenshotTool.cursor && hit == null) {
       final shape = _hitShape(imagePoint);
@@ -1534,9 +1602,24 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       return;
     }
     if (hit != null) {
-      _openExistingText(hit);
+      // 单击选中；在双击间隔内再次点击同一文字框才进入编辑。
+      final now = DateTime.now();
+      final again =
+          _lastTextTapId == hit.id &&
+          now.difference(_lastTextTapAt) <= kDoubleTapTimeout;
+      _lastTextTapId = hit.id;
+      _lastTextTapAt = now;
+      if (again) {
+        _openExistingText(hit);
+        return;
+      }
+      setState(() {
+        _selectedTextId = hit.id;
+        _cropSelected = false;
+      });
       return;
     }
+    _lastTextTapId = null;
     _openTextInput(imagePoint);
   }
 
@@ -1549,18 +1632,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         'active': active,
       }),
     );
-  }
-
-  /// 无参数；取消文本输入，已提交的标注保持不变。
-  void _cancelText() {
-    setState(() {
-      _setTextInput(false);
-      _editingTextId = null;
-      _dragStart = null;
-      _dragCurrent = null;
-      _previewAnnotation = null;
-      _textController.clear();
-    });
   }
 
   /// 无参数；解除原生回调与文档监听，无返回值。
@@ -1601,7 +1672,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               return KeyEventResult.handled;
             }
             if (_textInputOpen) {
-              _cancelText();
+              // Esc 结束输入并保留文字。
+              _commitText();
             } else {
               _close();
             }
@@ -1666,6 +1738,20 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                       (_recordingExpanded || _liveExpanded) &&
                       _recordingTarget != CaptureTarget.region,
                   pixelRatio: _pixelRatio,
+                  // 画笔光标与当前粗细、颜色一致；马赛克画笔没有颜色，显示空心圆。
+                  brushCursor: NativeBrushCursor(
+                    diameter: math.max(
+                      NativeBrushCursor.minimumDiameter,
+                      _drawing.styleFor(ScreenshotTool.brush).strokeWidth,
+                    ),
+                    color: _shapeMode == ShapeMode.mosaic
+                        ? null
+                        : _drawing
+                              .styleFor(ScreenshotTool.brush)
+                              .color
+                              .toARGB32(),
+                    channel: widget.channel,
+                  ),
                   busy:
                       _busy ||
                       ((_recordingExpanded || _liveExpanded) &&
@@ -1707,7 +1793,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                       _export('copy', closeAfterCopy: true);
                     }
                   },
-                  onCommitText: _commitText,
                   toolbarBuilder: _buildToolbar,
                   toolbarSafeArea: _capture['toolbarSafeWidth'] == null
                       ? null
@@ -1807,6 +1892,23 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                     ),
                   ),
                 ),
+              // 识别结果弹窗浮在截图之上，初始居中，可拖动标题区移动。
+              if (_recognizedText != null)
+                Center(
+                  child: Transform.translate(
+                    offset: _recognizedOffset,
+                    child: SizedBox.fromSize(
+                      size: RecognizedTextPanel.size,
+                      child: RecognizedTextPanel(
+                        text: _recognizedText!,
+                        onCopyAll: _copyRecognizedText,
+                        onClose: () => setState(() => _recognizedText = null),
+                        onDrag: (delta) =>
+                            setState(() => _recognizedOffset += delta),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1831,9 +1933,20 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   void _applyStyleToCurrent() {
     final imageFont = _toImageFont(_fontSize);
     if (_textInputOpen && _previewAnnotation != null) {
-      _previewAnnotation = _previewAnnotation!.copyWith(
+      final preview = _previewAnnotation!;
+      _previewAnnotation = preview.copyWith(
         color: _textColor,
         fontSize: imageFont,
+        bounds: Rect.fromLTWH(
+          preview.bounds.left,
+          preview.bounds.top,
+          preview.bounds.width,
+          textBoxHeight(
+            text: _textController.text,
+            fontSize: imageFont,
+            width: preview.bounds.width,
+          ),
+        ),
       );
       return;
     }
@@ -1844,7 +1957,21 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         .firstOrNull;
     if (current == null || current.kind != AnnotationKind.text) return;
     _document.updateAnnotation(
-      current.copyWith(color: _textColor, fontSize: imageFont),
+      current.copyWith(
+        color: _textColor,
+        fontSize: imageFont,
+        // 字号变化后高度按内容重新计算，宽度不变。
+        bounds: Rect.fromLTWH(
+          current.bounds.left,
+          current.bounds.top,
+          current.bounds.width,
+          textBoxHeight(
+            text: current.text,
+            fontSize: imageFont,
+            width: current.bounds.width,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1893,17 +2020,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                 unawaited(_syncLivePreview());
               }
             : null,
-        ScreenshotActions.live: _capture['canCaptureMedia'] == true
-            ? () {
-                setState(() {
-                  _liveExpanded = !_liveExpanded;
-                  _liveRecord = false;
-                  if (_liveExpanded) _recordingExpanded = false;
-                });
-                unawaited(_syncRecordingPreview());
-                unawaited(_syncLivePreview());
-              }
-            : null,
         ScreenshotActions.scrolling: _capture['canCaptureMedia'] == true
             ? () => _prepareCapture(CaptureTarget.region, scrolling: true)
             : null,
@@ -1923,6 +2039,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         ScreenshotActions.width: () => _editDrawingStyle(color: false),
       for (final entry in _toolIds.entries)
         entry.key: () => setState(() {
+          // 切换工具前结束输入并保留文字。
+          if (_textInputOpen) _commitText();
           _tool = entry.value;
           _recordingExpanded = false;
           _liveExpanded = false;
@@ -1932,12 +2050,24 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           _selectedShapeId = null;
           _selectedTextId = null;
         }),
-      ScreenshotActions.undo: _document.canUndo ? _document.undo : null,
-      ScreenshotActions.redo: _document.canRedo ? _document.redo : null,
+      // 实时翻译是顶层工具：切到截图工具并展开或收起目标选择行。
+      ScreenshotActions.live: _capture['canCaptureMedia'] == true
+          ? () {
+              setState(() {
+                _tool = ScreenshotTool.crop;
+                _liveExpanded = !_liveExpanded;
+                _recordingExpanded = false;
+                _selectedShapeId = null;
+                _selectedTextId = null;
+              });
+              unawaited(_syncRecordingPreview());
+              unawaited(_syncLivePreview());
+            }
+          : null,
       ScreenshotActions.pin: _document.hasImage ? () => _export('pin') : null,
       ScreenshotActions.save: _document.hasImage ? () => _export('save') : null,
       ScreenshotActions.copy: _document.hasImage ? () => _export('copy') : null,
-      ScreenshotActions.ocrCopy: _document.hasImage ? _copyOcrText : null,
+      ScreenshotActions.ocrCopy: _document.hasImage ? _showRecognizedText : null,
       ScreenshotActions.ocrTranslate: _document.hasImage ? _translateOcr : null,
       ScreenshotActions.close: _close,
       if (textControls) ...{
@@ -1973,7 +2103,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final icons = <String, IconData>{
       ...ScreenshotActions.icons,
       ScreenshotActions.record: Icons.videocam_outlined,
-      ScreenshotActions.live: Icons.subtitles_outlined,
       ScreenshotActions.scrolling: Icons.unfold_more,
       ScreenshotActions.palette: Icons.palette_outlined,
       ScreenshotActions.width: Icons.line_weight,
@@ -1994,6 +2123,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           id.startsWith(ScreenshotActions.brushPrefix);
       final selected =
           _toolIds[id] == _tool ||
+          id == ScreenshotActions.live && _liveExpanded ||
           id == '${ScreenshotActions.shapePrefix}${_styleShape.name}' ||
           id ==
               '${ScreenshotActions.brushPrefix}${(_styleSelection?.shapeMode ?? _shapeMode).name}';
@@ -2124,13 +2254,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               () => _selectRecordingTarget(target.key),
               selected: _recordingTarget == target.key,
             ),
-          if (_liveExpanded && _recordingTarget != CaptureTarget.application)
-            captureButton(
-              '同时录制',
-              const Icon(Icons.videocam, size: 16),
-              () => setState(() => _liveRecord = !_liveRecord),
-              selected: _liveRecord,
-            ),
           captureButton(
             _liveExpanded ? '开始实时翻译' : '开始录制',
             const Icon(Icons.fiber_manual_record, size: 16),
@@ -2223,6 +2346,7 @@ class _EditorSurface extends StatefulWidget {
     this.recordingWindows,
     this.recordingPreview = false,
     required this.pixelRatio,
+    required this.brushCursor,
     required this.busy,
     required this.textInputOpen,
     required this.textController,
@@ -2236,7 +2360,6 @@ class _EditorSurface extends StatefulWidget {
     required this.activeHandle,
     required this.onDoubleTap,
     required this.onDoubleTapDown,
-    required this.onCommitText,
     required this.toolbarBuilder,
     this.toolbarSafeArea,
     this.displaySize,
@@ -2273,6 +2396,9 @@ class _EditorSurface extends StatefulWidget {
   final List<Rect>? recordingWindows;
   final bool recordingPreview;
   final double pixelRatio;
+
+  /// 画笔工具在画布上使用的光标。
+  final MouseCursor brushCursor;
   final bool busy;
   final bool textInputOpen;
   final TextEditingController textController;
@@ -2289,7 +2415,6 @@ class _EditorSurface extends StatefulWidget {
   final String? activeHandle;
   final VoidCallback onDoubleTap;
   final ValueChanged<Offset> onDoubleTapDown;
-  final VoidCallback onCommitText;
 
   /// axis 由可用空白决定；返回具有相应滚动方向的工具栏。
   final Widget Function(BuildContext context, Axis axis) toolbarBuilder;
@@ -2413,7 +2538,7 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                     widget.tool == ScreenshotTool.text
                 ? null
                 : widget.onDoubleTap,
-            onPanStart: widget.busy || widget.textInputOpen
+            onPanStart: widget.busy
                 ? null
                 : (details) =>
                       widget.onDragStart(toImage(details.localPosition)),
@@ -2424,10 +2549,13 @@ class _EditorSurfaceState extends State<_EditorSurface> {
             onPanEnd: widget.busy || widget.textInputOpen
                 ? null
                 : (_) => widget.onDragEnd(),
-            onTapUp: !widget.textInputOpen && !widget.busy
+            onTapUp: !widget.busy
                 ? (details) {
                     final point = toImage(details.localPosition);
-                    if (widget.tool == ScreenshotTool.crop) {
+                    // 输入中的点击只用于结束输入，由文字入口统一处理。
+                    if (widget.textInputOpen) {
+                      widget.onTextTap(point);
+                    } else if (widget.tool == ScreenshotTool.crop) {
                       widget.onCropTap(point);
                     } else if (widget.tool == ScreenshotTool.text ||
                         widget.tool == ScreenshotTool.cursor) {
@@ -2508,12 +2636,15 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                     (widget.previewAnnotation ?? widget.selectedText)?.bounds;
                 final handle = box == null
                     ? null
-                    : editHandleAt(
-                        box,
-                        point,
-                        pad,
-                        edgePad:
-                            GlassMetrics.cropEdgeHitRadius * widget.pixelRatio,
+                    : textBoxHandle(
+                        editHandleAt(
+                          box,
+                          point,
+                          pad,
+                          edgePad:
+                              GlassMetrics.cropEdgeHitRadius *
+                              widget.pixelRatio,
+                        ),
                       );
                 if (handle != null && handle != 'move') {
                   return cursorForEditHandle(
@@ -2526,13 +2657,15 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                   if (annotation.kind == AnnotationKind.text &&
                       annotation.bounds.inflate(4).contains(point)) {
                     return cursorForEditHandle(
-                      editHandleAt(
-                            annotation.bounds,
-                            point,
-                            pad,
-                            edgePad:
-                                GlassMetrics.cropEdgeHitRadius *
-                                widget.pixelRatio,
+                      textBoxHandle(
+                            editHandleAt(
+                              annotation.bounds,
+                              point,
+                              pad,
+                              edgePad:
+                                  GlassMetrics.cropEdgeHitRadius *
+                                  widget.pixelRatio,
+                            ),
                           ) ??
                           'move',
                       plusWhenIdle: false,
@@ -2567,6 +2700,7 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                     ? SystemMouseCursors.precise
                     : SystemMouseCursors.basic;
               }
+              if (widget.tool == ScreenshotTool.brush) return widget.brushCursor;
               return SystemMouseCursors.basic;
             },
             child: Stack(
@@ -2644,8 +2778,8 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                           Rect.fromLTWH(
                             widget.dragStart?.dx ?? 0,
                             widget.dragStart?.dy ?? 0,
-                            ScreenshotDefaults.textBox.width,
-                            ScreenshotDefaults.textBox.height,
+                            ScreenshotDefaults.textBoxWidth * widget.pixelRatio,
+                            0,
                           ),
                       imageSize,
                       fitted,
@@ -2662,7 +2796,8 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                             focusNode: widget.textFocus,
                             autofocus: true,
                             maxLines: null,
-                            textInputAction: TextInputAction.done,
+                            // 回车是换行；结束输入靠点击框外、Esc 或切换工具。
+                            textInputAction: TextInputAction.newline,
                             style: TextStyle(
                               color:
                                   (widget.previewAnnotation ??
@@ -2678,24 +2813,11 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                                   imageSize.width,
                             ),
                             cursorColor: ScreenshotDefaults.strokeColor,
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              filled: false,
-                              hintText: '输入文字，回车确认',
+                            // 无边框无内边距：输入时的文字位置与提交后一致，边框由文字框描边绘制。
+                            decoration: const InputDecoration.collapsed(
+                              hintText: '输入文字',
                               hintStyle: TextStyle(color: Color(0x99FFFFFF)),
-                              border: OutlineInputBorder(),
-                              enabledBorder: OutlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Color(0xFF5EEAD4),
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Color(0xFF5EEAD4),
-                                ),
-                              ),
                             ),
-                            onSubmitted: (_) => widget.onCommitText(),
                           ),
                         ),
                       ),
@@ -2724,6 +2846,11 @@ class _EditorSurfaceState extends State<_EditorSurface> {
     );
   }
 }
+
+/// handle 为文字框上命中的控制点。文字框高度随内容决定，上下边不能拉伸，按移动处理；
+/// 其余控制点原样返回。
+String? textBoxHandle(String? handle) =>
+    handle == 'n' || handle == 's' ? 'move' : handle;
 
 /// cursorFor 根据本地坐标返回四角拉伸光标；child 为画布手势层。
 class _CornerCursor extends StatefulWidget {

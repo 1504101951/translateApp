@@ -6,3 +6,4 @@
 2. [native_glass.dart](native_glass.dart)：实现共享原生玻璃材料、主题和界面控件。
 3. [native_resize_cursor.dart](native_resize_cursor.dart)：通过截图通道为四角拉伸设置AppKit原生对角光标。
 4. [toolbar_feedback.dart](toolbar_feedback.dart)：在工具栏外侧的可用区域显示保存、成功及错误响应。
+5. [native_brush_cursor.dart](native_brush_cursor.dart)：通过截图通道设置与画笔粗细、颜色一致的原生圆点光标。

@@ -31,6 +31,7 @@ abstract final class MethodNames {
 
   /// 激活截图引擎的原生对角拉伸光标。
   static const setResizeCursor = 'setResizeCursor';
+  static const setBrushCursor = 'setBrushCursor';
   static const screenshotTextInput = 'screenshotTextInput';
   static const screenshotToolbarChanged = 'screenshotToolbarChanged';
   static const screenshotToolbarAction = 'screenshotToolbarAction';

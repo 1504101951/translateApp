@@ -17,7 +17,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     private var channel: FlutterMethodChannel?
     private var textInputActive = false
     /// 标记本编辑会话曾设置原生光标，关闭时清除，避免污染其他窗口。
-    private var hasNativeResizeCursor = false
+    private var hasNativeCursor = false
     private var capturing = false
     /// 保存冻结帧任务；退出时取消并拒绝权限请求或截图的迟到结果。
     private var captureTask: Task<Void, Never>?
@@ -186,7 +186,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     /// 无参数；关闭编辑窗并关闭引擎，保留已创建的贴图。
     func shutdown() {
         cancelCapture()
-        if hasNativeResizeCursor { NSCursor.arrow.set(); hasNativeResizeCursor = false }
+        if hasNativeCursor { NSCursor.arrow.set(); hasNativeCursor = false }
         removeScreenshotKeys()
         window?.delegate = nil
         window?.close()
@@ -359,7 +359,18 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             // 窗口关闭后的迟到请求不能重新设置桌面光标。
             guard window?.isVisible == true else { result(nil); return }
             NSCursor.frameResize(position: position, directions: .all).set()
-            hasNativeResizeCursor = true
+            hasNativeCursor = true
+            result(nil)
+        case AppConstants.setBrushCursorMethod:
+            guard let diameter = args["diameter"] as? Double, diameter > 0 else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "无效的画笔光标直径。", details: nil))
+                return
+            }
+            // 窗口关闭后的迟到请求不能重新设置桌面光标。
+            guard window?.isVisible == true else { result(nil); return }
+            // brushCursor按直径与颜色绘制圆点；color缺省表示马赛克画笔的空心圆。
+            Self.brushCursor(diameter: CGFloat(diameter), argb: (args["color"] as? NSNumber)?.uint32Value).set()
+            hasNativeCursor = true
             result(nil)
         case AppConstants.saveDrawingPreferencesMethod:
             // routeWindowRequest把绘图偏好交给唯一设置提交入口。
@@ -644,6 +655,33 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             edges: .init(top: 0, bottom: 0, automatic: true))
     }
 
+    /// diameter为圆点直径（屏幕点），argb为画笔颜色，nil表示马赛克画笔；返回热点在圆心的圆点光标。
+    /// 有颜色时为实心圆加1pt白色描边；无颜色时为空心圆，1pt白色描边外加1pt黑色描边。
+    static func brushCursor(diameter: CGFloat, argb: UInt32?) -> NSCursor {
+        let border: CGFloat = argb == nil ? 2 : 1
+        let side = diameter + border * 2
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let circle = NSRect(x: border, y: border, width: diameter, height: diameter)
+            if let argb {
+                NSColor(srgbRed: CGFloat((argb >> 16) & 0xFF) / 255, green: CGFloat((argb >> 8) & 0xFF) / 255,
+                        blue: CGFloat(argb & 0xFF) / 255, alpha: 1).setFill()
+                NSBezierPath(ovalIn: circle).fill()
+            } else {
+                // 黑色外描边压在白色描边之外，浅色和深色背景上都能看清空心圆。
+                let outer = NSBezierPath(ovalIn: circle.insetBy(dx: -1.5, dy: -1.5))
+                outer.lineWidth = 1
+                NSColor.black.setStroke()
+                outer.stroke()
+            }
+            let ring = NSBezierPath(ovalIn: circle.insetBy(dx: -0.5, dy: -0.5))
+            ring.lineWidth = 1
+            NSColor.white.setStroke()
+            ring.stroke()
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: side / 2, y: side / 2))
+    }
+
     /// event 为按键；返回是否由当前截图处理，调用方据此消费事件。
     func routeScreenshotKey(_ event: NSEvent) -> Bool {
         guard window?.isVisible == true, window?.attachedSheet == nil,
@@ -792,7 +830,7 @@ extension ScreenshotWindowController {
         previewSource = nil
         clearTargetPreviews()
         captureSources.removeAll()
-        if hasNativeResizeCursor { NSCursor.arrow.set(); hasNativeResizeCursor = false }
+        if hasNativeCursor { NSCursor.arrow.set(); hasNativeCursor = false }
         removeScreenshotKeys()
         textInputActive = false
         png = nil

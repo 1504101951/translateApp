@@ -410,12 +410,14 @@ void main() {
       find.byKey(const Key('screenshot-text-field')),
       'existing object',
     );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     await tap(ScreenshotActions.arrow);
     await tap(ScreenshotActions.text);
     await color('FF3B30', '007AFF');
-    await tester.tapAt(const Offset(230, 160));
+    // 文字工具下单击是选中，紧接着再次点击同一文字框才进入编辑。
+    await tester.tapAt(const Offset(230, 130));
+    await tester.tapAt(const Offset(230, 130));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('screenshot-text-field')), findsOneWidget);
     await color('FF3B30', '000000');
@@ -504,12 +506,13 @@ void main() {
       122,
       255,
     ]);
-    await tester.ensureVisible(find.byKey(const Key(ScreenshotActions.undo)));
-    await tester.tap(find.byKey(const Key(ScreenshotActions.undo)));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key(ScreenshotActions.undo)));
-    await tester.tap(find.byKey(const Key(ScreenshotActions.undo)));
-    await tester.pumpAndSettle();
+    // 撤销只有系统快捷键 ⌘Z；连按两次撤回两步。
+    for (var step = 0; step < 2; step++) {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+    }
     exported = null;
     await tester.ensureVisible(find.byKey(const Key(ScreenshotActions.copy)));
     // PNG引擎编码需要真实异步区间，不能在fakeAsync里触发后只等待墙钟。

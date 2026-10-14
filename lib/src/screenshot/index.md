@@ -12,3 +12,4 @@
 7. [drawing_controls.dart](drawing_controls.dart)：提供带应用和取消语义的独立调色盘与粗细选择控件。
 
 8. [drawing_preferences.dart](drawing_preferences.dart)：定义按工具独立保存的绘图属性及其持久化格式。
+9. [recognized_text_panel.dart](recognized_text_panel.dart)：显示“识别文字”结果的可拖动弹窗，支持选中复制与复制全部。

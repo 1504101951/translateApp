@@ -11,6 +11,8 @@ import 'package:translate_app/src/settings/screenshot_toolbar_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/common/utils/geometry.dart';
+import 'package:translate_app/src/common/constants/screenshot_enums.dart';
+import 'package:translate_app/src/screenshot/edit_document.dart';
 import 'package:translate_app/src/screenshot/screenshot_app.dart';
 import 'package:translate_app/src/common/widgets/native_resize_cursor.dart';
 import 'package:translate_app/src/screenshot/screenshot_editor_layout.dart';
@@ -264,13 +266,27 @@ void main() {
       find.byKey(const Key('screenshot-text-field')),
       '来源与译文',
     );
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    // Esc 结束输入并保留文字。文字框宽 200（拖出的宽度），高度为一行文字的高度。
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
+    final lineHeight = textBoxHeight(
+      text: '来源与译文',
+      fontSize: ScreenshotDefaults.fontSize,
+      width: 200,
+    );
     await tester.tap(find.byKey(const Key(ScreenshotActions.cursor)));
     await tester.pumpAndSettle();
-    await tester.dragFrom(const Offset(400, 290), const Offset(30, 30));
+    // 框内拖动是移动：左上角从 (300,260) 到 (330,290)。
+    await tester.dragFrom(
+      Offset(400, 260 + lineHeight / 2),
+      const Offset(30, 30),
+    );
     await tester.pumpAndSettle();
-    await tester.dragFrom(const Offset(530, 350), const Offset(40, 20));
+    // 拖右边把宽度从 200 加到 240；纵向位移不改变高度。
+    await tester.dragFrom(
+      Offset(530, 290 + lineHeight / 2),
+      const Offset(40, 20),
+    );
     await tester.pumpAndSettle();
     // 文本四角与截图采用相同原生轴；离开对象后必须归还普通箭头。
     final textMouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
@@ -278,8 +294,8 @@ void main() {
     for (final corner in <Offset, String>{
       const Offset(330, 290): NativeResizeCursor.northWestSouthEast,
       const Offset(570, 290): NativeResizeCursor.northEastSouthWest,
-      const Offset(330, 370): NativeResizeCursor.northEastSouthWest,
-      const Offset(570, 370): NativeResizeCursor.northWestSouthEast,
+      Offset(330, 290 + lineHeight): NativeResizeCursor.northEastSouthWest,
+      Offset(570, 290 + lineHeight): NativeResizeCursor.northWestSouthEast,
     }.entries) {
       await textMouse.moveTo(corner.key);
       await tester.pumpAndSettle();
@@ -296,17 +312,17 @@ void main() {
     );
     await textMouse.removePointer();
     // 双击文字重新编辑，几何来自实际TextField，不能只检验状态字段。
-    await tester.tapAt(const Offset(440, 320));
+    await tester.tapAt(Offset(440, 290 + lineHeight / 2));
     await tester.pump(const Duration(milliseconds: 80));
-    await tester.tapAt(const Offset(440, 320));
+    await tester.tapAt(Offset(440, 290 + lineHeight / 2));
     await tester.pumpAndSettle();
     final field = find.byKey(const Key('screenshot-text-field'));
     expect(field, findsOneWidget);
-    // 输入文字自身按行高居中，拉伸对象是外层定位框，不能把字体行高当作框高。
+    // 文字框高度随内容：一行文字时等于一行的高度，宽度为拖动后的 240。
     final textBox = find
         .ancestor(of: field, matching: find.byType(Positioned))
         .first;
-    expect(tester.getRect(textBox), const Rect.fromLTWH(330, 290, 240, 80));
+    expect(tester.getRect(textBox), Rect.fromLTWH(330, 290, 240, lineHeight));
     expect(find.text('来源与译文'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
@@ -424,7 +440,7 @@ void main() {
     expect(tester.getRect(find.byKey(const Key('screenshot-canvas'))), canvas);
   });
 
-  testWidgets('主键盘和小键盘回车复制完整像素并退出，文字输入回车只提交标注', (tester) async {
+  testWidgets('主键盘和小键盘回车复制完整像素并退出，文字输入中回车只换行', (tester) async {
     tester.view.physicalSize = const Size(960, 740);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -563,7 +579,11 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
     await tester.pump();
     expect(find.byKey(const Key('screenshot-text-field')), findsOneWidget);
+    // 输入中回车是换行，不结束输入也不复制截图；Esc 才结束输入。
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('screenshot-text-field')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('screenshot-text-field')), findsNothing);
     expect(clipboard, isNull);
@@ -784,7 +804,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
     expect(tester.takeException(), isNull);
   });
-  testWidgets('复制文字的迟到成功不能在替换后的截图显示提示', (tester) async {
+  testWidgets('识别文字后复制的迟到成功不能在替换后的截图显示提示', (tester) async {
     // 复制请求已发出但回复尚未到达时换图；反馈必须属于发起请求的那张截图。
     tester.view.physicalSize = const Size(960, 740);
     tester.view.devicePixelRatio = 1;
@@ -822,6 +842,9 @@ void main() {
       await tester.tap(find.byKey(const Key('screenshot-ocr-copy')));
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
+    await tester.pump();
+    // 识别结果弹窗里点“复制全部”才发起剪贴板请求。
+    await tester.tap(find.byTooltip('复制全部'));
     await tester.pump();
     await copyPending.future;
     await messenger.handlePlatformMessage(

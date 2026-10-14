@@ -680,12 +680,12 @@ void main() {
     expect(find.textContaining('录制'), findsNothing);
   });
 
-  testWidgets('实时翻译准备态的同时录制开关默认关闭，打开后随开始请求提交', (tester) async {
-    // 作用：是否同步录制由用户在开始前决定，并随同一次开始请求交给原生。
-    // 边界：未点开关时 record 为 false；点一次后为 true；录制准备态不出现该开关。
+  testWidgets('实时翻译是顶层工具，任意工具下点击都进入目标选择并可开始', (tester) async {
+    // 作用：实时翻译不再依赖先选中截图工具。
+    // 边界：当前工具为画笔时点击实时翻译，直接出现目标选择行；开始请求带 live 且不再携带录制参数。
     final png = await tester.runAsync(_selectionImage);
-    const selectionChannel = MethodChannel('test/live-record');
-    final started = <Map>[];
+    const selectionChannel = MethodChannel('test/live-top-level');
+    Map? started;
     messenger.setMockMethodCallHandler(selectionChannel, (call) async {
       if (call.method == MethodNames.getScreenshot) {
         return {
@@ -698,7 +698,7 @@ void main() {
         };
       }
       if (call.method == MethodNames.prepareCapture) {
-        started.add(call.arguments as Map);
+        started = call.arguments as Map;
       }
       return null;
     });
@@ -707,19 +707,16 @@ void main() {
     );
     await tester.pumpWidget(const ScreenshotApp(channel: selectionChannel));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key(ScreenshotActions.record)));
+    await tester.tap(find.byKey(const Key(ScreenshotActions.brush)));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('同时录制'), findsNothing);
+    expect(find.byKey(const Key('recording-targets-row')), findsNothing);
     await tester.tap(find.byKey(const Key(ScreenshotActions.live)));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('recording-targets-row')), findsOneWidget);
     await tester.tap(find.byTooltip('开始实时翻译'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('同时录制'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('开始实时翻译'));
-    await tester.pumpAndSettle();
-    expect([for (final call in started) call['live']], [true, true]);
-    expect([for (final call in started) call['record']], [false, true]);
+    expect(started, containsPair('live', true));
+    expect(started!.containsKey('record'), isFalse);
   });
 
   testWidgets('全屏选区准备按钮使用独立材料且保持可点，开始提交源像素并防重复', (tester) async {

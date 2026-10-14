@@ -61,6 +61,10 @@ class ToolbarShortcut {
 
 /// 完整顺序和局部快捷键的不可变快照，修改不会污染正在保存的事务。
 class ScreenshotToolbarPreferences {
+  /// 已从产品移除的顶层动作；已保存配置中它们的顺序、隐藏状态和快捷键直接丢弃。
+  /// 撤销与重做只保留系统快捷键 ⌘Z 与 ⇧⌘Z。
+  static const _removed = {'screenshot-undo', 'screenshot-redo'};
+
   ScreenshotToolbarPreferences({
     List<String>? order,
     Map<String, ToolbarShortcut>? shortcuts,
@@ -80,10 +84,10 @@ class ScreenshotToolbarPreferences {
         ?.cast<String>();
     final storedShortcuts =
         (map[PreferenceKeys.screenshotToolbarShortcuts] as Map?);
-    // 产品只保留顶层自定义：移除已取消的上下文设置，未知ID仍由校验报错。
+    // 产品只保留顶层自定义：移除已取消的上下文设置和已移除的顶层动作，未知ID仍由校验报错。
     bool keep(String id) =>
         ScreenshotActions.icons.containsKey(id) ||
-        !ScreenshotActions.labels.containsKey(id);
+        !ScreenshotActions.labels.containsKey(id) && !_removed.contains(id);
     final rawHidden =
         (map[PreferenceKeys.screenshotToolbarHidden] as List?)
             ?.cast<String>()
@@ -104,6 +108,14 @@ class ScreenshotToolbarPreferences {
         ScreenshotActions.rect,
       );
     }
+    if (order != null) {
+      // 已保存的顺序里没有的顶层动作，插到默认顺序中它前一个动作之后。
+      final defaults = ScreenshotActions.icons.keys.toList();
+      for (final (index, id) in defaults.indexed) {
+        if (order.contains(id)) continue;
+        order.insert(index == 0 ? 0 : order.indexOf(defaults[index - 1]) + 1, id);
+      }
+    }
     final shortcuts = <String, ToolbarShortcut>{};
     for (final entry in (storedShortcuts ?? {}).entries) {
       final key = entry.key as String;
@@ -121,7 +133,9 @@ class ScreenshotToolbarPreferences {
         ),
       );
     }
-    final hidden = {...rawHidden}..remove(ScreenshotActions.mask);
+    final hidden = {...rawHidden}
+      ..remove(ScreenshotActions.mask)
+      ..removeAll(_removed);
     if (hadMask && !rawHidden.contains(ScreenshotActions.mask)) {
       hidden.remove(ScreenshotActions.rect);
     }

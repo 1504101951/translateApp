@@ -57,6 +57,7 @@ enum AppConstants {
 
     /// 截图对角光标的受控协议轴，与Dart NativeResizeCursor一致。
     static let setResizeCursorMethod = "setResizeCursor"
+    static let setBrushCursorMethod = "setBrushCursor"
     static let resizeNorthWestSouthEast = "nwse"
     static let resizeNorthEastSouthWest = "nesw"
     /// 跨引擎外观模式与通知名称；与Dart AppearanceModes一致。
@@ -85,6 +86,8 @@ enum AppConstants {
     static let screenshotSaveDirectoryKey = "screenshotSaveDirectory"
     /// GIF导出偏好；最大宽度缺省表示原始宽度。
     static let gifFramesPerSecondKey = "gifFramesPerSecond"
+    /// liveRecording 协议值；实时翻译开始时读取，决定是否同步录制。与Dart常量同步。
+    static let liveRecordingKey = "liveRecording"
     static let gifMaximumWidthKey = "gifMaximumWidth"
     /// escapeKeyCode 的平台约定；调用方共享同一协议或硬件定义。
     static let escapeKeyCode: UInt16 = 53
