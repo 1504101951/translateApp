@@ -13,7 +13,7 @@ Source-Spec: https://github.com/1504101951/translateApp/issues/1
 
 用户反馈本轮效果“看起来没问题”，询问更新组件及新增串行package/install脚本。已执行xcodebuild -runFirstLaunch -checkForNewerComponents：Install Succeeded，No new updates for 27A266a；CoreSimulator旧服务1051.54切换到1171.7。checkFirstLaunchStatus退出0，showdestinations正常列出macOS目标，CoreDevice缺符号与CoreSimulator版本错误未再出现。未升级Xcode/macOS、未重新安装或启动TranslateApp。检查日志/private/tmp/xcode-components-check.01a0b9b5-7646-76b0-9028-2402885d401b.log。
 
-新增可执行scripts/package-and-install-macos.sh，set -euo pipefail依次调用现有打包与安装脚本，打包失败不安装残留ZIP；继承现有运行进程检查、签名校验和回滚。README、macOS安装文档及目录索引同步，bash -n与diffcheck通过。未实际运行串行脚本（用户尚未退出当前应用），未提交或推送。
+交付入口是 scripts/package-and-install-macos.sh。脚本内完成打包与安装，ZIP 写好后才安装；打包失败不安装残留 ZIP。README、macOS 安装文档及目录索引同步，bash -n 与 diffcheck 通过。未实际运行该脚本（用户尚未退出当前应用），未提交或推送。
 
 ## 子工具隔离与页面细节（2026-09-23）
 

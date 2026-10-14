@@ -3,6 +3,4 @@
 macOS固定签名打包与安装脚本。
 
 1. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
-2. [install-macos.sh](install-macos.sh)：校验并将打包应用安装到固定macOS应用目录。
-3. [package-macos.sh](package-macos.sh)：构建前清除本机同Bundle ID的TranslateApp.app与translate_app.app，再完成固定签名、验签和ZIP归档。
-4. [package-and-install-macos.sh](package-and-install-macos.sh)：串行打包并安装，仅在打包成功后进入安装流程。
+2. [package-and-install-macos.sh](package-and-install-macos.sh)：清除本机旧副本，完成固定签名、验签和ZIP，再安装到访达「应用程序」。
