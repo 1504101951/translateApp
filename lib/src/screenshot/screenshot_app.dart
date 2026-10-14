@@ -2009,7 +2009,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final styleTool = _styleTool;
     final brushMode = _styleSelection?.shapeMode ?? _shapeMode;
     final actions = <String, VoidCallback?>{
-      if (_tool == ScreenshotTool.crop) ...{
+      // 实时翻译展开时只显示它自己的目标选择行，不显示截图工具的录制与长截图。
+      if (_tool == ScreenshotTool.crop && !_liveExpanded) ...{
         ScreenshotActions.record: _capture['canCaptureMedia'] == true
             ? () {
                 setState(() {
@@ -2121,8 +2122,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       final mode =
           id.startsWith(ScreenshotActions.shapePrefix) ||
           id.startsWith(ScreenshotActions.brushPrefix);
+      // 实时翻译展开时高亮它自己；它借用的截图工具不显示为选中。
       final selected =
-          _toolIds[id] == _tool ||
+          _toolIds[id] == _tool && !_liveExpanded ||
           id == ScreenshotActions.live && _liveExpanded ||
           id == '${ScreenshotActions.shapePrefix}${_styleShape.name}' ||
           id ==

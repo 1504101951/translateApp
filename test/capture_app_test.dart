@@ -713,6 +713,14 @@ void main() {
     await tester.tap(find.byKey(const Key(ScreenshotActions.live)));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('recording-targets-row')), findsOneWidget);
+    // 展开后不出现截图工具的录制与长截图；高亮的是实时翻译，不是截图工具。
+    expect(find.byKey(const Key(ScreenshotActions.record)), findsNothing);
+    expect(find.byKey(const Key(ScreenshotActions.scrolling)), findsNothing);
+    // 选中的工具用不同的图标颜色表示；矩形工具此时未选中，作为对照。
+    Color? tint(String id) =>
+        tester.widget<IconButton>(find.byKey(Key(id))).color;
+    expect(tint(ScreenshotActions.live), isNot(tint(ScreenshotActions.rect)));
+    expect(tint(ScreenshotActions.crop), tint(ScreenshotActions.rect));
     await tester.tap(find.byTooltip('开始实时翻译'));
     await tester.pumpAndSettle();
     expect(started, containsPair('live', true));
