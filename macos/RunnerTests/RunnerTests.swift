@@ -700,7 +700,7 @@ class RunnerTests: XCTestCase {
             overlay.hide(sessionId: "pin-lifecycle")
         }
 
-        // 1x1 PNG
+        // 2×2 的 PNG
         let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,

@@ -10,11 +10,11 @@
 
 ## 代码约定
 
-通道名、方法名、UserDefaults 键与共享枚举集中在 `common/constants`，共享工具集中在 `common/utils`；具体路径与使用规则见 [代码约定](docs/agents/coding-conventions.md)。
+通道名、方法名、UserDefaults 键与共享枚举只在 `common/constants` 定义，共享工具放 `common/utils`；细则见 [代码约定](docs/agents/coding-conventions.md)。
 
 ## 界面设计
 
-设计、实现、重构或审查界面前，读取 [UI 规则入口](docs/agents/liquid-glass-ui.md) 并遵守其引用的共享规范；只有实际选用某个组件库时，才应用该库的专属 API 规则。
+设计、实现、重构或审查界面前，读取并遵守 [UI 规则入口](docs/agents/liquid-glass-ui.md)。
 
 ## 并行会话
 
@@ -22,17 +22,15 @@
 
 ## 先更新规格，再开发
 
-开发依据分为三类：[功能与交互规格 #1](https://github.com/1504101951/translateApp/issues/1)、[样式规格 #67](https://github.com/1504101951/translateApp/issues/67)、[架构设计约束 #68](https://github.com/1504101951/translateApp/issues/68)。规格来源和本地文档保留规则见 [规格索引](docs/specs/README.md)。实施已批准需求前，先更新受影响的 GitHub Issue；已同步或已关闭且有说明的本地规格副本删除，未同步内容先发布并回读确认。仅保留已确定且不适合写入未关闭 Issue 的本地规格。界面数值必须明确，不得擅自偏离规格或将待确认参数视为已批准值。
+开发依据分为三类：[功能与交互规格 #1](https://github.com/1504101951/translateApp/issues/1)、[样式规格 #67](https://github.com/1504101951/translateApp/issues/67)、[架构设计约束 #68](https://github.com/1504101951/translateApp/issues/68)。实施已批准需求前，先更新受影响的 GitHub Issue。本地规格副本与用户指定保留的澄清记录的保留或删除，统一按 [规格索引](docs/specs/README.md) 处理。界面数值必须明确，不得擅自偏离规格或将待确认参数视为已批准值。
 
 ## 目录索引
-
-用户明确指定本地持久化的澄清记录，按[规格索引](docs/specs/README.md)列出的范围保留，不因同步 Issue 完成而自动删除。
 
 项目维护的每个目录通过 `index.md` 说明直接子文件和子目录的作用，每项一句话；新增、删除或重命名项目文件时同步所在目录索引。Git 元数据、依赖缓存、构建产物及个人工作区目录不纳入索引。
 
 ## Issue 状态权限
 
-智能体不得关闭 Issue；实现、测试和验收结果仅通过评论与中文标签记录。用户指出未完成时，按实际进度标记待实现或待验收并记录未完成项，不将已关闭状态视为验收通过。
+智能体不得关闭 Issue；实现、测试和验收结果仅通过评论与中文标签记录，操作见 [Issue 跟踪规则](docs/agents/issue-tracker.md)。用户指出未完成时，按实际进度标记待实现或待验收并记录未完成项，不将已关闭状态视为验收通过。
 
 ## 验收方式
 

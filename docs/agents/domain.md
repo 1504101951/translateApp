@@ -1,28 +1,19 @@
-# Domain Docs
+# 领域文档
 
-This is a single-context repository. Domain documentation lives at the repository root.
+本仓库采用单一领域上下文。领域术语写在以下文件：
 
-## Before exploring
+- `docs/glossary.md`：选区翻译领域术语。
+- `docs/specs/live-region-translation.md`：区域实时翻译术语。
+- `docs/capture-roadmap.md`：采集工具术语。
 
-- Read `CONTEXT-MAP.md` if it exists.
-- Read the shared `CONTEXT.md` if it exists.
-- Read `CONTEXT.<topic>.<thread-id>.md` for the current thread, then other `CONTEXT.*.md` files to detect terminology conflicts.
-- Read relevant ADRs under `docs/adr/` if they exist.
+## 代码约定
 
-Missing domain files do not block work and should not be created speculatively.
+见 `docs/agents/coding-conventions.md`。
 
-## Coding conventions
+## 用词
 
-Shared channel names, method names, preference keys, and state enums live in `lib/src/common/constants/` and `macos/Runner/Common/Constants.swift`. See `docs/agents/coding-conventions.md`.
-
-## Vocabulary
-
-Use canonical terms from the context files consistently. If context files define the same term differently, stop and ask which definition governs instead of silently choosing one.
-
-## ADR conflicts
-
-Surface any conflict with an existing ADR explicitly instead of silently overriding it.
+以上文件中的规范术语在全文保持一致。同一术语定义不一致时，先询问以哪一份为准。
 
 ## 规格分类
 
-开始需求、UI或架构工作前读取[三类规格索引](../specs/README.md)。功能与交互、样式、架构设计约束分别以对应 GitHub Issue 为准；本地索引提供导航，当前实现说明和上下文记录不替代 Issue 规格。
+开始需求、UI或架构工作前读取[三类规格索引](../specs/README.md)。

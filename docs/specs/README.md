@@ -22,7 +22,7 @@ Source: 用户确认的 Issue 权威来源与本地规格保留规则。
 
 ## 相关工单
 
-用户指定保留的本地文档：[实时区域翻译澄清规格](live-region-translation.md)。仅记录 #24 的澄清问题与确认结论，确认内容同步 Issue 后仍按用户要求保留；推荐选项不视为批准。
+用户指定保留的本地文档：[实时区域翻译澄清规格](live-region-translation.md)。记录 #24 的已确认结论与术语，同步 Issue 后仍按用户要求保留；推荐选项不视为批准。
 
 1. [区域实时文字翻译 #24](https://github.com/1504101951/translateApp/issues/24)：完整功能、采集与调度方案、窗口边界、待确认项及验收。
 2. [屏幕录制 #21](https://github.com/1504101951/translateApp/issues/21)：显示器、窗口或区域的无声 MP4 录制及本地预览保存。

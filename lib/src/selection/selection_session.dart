@@ -8,7 +8,7 @@ import '../translation/language_direction.dart';
 import '../translation/segmented_translation.dart';
 import '../translation/translation_types.dart';
 
-/// Dart 侧 Selection Session。激活前不请求 Provider。
+/// Dart 侧选区会话。激活前不请求翻译服务。
 class SelectionSession extends ChangeNotifier {
   SelectionSession({
     required this.provider,

@@ -1,12 +1,10 @@
 # macOS 安装
 
-运行 `./scripts/package-and-install-macos.sh` 完成打包并安装。脚本先写出并校验 `dist/TranslateApp.zip`，成功后才安装；失败立即退出。打包前保存内容并退出所有 TranslateApp；仍有 `translate_app` 进程时脚本停止。
+运行 `./scripts/package-and-install-macos.sh` 完成打包并安装；失败立即退出。打包前保存内容并退出所有 TranslateApp；仍有 `translate_app` 进程时脚本停止。
 
 ## 可直接启动的 App
 
-`scripts/package-and-install-macos.sh` 构建前删除本机已有副本，再签名并验证 Release App，生成 `dist/TranslateApp.zip`。随后在暂存目录解压并验签，安装到 `/Applications/TranslateApp.app`（访达「应用程序」）并注册 LaunchServices。可双击安装后的 App，或从 Spotlight 搜索 TranslateApp。
-
-打包会先删除 `/Applications/TranslateApp.app`。安装前验证签名、检查归档和目标 Bundle ID，并把新 ZIP 安装到该路径。打包开始时已经删除的副本，安装失败后不会恢复。偏好保存在 UserDefaults，脚本不清理偏好。
+脚本构建前按 Bundle ID 删除本机已有副本（见下节），再签名并验证 Release App，写出 `dist/TranslateApp.zip`。在暂存目录解压、检查归档、验签并核对 Bundle ID 后，安装到 `/Applications/TranslateApp.app`（访达「应用程序」）并注册 LaunchServices；ZIP 校验成功才安装。打包开始时已删除的副本，安装失败后不会恢复。可双击安装后的 App，或从 Spotlight 搜索 TranslateApp。偏好保存在 UserDefaults，脚本不清理偏好。
 
 ## 辅助功能授权与签名
 
@@ -35,12 +33,13 @@ App 不修改 TCC 数据库，也不添加只匹配 Bundle ID 的宽松自定义
 
 ## 旧 App 副本
 
-打包开始前清除本机 `TranslateApp.app` 与 `translate_app.app`。废纸篓里的重名副本带时间戳后缀，同样按 Bundle ID 删除。Spotlight 查找已索引副本。另外直接检查 `/Applications/TranslateApp.app` 和 `~/Applications/TranslateApp.app`。`find` 只扫描 `~/.Trash`、`~/Library/Developer/Xcode/DerivedData`、仓库 `build/`、仓库 `dist/`、`/tmp`、`/private/tmp` 和 `/var/folders`。只删除 Bundle ID 为 `com.coolyang.translateApp` 的包；没有 Info.plist 时，仅当可执行文件是 `translate_app` 才删除。同一 Bundle ID 在 LaunchServices 中的登记会注销，包括文件已经不在的测试副本和打包暂存副本。本次注销过登记时才压缩数据库。不删除源码、偏好、整个 DerivedData、整个 build 目录、ZIP 或 Time Machine 备份。
+打包开始前，脚本清除本机 `TranslateApp.app` 与 `translate_app.app` 的旧副本（含废纸篓里带时间戳后缀的重名副本）以及 `~/Applications/TranslateApp.app`，安装完成后再检查一次，避免用户目录和「应用程序」各留一份。扫描路径与匹配方式见 `scripts/package-and-install-macos.sh` 中的注释。
 
-正在运行的副本不删除。脚本退出时注销并删除本次暂存目录和 `build/macos/Build/Products/Release/translate_app.app`，避免新的暂存路径留在启动服务里。交付目录只保留 `dist/TranslateApp.zip`。
-
-脚本在打包前按 Bundle ID 删除 `~/Applications/TranslateApp.app`，安装完成后再检查一次，避免用户目录和「应用程序」各留一份。
-
+- 只删除 Bundle ID 为 `com.coolyang.translateApp` 的包；没有 Info.plist 时，仅当可执行文件是 `translate_app` 才删除。
+- 正在运行的副本不删除。
+- 同一 Bundle ID 在 LaunchServices 中的登记会注销，包括文件已不在的测试副本和打包暂存副本；本次注销过登记时才压缩数据库。
+- 不删除源码、偏好、整个 DerivedData、整个 build 目录、ZIP 或 Time Machine 备份。
+- 脚本退出时注销并删除本次暂存目录和 `build/macos/Build/Products/Release/translate_app.app`；交付目录只保留 `dist/TranslateApp.zip`。
 
 ## 本机固定签名
 
