@@ -1,5 +1,7 @@
 # TranslateApp
 
+<p align="center"><img src="docs/media/translateapp-intro.gif" alt="TranslateApp 像素对局介绍动画《翻译峡谷》：召唤师指挥 Grok、GPT、Claude，依次演示翻译服务、选区翻译与快捷翻译、贴图、截图标注与识别文字、滚动长截图、录屏与 GIF、工具栏自由拼接、实时翻译与同步录制、翻译历史" width="640"></p>
+
 macOS 26+ 全局选区翻译 App。Flutter/Dart 负责界面与翻译业务，Swift 负责系统能力和原生 Liquid Glass 材料；当前交付 macOS，其他平台列入后续规划。
 
 ## 安装与启动
