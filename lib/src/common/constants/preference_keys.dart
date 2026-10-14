@@ -4,6 +4,9 @@ abstract final class PreferenceKeys {
   static const screenshotDrawing = 'screenshotDrawing';
   static const screenshotToolbarHidden = 'screenshotToolbarHidden';
   static const screenshotToolbarOrder = 'screenshotToolbarOrder';
+
+  /// 截图工具栏的父子结构：父级ID到子级ID列表；与原生偏好键一致。
+  static const screenshotToolbarChildren = 'screenshotToolbarChildren';
   static const screenshotToolbarShortcuts = 'screenshotToolbarShortcuts';
 
   /// automatic 的稳定协议值，变更须同步两端及持久化调用方。

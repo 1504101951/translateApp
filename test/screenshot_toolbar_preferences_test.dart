@@ -181,6 +181,196 @@ void main() {
     );
   });
 
+  test('默认结构为截图包含录制与滚动长截图；旧配置读取后回到同一结构', () {
+    // 作用：升级前只保存了一级顺序的配置，读取后不因缺少两个功能而校验失败。
+    // 边界：旧配置没有父子结构键，也不含录制与滚动长截图；两者回到截图之下，其余一级顺序不变。
+    final defaults = ScreenshotToolbarPreferences();
+    expect(defaults.children, {
+      ScreenshotActions.crop: [
+        ScreenshotActions.record,
+        ScreenshotActions.scrolling,
+      ],
+    });
+    expect(defaults.parentOf(ScreenshotActions.record), ScreenshotActions.crop);
+    expect(defaults.parentOf(ScreenshotActions.crop), isNull);
+    final old = defaults.order.reversed.toList();
+    final migrated = ScreenshotToolbarPreferences.fromMap({
+      PreferenceKeys.screenshotToolbarOrder: old,
+    });
+    expect(migrated.order, old);
+    expect(migrated.children, defaults.children);
+    // 保存后再读取，结构保持不变。
+    expect(
+      ScreenshotToolbarPreferences.fromMap(migrated.toMap()).children,
+      defaults.children,
+    );
+  });
+
+  test('只有一级的工具可以包含子级，每个功能必须恰好出现一次', () {
+    // 作用：拼接结果不合法时拒绝保存。
+    // 边界：动作（保存）不能当父级；子级不能再当父级；同一功能不能既是一级又是子级。
+    final all = ScreenshotActions.composable.keys.toList();
+    List<String> without(Set<String> ids) => [
+      for (final id in all)
+        if (!ids.contains(id)) id,
+    ];
+    ScreenshotToolbarPreferences(
+      order: without({ScreenshotActions.save}),
+      children: {
+        ScreenshotActions.brush: [ScreenshotActions.save],
+      },
+    ).validate();
+    expect(
+      () => ScreenshotToolbarPreferences(
+        order: without({ScreenshotActions.copy}),
+        children: {
+          ScreenshotActions.save: [ScreenshotActions.copy],
+        },
+      ).validate(),
+      throwsFormatException,
+    );
+    expect(
+      () => ScreenshotToolbarPreferences(
+        order: without({ScreenshotActions.rect, ScreenshotActions.arrow}),
+        children: {
+          ScreenshotActions.brush: [ScreenshotActions.rect],
+          ScreenshotActions.rect: [ScreenshotActions.arrow],
+        },
+      ).validate(),
+      throwsFormatException,
+    );
+    expect(
+      () => ScreenshotToolbarPreferences(
+        order: all,
+        children: {
+          ScreenshotActions.brush: [ScreenshotActions.save],
+        },
+      ).validate(),
+      throwsFormatException,
+    );
+  });
+
+  testWidgets('拖到右半边挂到指针所在的工具之下，左半边是一级；动作不能被挂载', (tester) async {
+    // 作用：只想换顺序时不会误挂；挂载要明确拖到右半边的目标行上；子级拖到左半边即变回一级。
+    // 边界：列表宽 484pt，中线 242pt；手柄中心在左侧 16pt 处，右移 100pt 仍在左半边，右移 300pt 进入右半边。每行 56pt。
+    tester.view.physicalSize = const Size(484, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    // 顺序：画笔、保存、文字、其余；全部为一级。
+    final order = [
+      ScreenshotActions.brush,
+      ScreenshotActions.save,
+      ScreenshotActions.text,
+      for (final id in ScreenshotActions.composable.keys)
+        if (id != ScreenshotActions.brush &&
+            id != ScreenshotActions.save &&
+            id != ScreenshotActions.text)
+          id,
+    ];
+    var saved = ScreenshotToolbarPreferences(order: order);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NativeGlassTheme.data(Brightness.dark),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ScreenshotToolbarEditor(
+              value: saved,
+              onChanged: (value) => saved = value,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    /// id 为被拖动的功能，delta 为总位移，whileHeld 在松手前执行；用鼠标拖动它的手柄后松手。
+    Future<void> drag(
+      String id,
+      Offset delta, {
+      VoidCallback? whileHeld,
+    }) async {
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(ValueKey('drag-$id'))),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await gesture.moveBy(delta - const Offset(0, 20));
+      await tester.pumpAndSettle();
+      whileHeld?.call();
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    const brush = {
+      ScreenshotActions.brush: [ScreenshotActions.save],
+    };
+    // 文字（第 3 行）拖到右半边的保存行上：保存是动作，不能被挂载。
+    // 拖动中保存行的右半边是遮罩，画笔行的右半边是可挂载的底色；松手后结构和顺序都不变。
+    await drag(
+      ScreenshotActions.text,
+      const Offset(300, -56),
+      whileHeld: () {
+        expect(
+          find.byKey(const ValueKey('toolbar-blocked-screenshot-save')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('toolbar-attach-screenshot-tool-brush')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('toolbar-host-highlight')),
+          findsNothing,
+        );
+      },
+    );
+    expect(saved.children, isEmpty);
+    expect(saved.order.take(3), order.take(3));
+    // 保存（第 2 行）右移 100pt 仍在左半边：只是排序，不会挂到画笔之下。
+    await drag(ScreenshotActions.save, const Offset(100, 0));
+    expect(saved.children, isEmpty);
+    expect(saved.order.take(3), order.take(3));
+    // 保存拖到右半边的画笔行上：画笔行整行高亮，松手后成为画笔的子级。
+    await drag(
+      ScreenshotActions.save,
+      const Offset(300, -56),
+      whileHeld: () => expect(
+        find.byKey(const ValueKey('toolbar-host-highlight')),
+        findsOneWidget,
+      ),
+    );
+    expect(saved.children, brush);
+    expect(saved.order.take(2), [
+      ScreenshotActions.brush,
+      ScreenshotActions.text,
+    ]);
+    // 子级保存在左半边原地松手：变回一级，位置在画笔之后。
+    await drag(ScreenshotActions.save, Offset.zero);
+    expect(saved.children, isEmpty);
+    expect(saved.order.take(3), order.take(3));
+    // 方向键：右键放到画笔之下，左键变回一级，再右键放回去。
+    await tester.tap(find.byKey(const ValueKey('drag-screenshot-save')));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(saved.children, brush);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(saved.children, isEmpty);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(saved.children, brush);
+    // 此时各行为：画笔、保存（子级）、文字。文字拖到右半边保存行的上半行（行内 14pt 处）：插到保存之前。
+    await drag(ScreenshotActions.text, const Offset(300, -70));
+    expect(saved.children, {
+      ScreenshotActions.brush: [ScreenshotActions.text, ScreenshotActions.save],
+    });
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('录制数字、拒绝冲突、清除与排序不会静默覆盖其他动作', (tester) async {
     // 默认560pt窗口减去页面44pt和卡片32pt内边距，列表实际可用484pt。
     tester.view.physicalSize = const Size(484, 720);
@@ -219,7 +409,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('快捷键已绑定其他截图动作。'), findsOneWidget);
     expect(saved.shortcuts.containsKey(ScreenshotActions.crop), isFalse);
-    // 通过真实拖拽手柄跨过下一行中线，验证保存顺序；112pt避开84pt的原位落点边界。
+    // 通过真实拖拽手柄把光标拖到截图及其两个子级之后：每行 56pt，
+    // 从第 1 行中心下移 196pt 落在第 4 行与第 5 行之间；指针没有右移，保持一级。
     final handle = find.byKey(const ValueKey('drag-screenshot-tool-cursor'));
     final gesture = await tester.startGesture(
       tester.getCenter(handle),
@@ -228,10 +419,16 @@ void main() {
     await tester.pump();
     await gesture.moveBy(const Offset(0, 20));
     await tester.pump();
-    await gesture.moveBy(const Offset(0, 92));
+    await gesture.moveBy(const Offset(0, 176));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('toolbar-drop-line')), findsOneWidget);
     await gesture.up();
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('toolbar-drop-line')), findsNothing);
+    expect(saved.children[ScreenshotActions.crop], [
+      ScreenshotActions.record,
+      ScreenshotActions.scrolling,
+    ]);
     expect(saved.order.take(2), [
       ScreenshotActions.crop,
       ScreenshotActions.cursor,

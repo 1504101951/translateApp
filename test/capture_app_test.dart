@@ -9,6 +9,7 @@ import 'package:translate_app/src/common/constants/channel_names.dart';
 import 'package:translate_app/src/common/constants/method_names.dart';
 import 'package:translate_app/src/common/constants/screenshot_actions.dart';
 import 'package:translate_app/src/screenshot/screenshot_app.dart';
+import 'package:translate_app/src/settings/screenshot_toolbar_preferences.dart';
 
 /// 无参数；验证工具状态、实际选区与媒体结果中的输入输出和边界。
 void main() {
@@ -725,6 +726,55 @@ void main() {
     await tester.pumpAndSettle();
     expect(started, containsPair('live', true));
     expect(started!.containsKey('record'), isFalse);
+  });
+
+  testWidgets('工具栏按用户拼接的父子结构显示子级，一级的录制直接展开目标选择', (tester) async {
+    // 作用：父子关系来自配置而不是写死在截图工具下。
+    // 边界：滚动长截图拼到画笔之下、录制为一级；选中画笔时第二行出现滚动长截图，选中截图时不出现；
+    // 点击一级的录制后出现目标选择行，高亮的是录制而不是它借用的截图工具。
+    final png = await tester.runAsync(_selectionImage);
+    const selectionChannel = MethodChannel('test/toolbar-tree');
+    final toolbar = ScreenshotToolbarPreferences(
+      order: [
+        for (final id in ScreenshotActions.composable.keys)
+          if (id != ScreenshotActions.scrolling) id,
+      ],
+      children: {
+        ScreenshotActions.brush: [ScreenshotActions.scrolling],
+      },
+    );
+    messenger.setMockMethodCallHandler(selectionChannel, (call) async {
+      if (call.method == MethodNames.getScreenshot) {
+        return {
+          'id': 'selection',
+          'bytes': png,
+          'width': 320,
+          'height': 240,
+          'canCaptureMedia': true,
+          'cropActive': true,
+          ...toolbar.toMap(),
+        };
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(selectionChannel, null),
+    );
+    await tester.pumpWidget(const ScreenshotApp(channel: selectionChannel));
+    await tester.pumpAndSettle();
+    // 初始工具是截图：它没有子级，第二行没有滚动长截图。
+    expect(find.byKey(const Key(ScreenshotActions.scrolling)), findsNothing);
+    await tester.tap(find.byKey(const Key(ScreenshotActions.brush)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key(ScreenshotActions.scrolling)), findsOneWidget);
+    await tester.tap(find.byKey(const Key(ScreenshotActions.record)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('recording-targets-row')), findsOneWidget);
+    expect(find.byKey(const Key(ScreenshotActions.scrolling)), findsNothing);
+    Color? tint(String id) =>
+        tester.widget<IconButton>(find.byKey(Key(id))).color;
+    expect(tint(ScreenshotActions.record), isNot(tint(ScreenshotActions.rect)));
+    expect(tint(ScreenshotActions.crop), tint(ScreenshotActions.rect));
   });
 
   testWidgets('全屏选区准备按钮使用独立材料且保持可点，开始提交源像素并防重复', (tester) async {

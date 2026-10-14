@@ -253,7 +253,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     /// 无参数；返回已保存的工具栏配置子集，缺省值由Dart领域对象提供。
     private func toolbarPreferences() -> [String: Any] {
         let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
-        return preferences.filter { [AppConstants.screenshotToolbarOrderKey, AppConstants.screenshotToolbarShortcutsKey, AppConstants.screenshotToolbarHiddenKey, AppConstants.screenshotDrawingKey].contains($0.key) }
+        return preferences.filter { [AppConstants.screenshotToolbarOrderKey, AppConstants.screenshotToolbarChildrenKey, AppConstants.screenshotToolbarShortcutsKey, AppConstants.screenshotToolbarHiddenKey, AppConstants.screenshotDrawingKey].contains($0.key) }
     }
 
     /// 无参数；只广播工具偏好，保留图像与标注，关闭窗口时无订阅者。

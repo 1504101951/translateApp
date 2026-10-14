@@ -65,6 +65,7 @@ enum AppConstants {
     static let screenshotTextInputMethod = "screenshotTextInput"
     static let screenshotToolbarHiddenKey = "screenshotToolbarHidden"
     static let screenshotToolbarOrderKey = "screenshotToolbarOrder"
+    static let screenshotToolbarChildrenKey = "screenshotToolbarChildren"
     static let screenshotToolbarShortcutsKey = "screenshotToolbarShortcuts"
     static let screenshotToolbarChangedMethod = "screenshotToolbarChanged"
     static let screenshotToolbarActionMethod = "screenshotToolbarAction"

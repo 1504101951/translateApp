@@ -11,7 +11,6 @@ abstract final class ScreenshotActions {
   static const shapeMode = 'screenshot-shape-mode';
   static const cursor = 'screenshot-tool-cursor';
   static const crop = 'screenshot-tool-crop';
-  // 录制与滚动长截图是截图工具组的二级动作；实时翻译是可排序、可隐藏、可绑定的顶层工具。
   static const record = 'screenshot-record';
   static const live = 'screenshot-live';
   static const scrolling = 'screenshot-scrolling';
@@ -31,21 +30,38 @@ abstract final class ScreenshotActions {
   static const reveal = 'screenshot-reveal';
   static const colorPrefix = 'screenshot-text-color-';
 
-  /// 顶层动作与工具栏共用图标；上下文操作不参与自定义。
-  static const icons = <String, IconData>{
-    cursor: Icons.near_me_outlined,
-    crop: Icons.crop,
-    rect: Icons.crop_square,
-    arrow: Icons.north_east,
-    text: Icons.text_fields,
-    brush: Icons.brush,
-    pin: Icons.push_pin_outlined,
-    save: Icons.save_outlined,
-    copy: Icons.copy_outlined,
-    ocrCopy: Icons.text_snippet_outlined,
-    ocrTranslate: Icons.translate,
-    live: Icons.subtitles_outlined,
-    close: Icons.close,
+  /// 可拼接功能的注册表：用户可以在设置里排序、隐藏、绑定快捷键，并拼成父子两级。
+  ///
+  /// 新增可拼接功能时必须在这里登记，并声明 hostsChildren：
+  /// 点击后停留在该功能上的“工具”为 true，可以作为父级；
+  /// 点击即执行或展开自己目标选择的“动作”为 false，只能作为一级或子级。
+  /// 工具属性（颜色、粗细、字号、形状、画笔模式）不在此表，始终跟随所属工具显示。
+  static const composable = <String, ({IconData icon, bool hostsChildren})>{
+    cursor: (icon: Icons.near_me_outlined, hostsChildren: true),
+    crop: (icon: Icons.crop, hostsChildren: true),
+    record: (icon: Icons.videocam_outlined, hostsChildren: false),
+    scrolling: (icon: Icons.unfold_more, hostsChildren: false),
+    rect: (icon: Icons.crop_square, hostsChildren: true),
+    arrow: (icon: Icons.north_east, hostsChildren: true),
+    text: (icon: Icons.text_fields, hostsChildren: true),
+    brush: (icon: Icons.brush, hostsChildren: true),
+    pin: (icon: Icons.push_pin_outlined, hostsChildren: false),
+    save: (icon: Icons.save_outlined, hostsChildren: false),
+    copy: (icon: Icons.copy_outlined, hostsChildren: false),
+    ocrCopy: (icon: Icons.text_snippet_outlined, hostsChildren: false),
+    ocrTranslate: (icon: Icons.translate, hostsChildren: false),
+    live: (icon: Icons.subtitles_outlined, hostsChildren: false),
+    close: (icon: Icons.close, hostsChildren: false),
+  };
+
+  /// 默认的父子结构：键为父级，值为按顺序排列的子级；未列出的功能默认是一级。
+  static const defaultChildren = <String, List<String>>{
+    crop: [record, scrolling],
+  };
+
+  /// 可拼接功能的图标；键的顺序即默认顺序。
+  static final Map<String, IconData> icons = {
+    for (final entry in composable.entries) entry.key: entry.value.icon,
   };
 
   /// 无参数；返回包括条件出现按钮的完整有序动作名称表。

@@ -59,32 +59,87 @@ class ToolbarShortcut {
   }
 }
 
-/// 完整顺序和局部快捷键的不可变快照，修改不会污染正在保存的事务。
+/// 工具栏结构和局部快捷键的不可变快照，修改不会污染正在保存的事务。
+///
+/// 结构最多两级：order 是一级功能的顺序，children 是父级到子级列表。
+/// 每个可拼接功能在两者中恰好出现一次；只有“工具”类功能可以作为父级。
 class ScreenshotToolbarPreferences {
   /// 已从产品移除的顶层动作；已保存配置中它们的顺序、隐藏状态和快捷键直接丢弃。
   /// 撤销与重做只保留系统快捷键 ⌘Z 与 ⇧⌘Z。
   static const _removed = {'screenshot-undo', 'screenshot-redo'};
 
+  /// order 为一级功能顺序，children 为父子结构；两者都缺省时采用默认结构。
+  /// 只给 order 时视为全部一级之外没有子级。
   ScreenshotToolbarPreferences({
     List<String>? order,
+    Map<String, List<String>>? children,
     Map<String, ToolbarShortcut>? shortcuts,
     Set<String>? hidden,
-  }) : order = List.unmodifiable(order ?? ScreenshotActions.icons.keys),
+  }) : order = List.unmodifiable(order ?? _defaultOrder),
+       children = Map.unmodifiable({
+         for (final entry
+             in (children ??
+                     (order == null
+                         ? ScreenshotActions.defaultChildren
+                         : const <String, List<String>>{}))
+                 .entries)
+           if (entry.value.isNotEmpty)
+             entry.key: List<String>.unmodifiable(entry.value),
+       }),
        shortcuts = Map.unmodifiable(shortcuts ?? const {}),
        hidden = Set.unmodifiable(hidden ?? const {});
+
+  /// 默认的一级顺序：注册表顺序里去掉默认作为子级的功能。
+  static List<String> get _defaultOrder {
+    final nested = {
+      for (final list in ScreenshotActions.defaultChildren.values) ...list,
+    };
+    return [
+      for (final id in ScreenshotActions.composable.keys)
+        if (!nested.contains(id)) id,
+    ];
+  }
+
   final List<String> order;
+
+  /// 父级ID到按顺序排列的子级ID；没有子级的功能不出现在这里。
+  final Map<String, List<String>> children;
   final Map<String, ToolbarShortcut> shortcuts;
 
-  /// 只控制按钮可见性，绑定和顺序保持，隐藏工具仍可通过快捷键调用。
+  /// 只控制按钮可见性，绑定和顺序保持，隐藏的功能仍可通过快捷键调用。
   final Set<String> hidden;
 
-  /// map为完整应用偏好；缺省采用当前完整动作目录，返回已校验快照。
+  /// id 为功能ID；返回它的父级，一级功能返回 null。
+  String? parentOf(String id) {
+    for (final entry in children.entries) {
+      if (entry.value.contains(id)) return entry.key;
+    }
+    return null;
+  }
+
+  /// 只替换给出的部分，返回新的快照。
+  ScreenshotToolbarPreferences copyWith({
+    List<String>? order,
+    Map<String, List<String>>? children,
+    Map<String, ToolbarShortcut>? shortcuts,
+    Set<String>? hidden,
+  }) => ScreenshotToolbarPreferences(
+    order: order ?? this.order,
+    children: children ?? this.children,
+    shortcuts: shortcuts ?? this.shortcuts,
+    hidden: hidden ?? this.hidden,
+  );
+
+  /// map为完整应用偏好；缺省采用默认结构，返回已校验快照。
+  /// 已保存配置里没有的功能按默认结构补上，已移除的功能丢弃。
   factory ScreenshotToolbarPreferences.fromMap(Map<Object?, Object?> map) {
     final storedOrder = (map[PreferenceKeys.screenshotToolbarOrder] as List?)
         ?.cast<String>();
+    final storedChildren =
+        (map[PreferenceKeys.screenshotToolbarChildren] as Map?);
     final storedShortcuts =
         (map[PreferenceKeys.screenshotToolbarShortcuts] as Map?);
-    // 产品只保留顶层自定义：移除已取消的上下文设置和已移除的顶层动作，未知ID仍由校验报错。
+    // 移除已取消的上下文设置和已移除的顶层动作，未知ID仍由校验报错。
     bool keep(String id) =>
         ScreenshotActions.icons.containsKey(id) ||
         !ScreenshotActions.labels.containsKey(id) && !_removed.contains(id);
@@ -108,12 +163,33 @@ class ScreenshotToolbarPreferences {
         ScreenshotActions.rect,
       );
     }
+    Map<String, List<String>>? children;
     if (order != null) {
-      // 已保存的顺序里没有的顶层动作，插到默认顺序中它前一个动作之后。
-      final defaults = ScreenshotActions.icons.keys.toList();
+      children = {
+        for (final entry in (storedChildren ?? {}).entries)
+          entry.key as String: (entry.value as List)
+              .cast<String>()
+              .where(keep)
+              .toList(),
+      };
+      final placed = {...order, for (final list in children.values) ...list};
+      final defaults = ScreenshotActions.composable.keys.toList();
+      // 已保存结构里没有的功能：默认父级仍是一级时放回它下面，否则插到默认顺序中前一个一级功能之后。
       for (final (index, id) in defaults.indexed) {
-        if (order.contains(id)) continue;
-        order.insert(index == 0 ? 0 : order.indexOf(defaults[index - 1]) + 1, id);
+        if (placed.contains(id)) continue;
+        final parent = ScreenshotActions.defaultChildren.entries
+            .where((entry) => entry.value.contains(id))
+            .map((entry) => entry.key)
+            .firstOrNull;
+        if (parent != null && order.contains(parent)) {
+          (children[parent] ??= []).add(id);
+        } else {
+          final previous = defaults
+              .take(index)
+              .lastWhere(order.contains, orElse: () => '');
+          order.insert(previous.isEmpty ? 0 : order.indexOf(previous) + 1, id);
+        }
+        placed.add(id);
       }
     }
     final shortcuts = <String, ToolbarShortcut>{};
@@ -141,6 +217,7 @@ class ScreenshotToolbarPreferences {
     }
     final result = ScreenshotToolbarPreferences(
       order: order,
+      children: children,
       shortcuts: shortcuts,
       hidden: hidden,
     );
@@ -148,28 +225,38 @@ class ScreenshotToolbarPreferences {
     return result;
   }
 
-  /// 无参数；返回完整顺序和绑定字典，调用方合并到同一偏好事务。
+  /// 无参数；返回完整结构和绑定字典，调用方合并到同一偏好事务。
   Map<String, Object> toMap() => {
     PreferenceKeys.screenshotToolbarHidden: hidden.toList(),
     PreferenceKeys.screenshotToolbarOrder: order,
+    PreferenceKeys.screenshotToolbarChildren: children,
     PreferenceKeys.screenshotToolbarShortcuts: shortcuts.map(
       (key, value) => MapEntry(key, value.toMap()),
     ),
   };
 
-  /// 无参数；拒绝缺项/重复/未知动作与冲突绑定，保留调用方原配置。
+  /// 无参数；拒绝缺项/重复/未知功能、不合法的父子关系与冲突绑定，保留调用方原配置。
   void validate() {
-    if (order.length != ScreenshotActions.icons.length ||
-        order.toSet().length != order.length ||
-        order.any((id) => !ScreenshotActions.icons.containsKey(id))) {
-      throw const FormatException('工具栏顺序必须包含每个动作且不能重复。');
+    final nested = [for (final list in children.values) ...list];
+    final all = [...order, ...nested];
+    if (all.length != ScreenshotActions.composable.length ||
+        all.toSet().length != all.length ||
+        all.any((id) => !ScreenshotActions.composable.containsKey(id))) {
+      throw const FormatException('工具栏必须包含每个功能且不能重复。');
     }
-    if (hidden.any((id) => !ScreenshotActions.icons.containsKey(id))) {
-      throw const FormatException('只能隐藏顶层截图工具。');
+    for (final parent in children.keys) {
+      // 父级必须是一级功能，并且是点击后停留的“工具”。
+      if (!order.contains(parent) ||
+          !ScreenshotActions.composable[parent]!.hostsChildren) {
+        throw const FormatException('只有一级的工具可以包含子级。');
+      }
+    }
+    if (hidden.any((id) => !ScreenshotActions.composable.containsKey(id))) {
+      throw const FormatException('只能隐藏可拼接的截图功能。');
     }
     final seen = <ToolbarShortcut>[];
     for (final entry in shortcuts.entries) {
-      if (!ScreenshotActions.icons.containsKey(entry.key)) {
+      if (!ScreenshotActions.composable.containsKey(entry.key)) {
         throw const FormatException('未知截图动作。');
       }
       entry.value.validate();

@@ -181,6 +181,27 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   };
   bool _cropSelected = false;
 
+  /// 无参数；返回当前正在使用的可拼接功能：展开中的实时翻译或录制，否则是当前工具。
+  String get _activeId => _liveExpanded
+      ? ScreenshotActions.live
+      : _recordingExpanded
+      ? ScreenshotActions.record
+      : _toolIds.entries.firstWhere((entry) => entry.value == _tool).key;
+
+  /// 无参数；返回第二行应展示其子级的一级工具。
+  /// 当前功能是子级时为它的父级；是一级工具时为它自己；是一级动作时没有子级可展示。
+  String? get _group {
+    final id = _activeId;
+    return _toolbar.parentOf(id) ??
+        (ScreenshotActions.composable[id]!.hostsChildren ? id : null);
+  }
+
+  /// 无参数；返回第二行里按配置顺序排列、未隐藏的子级功能。
+  List<String> get _visibleChildren => [
+    for (final id in _toolbar.children[_group] ?? const <String>[])
+      if (!_toolbar.hidden.contains(id)) id,
+  ];
+
   /// 无参数；先监听再拉取快照，首张截图无需等待引擎启动通知，无返回值。
   @override
   void initState() {
@@ -1808,20 +1829,19 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                           (_capture['displayWidth'] as num).toDouble(),
                           (_capture['displayHeight'] as num).toDouble(),
                         ),
-                  secondaryItemCount: _toolbarActions().keys
-                      .where(
-                        (id) =>
-                            id != ScreenshotActions.reveal &&
-                            !ScreenshotActions.icons.containsKey(id),
-                      )
-                      .length,
-                  toolbarItemCount:
+                  // 第二行是当前父级的子级加上当前工具的属性。
+                  secondaryItemCount:
+                      _visibleChildren.length +
                       _toolbarActions().keys
                           .where(
                             (id) =>
-                                ScreenshotActions.icons.containsKey(id) &&
-                                !_toolbar.hidden.contains(id),
+                                id != ScreenshotActions.reveal &&
+                                !ScreenshotActions.icons.containsKey(id),
                           )
+                          .length,
+                  toolbarItemCount:
+                      _toolbar.order
+                          .where((id) => !_toolbar.hidden.contains(id))
                           .length +
                       (_busy ? 1 : 0),
                   // 两种准备共用行数。工具栏厚度和按钮行宽都靠它留在屏幕安全区内。
@@ -2009,22 +2029,23 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final styleTool = _styleTool;
     final brushMode = _styleSelection?.shapeMode ?? _shapeMode;
     final actions = <String, VoidCallback?>{
-      // 实时翻译展开时只显示它自己的目标选择行，不显示截图工具的录制与长截图。
-      if (_tool == ScreenshotTool.crop && !_liveExpanded) ...{
-        ScreenshotActions.record: _capture['canCaptureMedia'] == true
-            ? () {
-                setState(() {
-                  _recordingExpanded = !_recordingExpanded;
-                  if (_recordingExpanded) _liveExpanded = false;
-                });
-                unawaited(_syncRecordingPreview());
-                unawaited(_syncLivePreview());
-              }
-            : null,
-        ScreenshotActions.scrolling: _capture['canCaptureMedia'] == true
-            ? () => _prepareCapture(CaptureTarget.region, scrolling: true)
-            : null,
-      },
+      // 录制用截图选区作为目标：无论它被拼在哪里，点击都切到截图工具并展开或收起目标选择行。
+      ScreenshotActions.record: _capture['canCaptureMedia'] == true
+          ? () {
+              setState(() {
+                _tool = ScreenshotTool.crop;
+                _recordingExpanded = !_recordingExpanded;
+                _liveExpanded = false;
+                _selectedShapeId = null;
+                _selectedTextId = null;
+              });
+              unawaited(_syncRecordingPreview());
+              unawaited(_syncLivePreview());
+            }
+          : null,
+      ScreenshotActions.scrolling: _capture['canCaptureMedia'] == true
+          ? () => _prepareCapture(CaptureTarget.region, scrolling: true)
+          : null,
       if (styleTool == ScreenshotTool.rect)
         for (final shape in ShapeVariant.values)
           '${ScreenshotActions.shapePrefix}${shape.name}': () =>
@@ -2051,7 +2072,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           _selectedShapeId = null;
           _selectedTextId = null;
         }),
-      // 实时翻译是顶层工具：切到截图工具并展开或收起目标选择行。
+      // 实时翻译同样使用截图选区：切到截图工具并展开或收起目标选择行。
       ScreenshotActions.live: _capture['canCaptureMedia'] == true
           ? () {
               setState(() {
@@ -2090,21 +2111,21 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final top = _toolbar.order
         .where((id) => !_toolbar.hidden.contains(id))
         .toList();
-    final attributes = actions.keys
-        .where(
-          (id) =>
-              id != ScreenshotActions.reveal &&
-              !ScreenshotActions.icons.containsKey(id),
-        )
-        .toList();
+    // 第二行先放当前父级的子级，再放当前工具的属性。
+    final attributes = [
+      ..._visibleChildren,
+      ...actions.keys.where(
+        (id) =>
+            id != ScreenshotActions.reveal &&
+            !ScreenshotActions.icons.containsKey(id),
+      ),
+    ];
     if (actions.containsKey(ScreenshotActions.reveal)) {
       top.add(ScreenshotActions.reveal);
     }
     final colors = Theme.of(context).colorScheme;
     final icons = <String, IconData>{
       ...ScreenshotActions.icons,
-      ScreenshotActions.record: Icons.videocam_outlined,
-      ScreenshotActions.scrolling: Icons.unfold_more,
       ScreenshotActions.palette: Icons.palette_outlined,
       ScreenshotActions.width: Icons.line_weight,
       ScreenshotActions.sizeDown: Icons.text_decrease,
@@ -2122,10 +2143,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       final mode =
           id.startsWith(ScreenshotActions.shapePrefix) ||
           id.startsWith(ScreenshotActions.brushPrefix);
-      // 实时翻译展开时高亮它自己；它借用的截图工具不显示为选中。
+      // 高亮正在使用的功能，以及第二行所属的父级。
       final selected =
-          _toolIds[id] == _tool && !_liveExpanded ||
-          id == ScreenshotActions.live && _liveExpanded ||
+          id == _activeId ||
+          id == _group ||
           id == '${ScreenshotActions.shapePrefix}${_styleShape.name}' ||
           id ==
               '${ScreenshotActions.brushPrefix}${(_styleSelection?.shapeMode ?? _shapeMode).name}';
