@@ -653,6 +653,10 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             scrollTask = Task.detached { [weak self] in
                 guard let self else { return }
                 var warning: String?
+                // 最近一次移动接不上时的原因；之后接上或回到参照画面即清除，结束时仍未接上则随结果说明。
+                var unmatched: String?
+                var lastHint: ContinuousClock.Instant?
+                var hints = 0
                 let clock = ContinuousClock()
                 do {
                     while !Task.isCancelled {
@@ -672,16 +676,42 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                         let accept = await MainActor.run { self.id == token && self.phase == .scrolling }
                         if accept {
                             // CPU拼接留在工作线程；下一轮边界确认暂停，保留当前已接受帧。
-                            try stitcher.append(image)
+                            var hint: (text: String, isError: Bool)?
+                            do {
+                                // 单帧位移超过允许最大值的60%即预警，在接不上之前提醒放慢。
+                                if try stitcher.append(image), stitcher.lastShiftRatio > 0.6 {
+                                    hint = ("滚动较快，请放慢", false)
+                                }
+                                unmatched = nil
+                            } catch let failure as ScrollStitcher.Failure where failure.recoverable {
+                                // 本帧丢弃，参照帧仍是最后一张已确认画面；用户回滚到重叠范围即可继续。
+                                unmatched = failure.message
+                                hint = ("画面没接上，请往回滚一点再慢慢滚动", true)
+                            }
+                            // 提示显示1000ms，同一会话至少间隔1000ms再提示，避免每帧刷新文字。
+                            if hint != nil, let last = lastHint, clock.now - last < .milliseconds(1000) { hint = nil }
+                            if hint != nil {
+                                lastHint = clock.now
+                                hints += 1
+                            }
+                            let shown = hint
+                            let serial = hints
                             await MainActor.run {
                                 guard self.id == token else { return }
-                                self.update(self.phase, ["height": stitcher.height, "frames": stitcher.acceptedFrames])
+                                var values: [String: Any] = ["height": stitcher.height, "frames": stitcher.acceptedFrames]
+                                if let shown {
+                                    values["hint"] = shown.text
+                                    values["hintIsError"] = shown.isError
+                                    values["hintSerial"] = serial
+                                }
+                                self.update(self.phase, values)
                             }
                         }
                         if clock.now < nextCapture { try await clock.sleep(until: nextCapture) }
                     }
                 } catch is CancellationError { return }
                 catch { warning = error.localizedDescription }
+                warning = warning ?? unmatched
                 guard !Task.isCancelled else { return }
                 let delivered: (png: Data, width: Int, height: Int, frames: Int)?
                 do {

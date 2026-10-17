@@ -545,6 +545,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('长截图过程提示在工具栏外显示一秒，同一文字按序号重复出现', (tester) async {
+    state = {
+      'id': 'scroll',
+      'phase': 'scrolling',
+      'kind': 'scrolling',
+      'height': 800,
+    };
+    await tester.pumpWidget(const CaptureApp(channel: channel));
+    await tester.pump();
+    const hint = '画面没接上，请往回滚一点再慢慢滚动';
+    await notify(tester, {
+      ...state,
+      'hint': hint,
+      'hintIsError': true,
+      'hintSerial': 1,
+    });
+    final bubble = find.byKey(const Key('toolbar-feedback-bubble'));
+    expect(find.text(hint), findsOneWidget);
+    for (final action in ['暂停', '结束', '放弃']) {
+      expect(
+        tester.getRect(bubble).overlaps(tester.getRect(find.byTooltip(action))),
+        isFalse,
+      );
+    }
+    // 进度回包保留同一序号，不重复提示也不延长一秒寿命。
+    await notify(tester, {...state, 'height': 900});
+    await tester.pump(const Duration(milliseconds: 1000));
+    expect(bubble, findsNothing);
+    await notify(tester, {...state, 'hintSerial': 2});
+    expect(find.text(hint), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1000));
+    expect(bubble, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('长图结果保留来源逻辑宽度并等比滚动，只提供保存复制放弃', (tester) async {
     // 200×2000像素来自2x屏幕，逻辑宽100、高1000；800×600视口不能放大或压扁，右侧只有三枚操作。
     tester.view.physicalSize = const Size(800, 600);

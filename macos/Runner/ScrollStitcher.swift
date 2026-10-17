@@ -13,8 +13,10 @@ final class ScrollStitcher {
     }
 
     /// 可展示的拼接失败；不把推测的接缝作为成功结果。
+    /// recoverable表示仅本帧接不上，已确认结果与参照帧不变，后续画面回到重叠范围即可继续。
     struct Failure: LocalizedError {
         let message: String
+        var recoverable = false
         var errorDescription: String? { message }
     }
 
@@ -74,6 +76,8 @@ final class ScrollStitcher {
     /// 相对首帧的累计分数位移与已追加正文像素；按累计值取整，避免逐帧舍入误差累积成重复或缺行。
     private var scrolled = 0.0
     private var appended = 0
+    /// 最近一次追加的整数位移占单帧允许最大位移的比例；采集循环据此提示放慢滚动。
+    private(set) var lastShiftRatio = 0.0
 
     /// edges 为手动像素边界或自动检测意图；创建空会话，不分配图像缓冲。
     init(edges: Edges) { requested = edges }
@@ -137,8 +141,10 @@ final class ScrollStitcher {
               !verified.dropFirst().contains(where: {
                   abs($0.shift - best.shift) > 2 && $0.score < max(best.score * 1.8, best.score + 0.3)
               }) else {
-            throw Failure(message: "相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。")
+            throw Failure(message: "相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。",
+                          recoverable: true)
         }
+        let shiftRatio = Double(best.shift) / Double(body - overlap)
         let estimate = scrolled + Double(best.shift) + best.phase
         let advance = Int(estimate.rounded()) - appended
         // 不足半像素的移动不追加正文，也不替换参照帧，留给后续画面累计。
@@ -198,6 +204,7 @@ final class ScrollStitcher {
         height = nextHeight
         scrolled = estimate
         appended += advance
+        lastShiftRatio = shiftRatio
         return true
     }
 

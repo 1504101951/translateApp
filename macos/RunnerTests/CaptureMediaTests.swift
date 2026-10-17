@@ -881,6 +881,31 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(try pixels(decode(result.png)), try pixels(frame(height: 372, offset: 0)))
     }
 
+    /// 无参数；单帧滚过123像素上限只丢弃本帧，回滚到参照帧重叠范围后继续追加且像素连续；
+    /// 位移比例供预警使用，尺寸变化仍是不可恢复错误。
+    func testTooFastFrameIsRecoverableAndScrollingBackContinues() throws {
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        try stitcher.append(frame(offset: 0))
+        let confirmed = try stitcher.finish().png
+        XCTAssertThrowsError(try stitcher.append(frame(offset: 150))) { error in
+            XCTAssertEqual((error as? ScrollStitcher.Failure)?.recoverable, true)
+        }
+        XCTAssertEqual(try stitcher.finish().png, confirmed)
+        XCTAssertEqual(stitcher.acceptedFrames, 1)
+        // 参照帧仍是offset 0；回滚到60像素后正常追加，60/123低于60%预警线。
+        XCTAssertTrue(try stitcher.append(frame(offset: 60)))
+        XCTAssertLessThan(stitcher.lastShiftRatio, 0.6)
+        // 164像素正文允许单帧123像素；再移动80像素超过60%，仍可拼接。
+        XCTAssertTrue(try stitcher.append(frame(offset: 140)))
+        XCTAssertEqual(stitcher.lastShiftRatio, 80.0 / 123.0, accuracy: 0.001)
+        let result = try stitcher.finish()
+        XCTAssertEqual(result.height, 332)
+        XCTAssertEqual(try pixels(decode(result.png)), try pixels(frame(height: 332, offset: 0)))
+        XCTAssertThrowsError(try stitcher.append(frame(height: 191, offset: 160))) { error in
+            XCTAssertEqual((error as? ScrollStitcher.Failure)?.recoverable, false)
+        }
+    }
+
     /// 无参数；6×6徽标RGB变化10但正文唯一匹配40像素位移，输出首顶末底的完整272像素长图。
     func testAutomaticStitchAcceptsChangingFixedPixelsWhenBodyMatches() throws {
         let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
