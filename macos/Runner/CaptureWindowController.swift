@@ -30,6 +30,10 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     private var livePaused = false
     private var liveDetail = ""
     private var liveShadeFrame: NSRect?
+    /// 已显示的长截图过程提示（会话身份#序号）；新序号才在选区中央再显示一次。
+    private var shownScrollHint: String?
+    /// 长截图实时缩略图窗口；只在滚动、暂停中存在，属于本应用而不进入采集像素。
+    private var scrollPreviewWindow: NSPanel?
 
     /// 无参数；返回菜单与悬浮条停止可作用的真实资源阶段。
     var canStop: Bool {
@@ -58,6 +62,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             }
             // 准备态由present在缩放前发布，提供可提交的新帧；媒体结果待窗口几何就绪后再布局。
             self.present()
+            self.showScrollHintIfNeeded()
             if phase != .preparing {
                 self.channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: self.captureState())
             }
@@ -67,6 +72,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             }
         }
         service.onActiveChanged = { [weak self] active in self?.onActiveChanged?(active) }
+        service.onScrollPreview = { [weak self] preview, scale in self?.showScrollPreview(preview, scale: scale) }
     }
 
     /// 无参数；终止任务并释放播放器文件引用，再关闭本工具的面板和引擎。
@@ -404,10 +410,68 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                 y: visible.minY + AppConstants.captureControlGap)
     }
 
+    /// 无参数；长截图的新过程提示画在选区中心所在显示器的遮罩里。遮罩属于本应用，已排除在屏幕采集之外，
+    /// 且不接收鼠标，提示不会进入长图，滚动仍交给来源应用。
+    private func showScrollHintIfNeeded() {
+        let state = service.snapshot()
+        guard service.phase == .scrolling, let serial = state["hintSerial"] as? Int,
+              let text = state["hint"] as? String, let frame = service.captureFrame else { return }
+        let key = "\(state["id"] as? String ?? "")#\(serial)"
+        guard key != shownScrollHint else { return }
+        shownScrollHint = key
+        let center = NSPoint(x: frame.midX, y: frame.midY)
+        guard let shade = captureShades.values.first(where: { $0.frame.contains(center) }) ?? captureShades.values.first,
+              let view = shade.contentView as? CaptureShadeView,
+              let screen = NSScreen.screens.first(where: { $0.frame == shade.frame }) ?? shade.screen else { return }
+        // 可用区、控制面板和缩略图换成遮罩视图坐标；提示避开后两者。
+        let origin = shade.frame.origin
+        let local = { (rect: NSRect) in rect.offsetBy(dx: -origin.x, dy: -origin.y) }
+        let avoiding = [window?.isVisible == true ? window?.frame : nil, scrollPreviewWindow?.frame].compactMap { $0 }.map(local)
+        view.showHint(text, isError: state["hintIsError"] as? Bool == true,
+                      visible: local(screen.visibleFrame), avoiding: avoiding)
+    }
+
+    /// preview为已确认长图底部缩略图，scale为选区所在屏倍率；在控制面板正上方右对齐显示，间距8pt并限制在可用区内。
+    private func showScrollPreview(_ preview: ScrollStitcher.Preview, scale: CGFloat) {
+        guard [.scrolling, .pausing, .paused].contains(service.phase),
+              let screen = originScreen ?? NSScreen.main else { return }
+        let panel: NSPanel
+        if let current = scrollPreviewWindow { panel = current } else {
+            panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.ignoresMouseEvents = true
+            panel.level = .statusBar
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            panel.contentView = ScrollPreviewView()
+            NativeGlassFactory.applyAppearance(to: panel)
+            scrollPreviewWindow = panel
+        }
+        guard let view = panel.contentView as? ScrollPreviewView else { return }
+        let size = view.update(preview, scale: scale)
+        let control = window?.frame ?? NSRect(origin: Self.controlOrigin(visible: screen.visibleFrame, size: AppConstants.captureControlSize),
+                                              size: AppConstants.captureControlSize)
+        panel.setFrame(Self.scrollPreviewFrame(size: size, control: control, visible: screen.visibleFrame), display: true)
+        panel.orderFrontRegardless()
+    }
+
+    /// size为缩略图外框，control为控制面板，visible为可用区；返回面板正上方8pt、右边对齐且不超出可用区的框。
+    static func scrollPreviewFrame(size: NSSize, control: NSRect, visible: NSRect) -> NSRect {
+        let x = min(max(control.maxX - size.width, visible.minX), visible.maxX - size.width)
+        let y = min(control.maxY + AppConstants.captureControlGap, visible.maxY - size.height)
+        return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
     /// 无参数；在与采集范围相交的显示器上绘制实时阴影，透明洞和全部窗口均穿透鼠标。
     private func updateCaptureShades() {
         let mediaFrame = !shuttingDown && [.preparing, .recording, .scrolling, .pausing, .paused].contains(service.phase)
             ? service.captureFrame : nil
+        if shuttingDown || ![.scrolling, .pausing, .paused].contains(service.phase) {
+            scrollPreviewWindow?.close()
+            scrollPreviewWindow = nil
+        }
         guard let frame = liveShadeFrame ?? mediaFrame else {
             for window in captureShades.values { window.close() }
             captureShades.removeAll()
@@ -680,6 +744,91 @@ final class CaptureShadeView: NSView {
     var contentRects: [NSRect]? { didSet { needsDisplay = true } }
     /// selection为本显示器局部点坐标；变化后重绘阴影和1pt选区边框。
     var selection = NSRect.zero { didSet { needsDisplay = true } }
+    private(set) var hintView: NSGlassEffectView?
+    private var hintGeneration = 0
+
+    /// text为长截图过程提示，isError选择错误语义色；visible为本屏可用区、avoiding为控制面板和缩略图（均为本视图坐标）。
+    /// 按选区上、下、左、右寻找距选区8pt的位置，都放不下才放在选区正中央；显示1000ms。
+    /// 样式沿用#67文字反馈：原生玻璃r8、padding水平12/垂直5、正文13/18、最大宽240pt，居中时不超过选区宽减16pt。
+    func showHint(_ text: String, isError: Bool, visible: NSRect? = nil, avoiding: [NSRect] = []) {
+        hintView?.removeFromSuperview()
+        let padding = AppConstants.scrollHintPadding
+        let outside = Self.hintTextSize(text, width: AppConstants.scrollHintMaxWidth - padding.width * 2)
+        let centeredWidth = min(AppConstants.scrollHintMaxWidth, selection.width - AppConstants.captureControlGap * 2)
+        let inside = Self.hintTextSize(text, width: max(1, centeredWidth - padding.width * 2))
+        let frame = Self.hintFrame(
+            outside: NSSize(width: outside.width + padding.width * 2, height: outside.height + padding.height * 2),
+            inside: NSSize(width: inside.width + padding.width * 2, height: inside.height + padding.height * 2),
+            selection: selection, visible: visible ?? bounds, avoiding: avoiding)
+        let textSize = NSSize(width: frame.width - padding.width * 2, height: frame.height - padding.height * 2)
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.attributedStringValue = Self.hintText(text, isError: isError)
+        label.frame = NSRect(origin: NSPoint(x: padding.width, y: padding.height), size: textSize)
+        let content = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        content.addSubview(label)
+        let glass = NSGlassEffectView(frame: frame)
+        glass.cornerRadius = AppConstants.scrollHintRadius
+        glass.contentView = content
+        addSubview(glass)
+        hintView = glass
+        NSAccessibility.post(element: glass, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        hintGeneration += 1
+        let generation = hintGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(AppConstants.scrollHintDurationMs))
+            guard let self, self.hintGeneration == generation else { return }
+            self.hintView?.removeFromSuperview()
+            self.hintView = nil
+        }
+    }
+
+    /// outside/inside为选区外与居中时的提示外框尺寸；返回第一个完整位于可用区、离选区8pt且不压住避让区的位置，
+    /// 顺序为上、下、左、右，均不可用时居中于选区。坐标为AppKit本视图坐标。
+    static func hintFrame(outside: NSSize, inside: NSSize, selection: NSRect, visible: NSRect, avoiding: [NSRect]) -> NSRect {
+        let gap = AppConstants.captureControlGap
+        let width = outside.width
+        let height = outside.height
+        /// value为期望坐标；沿选区边平移进可用区，不改变与选区的8pt间距。
+        func clamp(_ value: CGFloat, _ low: CGFloat, _ high: CGFloat) -> CGFloat { min(max(value, low), high) }
+        let candidates = [
+            NSRect(x: clamp(selection.midX - width / 2, visible.minX, visible.maxX - width), y: selection.maxY + gap,
+                   width: width, height: height),
+            NSRect(x: clamp(selection.midX - width / 2, visible.minX, visible.maxX - width), y: selection.minY - gap - height,
+                   width: width, height: height),
+            NSRect(x: selection.minX - gap - width, y: clamp(selection.midY - height / 2, visible.minY, visible.maxY - height),
+                   width: width, height: height),
+            NSRect(x: selection.maxX + gap, y: clamp(selection.midY - height / 2, visible.minY, visible.maxY - height),
+                   width: width, height: height),
+        ]
+        for candidate in candidates.map({ NSRect(x: $0.minX.rounded(), y: $0.minY.rounded(), width: $0.width, height: $0.height) }) where visible.contains(candidate)
+            && !avoiding.contains(where: { $0.intersects(candidate) }) {
+            return candidate
+        }
+        return NSRect(x: (selection.midX - inside.width / 2).rounded(), y: (selection.midY - inside.height / 2).rounded(),
+                      width: inside.width, height: inside.height)
+    }
+
+    /// text/isError为提示内容与语义；返回正文13/18、居中的富文本。
+    private static func hintText(_ text: String, isError: Bool) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 18
+        paragraph.maximumLineHeight = 18
+        paragraph.alignment = .center
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: isError ? NSColor.systemRed : NSColor.labelColor,
+            .paragraphStyle: paragraph,
+        ])
+    }
+
+    /// text为提示，width为可用文字宽；返回换行后的整点文字尺寸，宽度不超过width。
+    private static func hintTextSize(_ text: String, width: CGFloat) -> NSSize {
+        let bounds = hintText(text, isError: false).boundingRect(
+            with: NSSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading])
+        return NSSize(width: ceil(min(bounds.width, width)), height: max(18, ceil(bounds.height)))
+    }
 
     /// dirtyRect为系统重绘范围；在选区外输出60%黑色，选区内部保持透明。
     override func draw(_ dirtyRect: NSRect) {
@@ -705,4 +854,54 @@ final class CaptureShadeView: NSView {
         NSColor.controlAccentColor.setStroke()
         border.stroke()
     }
+}
+
+/// 长截图实时缩略图：原生玻璃r8、4pt内边距，图像圆角4pt，回退目标用2pt错误语义色框标出；不接收鼠标。
+final class ScrollPreviewView: NSView {
+    private let glass = NSGlassEffectView()
+    private let content = NSView()
+    let imageView = NSImageView()
+    let targetView = NSView()
+
+    /// 无参数；创建空缩略图，update后才有尺寸。
+    init() {
+        super.init(frame: .zero)
+        glass.cornerRadius = AppConstants.scrollHintRadius
+        imageView.imageScaling = .scaleAxesIndependently
+        imageView.wantsLayer = true
+        imageView.layer?.cornerRadius = AppConstants.scrollPreviewImageRadius
+        imageView.layer?.masksToBounds = true
+        targetView.wantsLayer = true
+        targetView.layer?.borderWidth = AppConstants.scrollPreviewTargetLine
+        targetView.isHidden = true
+        content.addSubview(imageView)
+        content.addSubview(targetView)
+        glass.contentView = content
+        addSubview(glass)
+    }
+
+    required init?(coder: NSCoder) { fatalError("ScrollPreviewView requires programmatic initialization") }
+
+    /// preview为长图底部缩略图像素，scale为所在屏倍率；更新图像与回退目标框，返回含内边距的外框尺寸。
+    @discardableResult
+    func update(_ preview: ScrollStitcher.Preview, scale: CGFloat) -> NSSize {
+        let inset = AppConstants.scrollPreviewInset
+        let size = NSSize(width: CGFloat(preview.image.width) / scale, height: CGFloat(preview.image.height) / scale)
+        setFrameSize(NSSize(width: size.width + inset * 2, height: size.height + inset * 2))
+        glass.frame = bounds
+        content.frame = glass.bounds
+        imageView.frame = NSRect(x: inset, y: inset, width: size.width, height: size.height)
+        imageView.image = NSImage(cgImage: preview.image, size: size)
+        if let target = preview.target, !target.isEmpty {
+            // 目标框为图像像素、顶部原点；换成AppKit点坐标后叠在图像上。
+            targetView.layer?.borderColor = NSColor.systemRed.cgColor
+            targetView.frame = NSRect(x: inset + target.minX / scale, y: inset + size.height - target.maxY / scale,
+                                      width: target.width / scale, height: target.height / scale)
+            targetView.isHidden = false
+        } else { targetView.isHidden = true }
+        return frame.size
+    }
+
+    /// point为窗口坐标；缩略图只展示，鼠标穿透到来源应用。
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
