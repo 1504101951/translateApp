@@ -236,6 +236,60 @@ final class ScrollStitcher {
         return (try Self.pngData(image), image.width, image.height, acceptedFrames)
     }
 
+    /// 实时缩略图；target为下一帧必须重叠的正文段，坐标为缩略图像素、顶部原点。
+    struct Preview {
+        let image: CGImage
+        let target: CGRect?
+    }
+
+    /// width/maxHeight为缩略图像素上限，markTarget决定是否标出回退目标；返回已确认长图最下面一段的等比缩小图，
+    /// 不放大、不改动已确认条带。没有帧时返回nil。
+    func preview(width: Int, maxHeight: Int, markTarget: Bool) -> Preview? {
+        guard let first, let last = previous, width > 0, maxHeight > 0 else { return nil }
+        let imageWidth = first.image.width
+        let scale = min(1, Double(width) / Double(imageWidth))
+        let outputWidth = max(1, Int((Double(imageWidth) * scale).rounded()))
+        // 只取能填满缩略图的底部行数，避免每帧合成整张长图。
+        let rows = min(height, Int((Double(maxHeight) / scale).rounded(.down)))
+        let outputHeight = max(1, min(maxHeight, Int((Double(rows) * scale).rounded())))
+        var pieces: [CGImage] = []
+        if let edges {
+            if edges.top > 0, let top = first.image.cropping(to: CGRect(x: 0, y: 0, width: imageWidth, height: edges.top)) {
+                pieces.append(top)
+            }
+            pieces.append(contentsOf: strips)
+            if edges.bottom > 0, let bottom = last.image.cropping(
+                to: CGRect(x: 0, y: last.image.height - edges.bottom, width: imageWidth, height: edges.bottom)) {
+                pieces.append(bottom)
+            }
+        } else { pieces = [first.image] }
+        guard let context = CGContext(data: nil, width: outputWidth, height: outputHeight, bitsPerComponent: 8,
+            bytesPerRow: outputWidth * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.interpolationQuality = .high
+        // 自底向上绘制，超出顶部的条带直接停止；CoreGraphics原点在左下。
+        var bottom = 0.0
+        for piece in pieces.reversed() {
+            let pieceHeight = Double(piece.height) * scale
+            context.draw(piece, in: CGRect(x: 0, y: bottom, width: Double(outputWidth), height: pieceHeight))
+            bottom += pieceHeight
+            if bottom >= Double(outputHeight) { break }
+        }
+        guard let image = context.makeImage() else { return nil }
+        var target: CGRect?
+        if markTarget {
+            // 参照帧正文最下面的最小重叠段；与append的重叠下限一致。
+            let fixed = edges ?? Edges(top: 0, bottom: 0, automatic: requested.automatic)
+            let body = last.image.height - fixed.top - fixed.bottom
+            let overlap = max(32, body / 4)
+            let fromBottom = Double(fixed.bottom + overlap) * scale
+            target = CGRect(x: 0, y: Double(outputHeight) - fromBottom, width: Double(outputWidth),
+                            height: Double(overlap) * scale)
+                .intersection(CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight))
+        }
+        return Preview(image: image, target: target)
+    }
+
     /// 无参数；返回已接受的首帧PNG。完整合成失败时仍能保存这一屏，没有帧时抛错。
     func confirmedFrame() throws -> (png: Data, width: Int, height: Int, frames: Int) {
         guard let first else { throw Failure(message: "还没有捕获到图像。") }

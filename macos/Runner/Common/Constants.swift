@@ -31,6 +31,17 @@ enum AppConstants {
     static let captureControlSize = NSSize(width: 320, height: 84)
     static let captureShadeOpacity: CGFloat = 0.6
     static let captureControlGap: CGFloat = 8
+    /// Issue #87长截图过程提示：沿用#67文字反馈的最大宽、内边距与圆角，距选区8pt，显示1000ms。
+    static let scrollHintMaxWidth: CGFloat = 240
+    static let scrollHintPadding = NSSize(width: 12, height: 5)
+    static let scrollHintRadius: CGFloat = 8
+    static let scrollHintDurationMs = 1000
+    /// Issue #87实时缩略图：外框宽160pt含4pt内边距，图像最大高240pt、圆角4pt，回退目标框2pt。
+    static let scrollPreviewWidth: CGFloat = 160
+    static let scrollPreviewInset: CGFloat = 4
+    static let scrollPreviewMaxImageHeight: CGFloat = 240
+    static let scrollPreviewImageRadius: CGFloat = 4
+    static let scrollPreviewTargetLine: CGFloat = 2
     /// 右侧四个32pt按钮、12pt间距和8pt内边距；与Dart工具栏尺寸一致。
     static let captureResultToolbarWidth: CGFloat = 48
     static let captureResultToolbarHeight: CGFloat = 180

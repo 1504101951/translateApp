@@ -76,28 +76,66 @@ final class CaptureMediaTests: XCTestCase {
 
     }
 
-    /// 无参数；长截图过程提示居中画在选区内，宽度受240pt与选区宽减16pt限制，1000ms后移除；遮罩窗口不接收鼠标。
+    /// 无参数；长截图过程提示依次尝试选区上、下、左、右并离选区8pt，避开面板与缩略图，都放不下才居中且不超过选区宽减16pt；1000ms后移除。
     @MainActor
-    func testScrollHintIsCenteredInSelectionAndExpires() async throws {
+    func testScrollHintAvoidsSelectionThenFallsBackToCenterAndExpires() async throws {
         let shade = CaptureShadeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         shade.selection = NSRect(x: 100, y: 80, width: 400, height: 300)
-        shade.showHint("画面没接上，请往回滚一点再慢慢滚动", isError: true)
-        let hint = try XCTUnwrap(shade.hintView)
-        XCTAssertEqual(hint.frame.midX, shade.selection.midX, accuracy: 1)
-        XCTAssertEqual(hint.frame.midY, shade.selection.midY, accuracy: 1)
-        XCTAssertLessThanOrEqual(hint.frame.width, 240)
-        XCTAssertGreaterThanOrEqual(hint.frame.height, 28)
-        XCTAssertEqual(hint.cornerRadius, 8)
-        // 窄选区时提示宽度不超过选区宽减16pt，长文字换行而不越出选区。
-        shade.selection = NSRect(x: 100, y: 80, width: 120, height: 300)
-        shade.showHint("画面没接上，请往回滚一点再慢慢滚动", isError: true)
-        let narrow = try XCTUnwrap(shade.hintView)
-        XCTAssertLessThanOrEqual(narrow.frame.width, 104)
-        XCTAssertTrue(shade.selection.contains(narrow.frame))
+        let text = "请往回滚，直到右下角红框里的内容回到选区"
+        shade.showHint(text, isError: true)
+        let above = try XCTUnwrap(shade.hintView).frame
+        XCTAssertEqual(above.minY, shade.selection.maxY + 8)
+        XCTAssertEqual(above.midX, shade.selection.midX, accuracy: 1)
+        XCTAssertLessThanOrEqual(above.width, 240)
+        XCTAssertEqual(try XCTUnwrap(shade.hintView).cornerRadius, 8)
+        // 上方被缩略图占用时改到下方。
+        shade.showHint(text, isError: true, avoiding: [NSRect(x: 0, y: 380, width: 800, height: 220)])
+        let below = try XCTUnwrap(shade.hintView).frame
+        XCTAssertEqual(below.maxY, shade.selection.minY - 8)
         XCTAssertEqual(shade.subviews.count, 1)
+        // 选区占满可用区时四个方向都放不下，提示居中且宽度不超过选区宽减16pt。
+        shade.selection = NSRect(x: 0, y: 0, width: 120, height: 600)
+        shade.showHint(text, isError: false, visible: shade.selection)
+        let center = try XCTUnwrap(shade.hintView).frame
+        XCTAssertLessThanOrEqual(center.width, 104)
+        XCTAssertEqual(center.midX, shade.selection.midX, accuracy: 1)
+        XCTAssertEqual(center.midY, shade.selection.midY, accuracy: 1)
+        XCTAssertTrue(shade.selection.contains(center))
         try await Task.sleep(for: .milliseconds(1100))
         XCTAssertNil(shade.hintView)
         XCTAssertTrue(shade.subviews.isEmpty)
+    }
+
+    /// 无参数；缩略图取已确认长图底部并等比缩小、不放大，回退目标框标出参照帧正文底部41像素重叠段；面板上方8pt右对齐。
+    @MainActor
+    func testScrollPreviewShowsLongImageTailAndTarget() throws {
+        let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        for offset in [0, 40, 80] { try stitcher.append(frame(offset: offset)) }
+        // 272像素长图按0.5缩小，最大高60只显示底部120像素。
+        let preview = try XCTUnwrap(stitcher.preview(width: 48, maxHeight: 60, markTarget: true))
+        XCTAssertEqual(preview.image.width, 48)
+        XCTAssertEqual(preview.image.height, 60)
+        let target = try XCTUnwrap(preview.target)
+        // 底栏16、重叠41：目标距底(16+41)×0.5=28.5，高20.5。
+        XCTAssertEqual(target.minY, 31.5, accuracy: 0.01)
+        XCTAssertEqual(target.height, 20.5, accuracy: 0.01)
+        XCTAssertNil(try XCTUnwrap(stitcher.preview(width: 48, maxHeight: 60, markTarget: false)).target)
+        // 缩略图比原图宽时不放大，按原宽显示整张较矮长图。
+        let full = try XCTUnwrap(stitcher.preview(width: 200, maxHeight: 400, markTarget: false))
+        XCTAssertEqual(full.image.width, 96)
+        XCTAssertEqual(full.image.height, 272)
+        XCTAssertEqual(try pixels(full.image), try pixels(decode(stitcher.finish().png)))
+
+        let view = ScrollPreviewView()
+        let size = view.update(preview, scale: 2)
+        XCTAssertEqual(size, NSSize(width: 32, height: 38))
+        XCTAssertFalse(view.targetView.isHidden)
+        XCTAssertEqual(view.targetView.frame.minY, 4 + 30 - 52 / 2, accuracy: 0.01)
+        let control = NSRect(x: 1112, y: 8, width: 320, height: 84)
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        XCTAssertEqual(CaptureWindowController.scrollPreviewFrame(size: NSSize(width: 160, height: 248), control: control,
+                                                                  visible: visible),
+                       NSRect(x: 1272, y: 100, width: 160, height: 248))
     }
 
     /// 无参数；320×84采集面板切换到带标题栏结果窗后，同一Flutter内容须避开系统按钮且保留完整高度。
