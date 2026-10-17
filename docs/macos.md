@@ -48,3 +48,12 @@ App 不修改 TCC 数据库，也不添加只匹配 Bundle ID 的宽松自定义
 验收固定签名使用两个不同内容的构建：两者主可执行哈希可以不同，但 `codesign -d -r-` 的 designated requirement 应一致，且不得含内容绑定的 `cdhash` 条件；再执行 strict 验签。首次从临时签名切换后由用户重新授权一次；权限跨版本保持效果由用户验收，应用不修改TCC数据库。
 
 若 `security find-identity -p codesigning` 能列出该身份但标记 `CSSMERR_TP_NOT_TRUSTED`，说明证书与私钥已匹配；由用户在钥匙串访问的证书“信任”中仅设置“代码签名”为“始终信任”。不能据此判断私钥缺失，也不需要重新创建证书。有效身份应出现在 `security find-identity -v -p codesigning` 中。
+
+## MCP 接入
+
+「设置 → MCP」打开「允许 agent 截图」后，在「接入平台」列表中安装到 Claude Code、Claude 桌面、Codex 或 Grok。helper 路径为 `/Applications/TranslateApp.app/Contents/MacOS/translateapp-mcp`；App 移动位置后状态显示「路径已变化」，重新安装即可。
+
+- 下载版 App 解压后带 `com.apple.quarantine` 扩展属性。helper 由 MCP 客户端直接启动，不经访达打开，可能被 Gatekeeper 拦截，因此安装时会清除 helper 的该属性；清除后 helper 不再经过 Gatekeeper 的首次检查。
+- Claude 桌面写入 `~/Library/Application Support/Claude/claude_desktop_config.json`，原文件备份为同目录 `claude_desktop_config.json.bak`，重启 Claude 后生效。
+- Codex 的 CLI、IDE 扩展与桌面 App 共用 `~/.codex/config.toml`，需要本机有 codex CLI。
+- 调用工具时 TranslateApp 需保持运行。

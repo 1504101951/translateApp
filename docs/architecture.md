@@ -112,7 +112,7 @@ App 包内的 `Contents/MacOS/translateapp-mcp` 由本机 MCP 客户端以 stdio
 
 `MCPImageOutput` 把原始像素等比缩到长边不超过 1568 px 后编码 PNG；`capture_rect` 的坐标取同一显示器 `capture_screen` 输出图的像素坐标，按相同缩放比向外取整换算回原始像素后裁剪。OCR 用段落识别在原始像素上执行，段落框换算到返回图片坐标。显示器序号为 `NSScreen.screens` 顺序，全局坐标原点在主显示器左上角、y 向下；窗口截图使用 ScreenCaptureKit 单窗口过滤器，遮挡时仍截取窗口自身内容。
 
-设置页截图分组中的 `McpSettingsCard` 通过设置窗口通道读取 helper 实际路径，开关随普通偏好进入主引擎设置提交队列；「复制客户端配置」写入 `mcpServers.translateapp.command` 为 helper 路径的 JSON，按钮文字显示「已复制」1000ms。打包脚本在外层 App 之前以 `<bundle id>.mcp` 标识签名 helper。
+设置窗口的「MCP」分段与通用、翻译、截图平级。`McpSettingsPage` 通过设置窗口通道读取 helper 实际路径，开关随普通偏好进入主引擎设置提交队列；「复制客户端配置」写入 `mcpServers.translateapp.command` 为 helper 路径的 JSON，按钮文字显示「已复制」1000ms。接入平台由 `mcp_platforms.dart` 的注册表驱动：命令式平台（Claude Code、Codex、Grok）通过 dart:io 在用户主目录执行各 CLI 的 `mcp get/list`、`mcp add`、`mcp remove`，CLI 在用户交互式登录 shell 的 PATH 中查找，安装先删除同名条目再添加；配置文件式平台（Claude 桌面）只读写 `claude_desktop_config.json` 的 `mcpServers.translateapp`，写入前备份为 `.bak` 并经临时文件改名。安装前清除 helper 的 `com.apple.quarantine`。新增平台只增加注册项，界面按注册表渲染。打包脚本在外层 App 之前以 `<bundle id>.mcp` 标识签名 helper。
 
 ## 视觉偏好与分片恢复
 
