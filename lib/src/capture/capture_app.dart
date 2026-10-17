@@ -64,7 +64,7 @@ class _CaptureAppState extends State<CaptureApp> {
     super.dispose();
   }
 
-  /// state为完整快照；仅新的保存结果、错误或过程提示触发反馈，重复进度回包不延长文字寿命。
+  /// state为完整快照；仅新的保存结果或错误触发反馈，重复进度回包不延长文字寿命。
   void _apply(Map<String, dynamic> state) {
     if (!mounted) return;
     final previous = _state;
@@ -85,13 +85,6 @@ class _CaptureAppState extends State<CaptureApp> {
     } else if (state['warning'] != null &&
         state['warning'] != previous['warning']) {
       _showFeedback(state['warning'] as String, isError: true);
-    } else if (state['hintSerial'] != null &&
-        state['hintSerial'] != previous['hintSerial']) {
-      // 长截图过程提示按序号触发，同一文字可再次显示；原生已限制至少间隔1000ms。
-      _showFeedback(
-        state['hint'] as String,
-        isError: state['hintIsError'] == true,
-      );
     }
   }
 

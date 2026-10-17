@@ -30,6 +30,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     private var livePaused = false
     private var liveDetail = ""
     private var liveShadeFrame: NSRect?
+    /// 已显示的长截图过程提示（会话身份#序号）；新序号才在选区中央再显示一次。
+    private var shownScrollHint: String?
 
     /// 无参数；返回菜单与悬浮条停止可作用的真实资源阶段。
     var canStop: Bool {
@@ -58,6 +60,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             }
             // 准备态由present在缩放前发布，提供可提交的新帧；媒体结果待窗口几何就绪后再布局。
             self.present()
+            self.showScrollHintIfNeeded()
             if phase != .preparing {
                 self.channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: self.captureState())
             }
@@ -404,6 +407,21 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                 y: visible.minY + AppConstants.captureControlGap)
     }
 
+    /// 无参数；长截图的新过程提示画在选区中心所在显示器的遮罩里。遮罩属于本应用，已排除在屏幕采集之外，
+    /// 且不接收鼠标，提示不会进入长图，滚动仍交给来源应用。
+    private func showScrollHintIfNeeded() {
+        let state = service.snapshot()
+        guard service.phase == .scrolling, let serial = state["hintSerial"] as? Int,
+              let text = state["hint"] as? String, let frame = service.captureFrame else { return }
+        let key = "\(state["id"] as? String ?? "")#\(serial)"
+        guard key != shownScrollHint else { return }
+        shownScrollHint = key
+        let center = NSPoint(x: frame.midX, y: frame.midY)
+        guard let shade = captureShades.values.first(where: { $0.frame.contains(center) }) ?? captureShades.values.first,
+              let view = shade.contentView as? CaptureShadeView else { return }
+        view.showHint(text, isError: state["hintIsError"] as? Bool == true)
+    }
+
     /// 无参数；在与采集范围相交的显示器上绘制实时阴影，透明洞和全部窗口均穿透鼠标。
     private func updateCaptureShades() {
         let mediaFrame = !shuttingDown && [.preparing, .recording, .scrolling, .pausing, .paused].contains(service.phase)
@@ -678,8 +696,59 @@ private final class CaptureControlPanel: NSPanel {
 final class CaptureShadeView: NSView {
     /// 应用窗口的本屏局部矩形并集；nil表示普通区域遮罩，空数组表示本屏无应用窗口。
     var contentRects: [NSRect]? { didSet { needsDisplay = true } }
-    /// selection为本显示器局部点坐标；变化后重绘阴影和1pt选区边框。
-    var selection = NSRect.zero { didSet { needsDisplay = true } }
+    /// selection为本显示器局部点坐标；变化后重绘阴影和1pt选区边框，并让过程提示保持在选区中央。
+    var selection = NSRect.zero {
+        didSet {
+            needsDisplay = true
+            if let hintView { hintView.setFrameOrigin(Self.hintOrigin(size: hintView.frame.size, in: selection)) }
+        }
+    }
+    private(set) var hintView: NSGlassEffectView?
+    private var hintGeneration = 0
+
+    /// text为长截图过程提示，isError选择错误语义色；在选区正中央显示1000ms。
+    /// 样式沿用#67文字反馈：原生玻璃r8、padding水平12/垂直5、正文13/18、最大宽240pt且不超过选区宽减16pt。
+    func showHint(_ text: String, isError: Bool) {
+        hintView?.removeFromSuperview()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 18
+        paragraph.maximumLineHeight = 18
+        paragraph.alignment = .center
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.attributedStringValue = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: isError ? NSColor.systemRed : NSColor.labelColor,
+            .paragraphStyle: paragraph,
+        ])
+        let textWidth = max(1, min(240, selection.width - 16) - 24)
+        let measured = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: textWidth, height: .greatestFiniteMagnitude))
+            ?? NSSize(width: textWidth, height: 18)
+        let size = NSSize(width: ceil(min(measured.width, textWidth)), height: ceil(measured.height))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: size.width + 24, height: size.height + 10))
+        label.frame = NSRect(x: 12, y: 5, width: size.width, height: size.height)
+        content.addSubview(label)
+        let glass = NSGlassEffectView(frame: content.frame)
+        glass.cornerRadius = 8
+        glass.contentView = content
+        glass.setFrameOrigin(Self.hintOrigin(size: glass.frame.size, in: selection))
+        addSubview(glass)
+        hintView = glass
+        NSAccessibility.post(element: glass, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        hintGeneration += 1
+        let generation = hintGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(1000))
+            guard let self, self.hintGeneration == generation else { return }
+            self.hintView?.removeFromSuperview()
+            self.hintView = nil
+        }
+    }
+
+    /// size为提示外框，selection为选区；返回让提示中心对齐选区中心的整点原点。
+    static func hintOrigin(size: NSSize, in selection: NSRect) -> NSPoint {
+        NSPoint(x: (selection.midX - size.width / 2).rounded(), y: (selection.midY - size.height / 2).rounded())
+    }
 
     /// dirtyRect为系统重绘范围；在选区外输出60%黑色，选区内部保持透明。
     override func draw(_ dirtyRect: NSRect) {

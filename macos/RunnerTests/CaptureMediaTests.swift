@@ -76,6 +76,30 @@ final class CaptureMediaTests: XCTestCase {
 
     }
 
+    /// 无参数；长截图过程提示居中画在选区内，宽度受240pt与选区宽减16pt限制，1000ms后移除；遮罩窗口不接收鼠标。
+    @MainActor
+    func testScrollHintIsCenteredInSelectionAndExpires() async throws {
+        let shade = CaptureShadeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        shade.selection = NSRect(x: 100, y: 80, width: 400, height: 300)
+        shade.showHint("画面没接上，请往回滚一点再慢慢滚动", isError: true)
+        let hint = try XCTUnwrap(shade.hintView)
+        XCTAssertEqual(hint.frame.midX, shade.selection.midX, accuracy: 1)
+        XCTAssertEqual(hint.frame.midY, shade.selection.midY, accuracy: 1)
+        XCTAssertLessThanOrEqual(hint.frame.width, 240)
+        XCTAssertGreaterThanOrEqual(hint.frame.height, 28)
+        XCTAssertEqual(hint.cornerRadius, 8)
+        // 窄选区时提示宽度不超过选区宽减16pt，长文字换行而不越出选区。
+        shade.selection = NSRect(x: 100, y: 80, width: 120, height: 300)
+        shade.showHint("画面没接上，请往回滚一点再慢慢滚动", isError: true)
+        let narrow = try XCTUnwrap(shade.hintView)
+        XCTAssertLessThanOrEqual(narrow.frame.width, 104)
+        XCTAssertTrue(shade.selection.contains(narrow.frame))
+        XCTAssertEqual(shade.subviews.count, 1)
+        try await Task.sleep(for: .milliseconds(1100))
+        XCTAssertNil(shade.hintView)
+        XCTAssertTrue(shade.subviews.isEmpty)
+    }
+
     /// 无参数；320×84采集面板切换到带标题栏结果窗后，同一Flutter内容须避开系统按钮且保留完整高度。
     @MainActor
     func testCapturePanelLayoutSupportsControlAndResultModes() throws {
