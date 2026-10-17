@@ -1,42 +1,80 @@
 import Darwin
 import Foundation
 
-/// helper 转给 App 的截图请求，由 tools/call 参数校验后生成。
-/// display 只用于 capture_screen（NSScreen.screens 序号，nil 为主显示器）；prompt 只用于交互工具。
-struct MCPCaptureRequest: Codable, Equatable {
-    let tool: MCPTool
-    let output: MCPOutput
-    let display: Int?
-    let prompt: String?
+/// helper 转给 App 的工具请求，由 tools/call 参数校验后生成（#96「工具」）。
+/// display 为 NSScreen.screens 的 0 起序号；capture_rect 的矩形为该显示器 capture_screen 输出图的像素坐标；
+/// windowID 为 list_windows 返回的 window_id。坐标是否落在图内由 App 按实际截图尺寸校验。
+enum MCPToolRequest: Codable, Equatable {
+    case listDisplays
+    case listWindows
+    case captureScreen(display: Int, output: MCPOutput)
+    case captureRect(display: Int, x: Int, y: Int, width: Int, height: Int, output: MCPOutput)
+    case captureWindow(windowID: UInt32, output: MCPOutput)
 }
 
-/// OCR 段落；坐标为返回图片的像素坐标，原点左上。chunk 仅长截图携带，为所在切块序号。
+/// 显示器信息；x/y/width/height 为全局点坐标（原点主显示器左上角，y 向下），
+/// image_width/image_height 为该显示器 capture_screen 输出图的像素尺寸。
+struct MCPDisplayInfo: Codable, Equatable {
+    let display: Int
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+    let scale: Double
+    let imageWidth: Int
+    let imageHeight: Int
+
+    enum CodingKeys: String, CodingKey {
+        case display, x, y, width, height, scale
+        case imageWidth = "image_width"
+        case imageHeight = "image_height"
+    }
+}
+
+/// 屏上可见窗口；display 为相交面积最大的显示器序号，x/y/width/height 为全局点坐标。
+struct MCPWindowInfo: Codable, Equatable {
+    let windowID: UInt32
+    let app: String
+    let title: String
+    let display: Int
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+
+    enum CodingKeys: String, CodingKey {
+        case windowID = "window_id"
+        case app, title, display, x, y, width, height
+    }
+}
+
+/// OCR 段落；坐标为返回图片的像素坐标，原点左上。
 struct MCPParagraph: Codable, Equatable {
     let text: String
     let x: Int
     let y: Int
     let width: Int
     let height: Int
-    let chunk: Int?
 }
 
-/// OCR 文本结果；width、height 为返回图片（长截图为切块前整图）的像素尺寸。
+/// OCR 文本结果；width、height 为返回图片的像素尺寸。
 struct MCPRecognizedText: Codable, Equatable {
     let width: Int
     let height: Int
     let paragraphs: [MCPParagraph]
 }
 
-/// App 回给 helper 的截图结果。
-/// completed：images 为按顺序返回的 PNG，text 为 OCR 结果，warning 为附带说明（如长截图提前停止原因）。
-/// cancelled：用户取消交互截图。failed：message 为返回给 agent 的错误文案。
-enum MCPCaptureReply: Codable, Equatable {
-    case completed(images: [Data], text: MCPRecognizedText?, warning: String?)
-    case cancelled
+/// App 回给 helper 的工具结果。
+/// displays/windows：清单；image：PNG（output 为 text 时为 nil）与 OCR 结果（output 为 image 时为 nil）；
+/// failed：message 为返回给 agent 的错误文案。
+enum MCPToolReply: Codable, Equatable {
+    case displays([MCPDisplayInfo])
+    case windows([MCPWindowInfo])
+    case image(png: Data?, text: MCPRecognizedText?)
     case failed(message: String)
 }
 
-/// tools/call 参数无法转换为截图请求的原因。
+/// tools/call 参数无法转换为工具请求的原因。
 /// unknownTool 按 JSON-RPC 参数错误返回；invalidArgument 作为工具错误结果返回，便于 agent 自行修正。
 enum MCPRequestError: Error, Equatable {
     case unknownTool(String)
@@ -74,86 +112,97 @@ enum MCPProtocol {
             "type": "string",
             "enum": MCPOutput.allCases.map(\.rawValue),
             "default": MCPOutput.both.rawValue,
-            "description": "image 只返回 PNG；text 只返回 OCR 段落 JSON（文字及其在图中的像素位置，原点左上）；both 两者都返回。",
+            "description": "image 只返回 PNG；text 只返回 OCR 段落 JSON {width, height, paragraphs: [{text, x, y, width, height}]}，坐标为返回图片的像素坐标、原点左上；both 两者都返回。",
         ]
-        let prompt: [String: Any] = ["type": "string", "description": "展示给用户的提示语，说明需要截取什么。"]
+        let display: [String: Any] = [
+            "type": "integer", "minimum": 0,
+            "description": "显示器序号，取 list_displays 的 display；0 为主显示器。",
+        ]
+        let pixel = { (description: String, minimum: Int) -> [String: Any] in
+            ["type": "integer", "minimum": minimum, "description": description]
+        }
         let tools: [[String: Any]] = MCPTool.allCases.map { tool in
             switch tool {
+            case .listDisplays:
+                return schema(tool, "列出显示器：序号、全局点坐标范围（原点主显示器左上角，y 向下）、缩放倍率，以及该显示器 capture_screen 输出图的像素宽高 image_width、image_height。", [:])
+            case .listWindows:
+                return schema(tool, "列出屏上可见的普通窗口：window_id、应用名、标题、所在显示器序号与全局点坐标范围。", [:])
             case .captureScreen:
-                return schema(tool, "截取整块显示器，不需要用户操作。图片长边不超过 1568 像素。", [
-                    "display": ["type": "integer", "minimum": 0, "description": "显示器序号，0 为主显示器；缺省为主显示器。"],
+                return schema(tool, "截取整块显示器。图片长边不超过 1568 像素。", ["display": display, "output": output])
+            case .captureRect:
+                return schema(tool, "截取显示器内的矩形区域：坐标取该显示器 capture_screen 输出图的像素坐标（原点左上），App 从原始分辨率裁剪，适合放大查看局部小字。矩形须完全落在输出图内。图片长边不超过 1568 像素。", [
+                    "display": display,
+                    "x": pixel("左边缘，capture_screen 输出图像素。", 0),
+                    "y": pixel("上边缘，capture_screen 输出图像素。", 0),
+                    "width": pixel("宽度，capture_screen 输出图像素。", 1),
+                    "height": pixel("高度，capture_screen 输出图像素。", 1),
                     "output": output,
-                ])
-            case .captureRegion:
-                return schema(tool, "请用户在 TranslateApp 中框选屏幕区域（可标注），Return 确认、Esc 取消；返回框选结果或取消结果。图片长边不超过 1568 像素。", [
-                    "prompt": prompt,
+                ], required: ["display", "x", "y", "width", "height"])
+            case .captureWindow:
+                return schema(tool, "截取单个窗口，窗口被遮挡也能截到窗口自身内容。图片长边不超过 1568 像素。", [
+                    "window_id": pixel("取 list_windows 返回的 window_id。", 1),
                     "output": output,
-                ])
-            case .captureScrolling:
-                return schema(tool, "请用户框选区域后手动滚动内容，点击结束确认，生成滚动长截图；放弃即返回取消结果。长图按 1568 像素高度切块依次返回。", [
-                    "prompt": prompt,
-                    "output": output,
-                ])
+                ], required: ["window_id"])
             }
         }
         return ["tools": tools]
     }
 
-    /// 作用：把 tools/call 参数转换为截图请求。
+    /// 作用：把 tools/call 参数转换为工具请求。
     /// 参数 params：{name, arguments?}；arguments 缺省视为空对象，未知字段忽略。
-    /// 返回：校验后的请求；工具不存在抛 unknownTool，参数类型或取值不合法抛 invalidArgument。
-    static func captureRequest(params: [String: Any]) throws(MCPRequestError) -> MCPCaptureRequest {
+    /// 返回：校验后的请求；工具不存在抛 unknownTool，参数缺失、类型或取值不合法抛 invalidArgument。
+    static func toolRequest(params: [String: Any]) throws(MCPRequestError) -> MCPToolRequest {
         let name = params["name"] as? String ?? ""
-        guard let tool = MCPTool(rawValue: name) else { throw MCPRequestError.unknownTool(name) }
+        guard let tool = MCPTool(rawValue: name) else { throw .unknownTool(name) }
         let arguments = params["arguments"] as? [String: Any] ?? [:]
 
         var output = MCPOutput.both
         if let raw = arguments["output"] {
             guard let value = (raw as? String).flatMap(MCPOutput.init(rawValue:)) else {
-                throw MCPRequestError.invalidArgument("output 只能是 image、text 或 both")
+                throw .invalidArgument("output 只能是 image、text 或 both")
             }
             output = value
         }
 
-        var display: Int?
-        if tool == .captureScreen, let raw = arguments["display"] {
-            // JSON 布尔值同样桥接为 NSNumber，需要排除；只接受非负整数。
-            guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-                  number.doubleValue == number.doubleValue.rounded(), number.intValue >= 0 else {
-                throw MCPRequestError.invalidArgument("display 必须是从 0 开始的显示器序号")
-            }
-            display = number.intValue
+        switch tool {
+        case .listDisplays:
+            return .listDisplays
+        case .listWindows:
+            return .listWindows
+        case .captureScreen:
+            let display = try integer(arguments, "display", minimum: 0) ?? 0
+            return .captureScreen(display: display, output: output)
+        case .captureRect:
+            return .captureRect(
+                display: try required(arguments, "display", minimum: 0),
+                x: try required(arguments, "x", minimum: 0),
+                y: try required(arguments, "y", minimum: 0),
+                width: try required(arguments, "width", minimum: 1),
+                height: try required(arguments, "height", minimum: 1),
+                output: output
+            )
+        case .captureWindow:
+            let id = try required(arguments, "window_id", minimum: 1)
+            guard id <= Int(UInt32.max) else { throw .invalidArgument("window_id 不存在") }
+            return .captureWindow(windowID: UInt32(id), output: output)
         }
-
-        var prompt: String?
-        if tool != .captureScreen, let raw = arguments["prompt"] {
-            guard let value = raw as? String else { throw MCPRequestError.invalidArgument("prompt 必须是字符串") }
-            prompt = value.isEmpty ? nil : value
-        }
-        return MCPCaptureRequest(tool: tool, output: output, display: display, prompt: prompt)
     }
 
     /// 作用：把 App 结果转换为 MCP CallToolResult。
-    /// 参数 reply：App 返回的截图结果。
-    /// 返回：{content: [...], isError}；图片在前、OCR JSON 与说明文字在后。
-    static func toolResult(_ reply: MCPCaptureReply) -> [String: Any] {
+    /// 参数 reply：App 返回的工具结果。
+    /// 返回：{content: [...], isError}；清单为一段 JSON 文本，截图为图片在前、OCR JSON 在后。
+    static func toolResult(_ reply: MCPToolReply) -> [String: Any] {
         switch reply {
         case .failed(let message):
             return toolError(message)
-        case .cancelled:
-            return ["content": [textContent(AppConstants.mcpCancelledMessage)], "isError": false]
-        case .completed(let images, let text, let warning):
-            var content: [[String: Any]] = images.map {
-                ["type": "image", "data": $0.base64EncodedString(), "mimeType": "image/png"]
-            }
-            if let text {
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.withoutEscapingSlashes]
-                // 结构体只含字符串与整数，编码不会失败。
-                let json = String(decoding: try! encoder.encode(text), as: UTF8.self)
-                content.append(textContent(json))
-            }
-            if let warning { content.append(textContent(warning)) }
+        case .displays(let displays):
+            return ["content": [textContent(json(["displays": displays]))], "isError": false]
+        case .windows(let windows):
+            return ["content": [textContent(json(["windows": windows]))], "isError": false]
+        case .image(let png, let text):
+            var content: [[String: Any]] = []
+            if let png { content.append(["type": "image", "data": png.base64EncodedString(), "mimeType": "image/png"]) }
+            if let text { content.append(textContent(json(text))) }
             return ["content": content, "isError": false]
         }
     }
@@ -176,14 +225,44 @@ enum MCPProtocol {
         ["jsonrpc": "2.0", "id": id, "error": ["code": code, "message": message]]
     }
 
-    /// 作用：生成单个工具定义。参数 tool：工具；description：说明；properties：参数 JSON Schema。
+    /// 作用：读取必填整数参数。参数 arguments：工具参数；key：字段名；minimum：允许的最小值。
+    /// 返回：参数值；缺失或不合法时抛 invalidArgument。
+    private static func required(_ arguments: [String: Any], _ key: String, minimum: Int) throws(MCPRequestError) -> Int {
+        guard let value = try integer(arguments, key, minimum: minimum) else {
+            throw .invalidArgument("缺少参数 \(key)")
+        }
+        return value
+    }
+
+    /// 作用：读取可选整数参数。参数 arguments：工具参数；key：字段名；minimum：允许的最小值。
+    /// 返回：参数值，缺失为 nil；布尔、小数、字符串或小于 minimum 时抛 invalidArgument。
+    private static func integer(_ arguments: [String: Any], _ key: String, minimum: Int) throws(MCPRequestError) -> Int? {
+        guard let raw = arguments[key] else { return nil }
+        // JSON 布尔值同样桥接为 NSNumber，需要排除；小数不能静默截断。
+        guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue == number.doubleValue.rounded(), number.doubleValue >= Double(minimum),
+              number.doubleValue <= Double(Int.max) else {
+            throw .invalidArgument("\(key) 必须是不小于 \(minimum) 的整数")
+        }
+        return number.intValue
+    }
+
+    /// 作用：生成单个工具定义。参数 tool：工具；description：说明；properties：参数 JSON Schema；required：必填字段。
     /// 返回：{name, description, inputSchema}。
-    private static func schema(_ tool: MCPTool, _ description: String, _ properties: [String: Any]) -> [String: Any] {
-        [
-            "name": tool.rawValue,
-            "description": description,
-            "inputSchema": ["type": "object", "properties": properties, "additionalProperties": false],
-        ]
+    private static func schema(
+        _ tool: MCPTool, _ description: String, _ properties: [String: Any], required: [String] = []
+    ) -> [String: Any] {
+        var input: [String: Any] = ["type": "object", "properties": properties, "additionalProperties": false]
+        if !required.isEmpty { input["required"] = required }
+        return ["name": tool.rawValue, "description": description, "inputSchema": input]
+    }
+
+    /// 作用：把清单或 OCR 结构编码为 JSON 文本。参数 value：只含字符串与数字的结构。返回：JSON 字符串。
+    private static func json(_ value: some Encodable) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        // 结构只含字符串与有限数字，编码不会失败。
+        return String(decoding: try! encoder.encode(value), as: UTF8.self)
     }
 
     /// 作用：生成文本内容块。参数 text：文本。返回：{type: text, text}。
@@ -200,9 +279,9 @@ final class MCPForwardCall {
     private var cancelled = false
 
     /// 作用：同步发送请求并等待 App 结果，在后台线程调用。
-    /// 参数 request：截图请求；path：App socket 路径。
+    /// 参数 request：工具请求；path：App socket 路径。
     /// 返回：App 结果；连不上 App 为「TranslateApp 未运行」，被取消时返回 nil。
-    func run(_ request: MCPCaptureRequest, path: String) -> MCPCaptureReply? {
+    func run(_ request: MCPToolRequest, path: String) -> MCPToolReply? {
         let connected: Int32
         do {
             connected = try MCPSocket.connect(path: path)
@@ -218,7 +297,7 @@ final class MCPForwardCall {
             guard let line = try MCPSocket.readLine(from: connected) else {
                 return isCancelled ? nil : .failed(message: "TranslateApp 未返回结果")
             }
-            return try JSONDecoder().decode(MCPCaptureReply.self, from: line)
+            return try JSONDecoder().decode(MCPToolReply.self, from: line)
         } catch {
             return isCancelled ? nil : .failed(message: "与 TranslateApp 通信失败：\(error)")
         }
@@ -311,9 +390,9 @@ final class MCPHelperSession {
     /// 作用：校验 tools/call 参数并在后台转发给 App，完成后写出结果；被取消的请求不写响应。
     /// 参数 id：原始请求 id；key：取消用的规范化 id；params：tools/call 参数。
     private func call(id: Any, key: String, params: [String: Any]) {
-        let request: MCPCaptureRequest
+        let request: MCPToolRequest
         do {
-            request = try MCPProtocol.captureRequest(params: params)
+            request = try MCPProtocol.toolRequest(params: params)
         } catch {
             switch error {
             case .unknownTool(let name):

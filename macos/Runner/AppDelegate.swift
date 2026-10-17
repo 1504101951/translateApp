@@ -65,6 +65,8 @@ class AppDelegate: FlutterAppDelegate {
             self?.permissionWizard.show()
         }
         selectionMonitor.start()
+        // MCP socket 随 App 常驻监听；开关关闭时由服务返回「MCP 未开启」，helper 不会误报未运行。
+        bridge.mcp.start(path: MCPSocket.defaultURL.path)
         // 不调用 super.applicationDidFinishLaunching：FlutterAppDelegate 未实现该方法，
         // Swift super 会进入嵌套 run loop 且永不返回。AppKit 因此认为启动未结束，
         // 选区监听起不来，浮层窗口也合成不到屏幕上。

@@ -60,6 +60,9 @@
 		A96M00000000000000000009 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18C00000000000000000001 /* Constants.swift */; };
 		A96M00000000000000000017 /* translateapp-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = A96M0000000000000000000C /* translateapp-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A96M00000000000000000019 /* MCPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M00000000000000000018 /* MCPTests.swift */; };
+		A96M0000000000000000001B /* MCPCaptureServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M0000000000000000001A /* MCPCaptureServer.swift */; };
+		A96M0000000000000000001D /* MCPImageOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M0000000000000000001C /* MCPImageOutput.swift */; };
+		A96M0000000000000000001F /* MCPToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M0000000000000000001E /* MCPToolRunner.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -159,6 +162,9 @@
 		A96M00000000000000000005 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A96M0000000000000000000C /* translateapp-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "translateapp-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A96M00000000000000000018 /* MCPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTests.swift; sourceTree = "<group>"; };
+		A96M0000000000000000001A /* MCPCaptureServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPCaptureServer.swift; sourceTree = "<group>"; };
+		A96M0000000000000000001C /* MCPImageOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPImageOutput.swift; sourceTree = "<group>"; };
+		A96M0000000000000000001E /* MCPToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPToolRunner.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -308,8 +314,11 @@
 		A96M0000000000000000000A /* MCP */ = {
 			isa = PBXGroup;
 			children = (
+				A96M0000000000000000001A /* MCPCaptureServer.swift */,
+				A96M0000000000000000001C /* MCPImageOutput.swift */,
 				A96M00000000000000000003 /* MCPProtocol.swift */,
 				A96M00000000000000000001 /* MCPSocket.swift */,
+				A96M0000000000000000001E /* MCPToolRunner.swift */,
 			);
 			path = MCP;
 			sourceTree = "<group>";
@@ -533,6 +542,9 @@
 				A18C00000000000000000004 /* Utils.swift in Sources */,
 				A96M00000000000000000002 /* MCPSocket.swift in Sources */,
 				A96M00000000000000000004 /* MCPProtocol.swift in Sources */,
+				A96M0000000000000000001B /* MCPCaptureServer.swift in Sources */,
+				A96M0000000000000000001D /* MCPImageOutput.swift in Sources */,
+				A96M0000000000000000001F /* MCPToolRunner.swift in Sources */,
 				A17C00000000000000000002 /* AuxiliaryWindowController.swift in Sources */,
 				A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */,
 				A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */,

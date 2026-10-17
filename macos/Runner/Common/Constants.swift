@@ -286,10 +286,15 @@ enum AppConstants {
     static let mcpNotRunningMessage = "TranslateApp 未运行"
     /// 设置中 MCP 开关关闭时返回给 agent 的错误。
     static let mcpDisabledMessage = "MCP 未开启"
-    /// 已有交互请求或用户正在截图、录屏、长截图时返回给 agent 的错误。
-    static let mcpBusyMessage = "忙：TranslateApp 正在截图、录屏或长截图，请稍后再试"
-    /// 用户取消交互截图时返回给 agent 的非错误结果。
-    static let mcpCancelledMessage = "用户已取消截图"
+    /// 屏幕录制授权被拒绝时返回给 agent 的错误。
+    static let mcpPermissionMessage = "TranslateApp 没有屏幕录制权限，请在「系统设置 → 隐私与安全性 → 屏幕录制」中允许 TranslateApp 后重试"
+    /// 设置中「允许 agent 截图」开关的偏好键；与 Dart PreferenceKeys.mcpEnabled 一致。
+    static let mcpEnabledKey = "mcpEnabled"
+    /// 设置页读取 helper 完整路径的方法；与 Dart MethodNames.mcpHelperPath 一致。
+    static let mcpHelperPathMethod = "mcpHelperPath"
+    /// 截图类工具执行期间的菜单栏图标与最短保持时间（#96 待确认的界面数值）。
+    static let mcpCaptureSymbol = "camera.viewfinder"
+    static let mcpCaptureIndicatorMinimum = Duration.milliseconds(1000)
 }
 
 /// 跨端选区手势；rawValue与Dart SelectionGestureTypes保持一致。
@@ -312,11 +317,13 @@ enum SelectionGesture: String {
     }
 }
 
-/// MCP 工具；rawValue 为协议工具名（#96）。
-enum MCPTool: String, Codable, CaseIterable {
+/// MCP 工具；rawValue 为协议工具名（#96），均无需用户操作。
+enum MCPTool: String, CaseIterable {
+    case listDisplays = "list_displays"
+    case listWindows = "list_windows"
     case captureScreen = "capture_screen"
-    case captureRegion = "capture_region"
-    case captureScrolling = "capture_scrolling"
+    case captureRect = "capture_rect"
+    case captureWindow = "capture_window"
 }
 
 /// MCP 工具的 output 参数；rawValue 为协议取值，缺省为 both。
