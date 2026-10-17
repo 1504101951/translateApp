@@ -167,9 +167,118 @@ enum ScreenCaptureService {
         return configuration
     }
 
-    /// png 为截图像素；按阅读顺序返回识别文本，无字返回空字符串。
-    static func recognizeText(png: Data) throws -> String {
-        try recognizeBlocks(png: png).compactMap { $0["text"] as? String }.joined(separator: "\n")
+    /// png 为截图像素；返回 OCR Markdown（块之间空一行），无字返回空字符串。截图编辑「识别文字」与 MCP 共用（#96）。
+    static func recognizeText(png: Data) async throws -> String {
+        guard let image = NSBitmapImageRep(data: png)?.cgImage else {
+            throw NSError(
+                domain: "TranslateApp",
+                code: 13,
+                userInfo: [NSLocalizedDescriptionKey: "无法读取截图以识别文字。"]
+            )
+        }
+        return try await recognizeDocument(image: image).map(\.markdown).joined(separator: "\n\n")
+    }
+
+    /// OCR Markdown 的一个块；rect 为块在识别图像中的像素框，原点左上。
+    struct OCRBlock: Equatable {
+        let markdown: String
+        let rect: CGRect
+    }
+
+    /// Vision 文档结构的中间表示；像素框原点左上。与 Vision 类型解耦，Markdown 组织规则可单独验证。
+    struct OCRLayout {
+        /// 表格单元格；row、column 为合并区域的起始行列。
+        struct Cell {
+            let row: Int
+            let column: Int
+            let text: String
+        }
+
+        var title: (text: String, rect: CGRect)?
+        var paragraphs: [(text: String, rect: CGRect)] = []
+        var lists: [(items: [String], rect: CGRect)] = []
+        var tables: [(cells: [Cell], rect: CGRect)] = []
+    }
+
+    /// image 为截图像素。用 Vision 文档识别得到标题、段落、列表与表格，返回按阅读顺序排列的 Markdown 块。
+    static func recognizeDocument(image: CGImage) async throws -> [OCRBlock] {
+        let observations = try await paragraphRequest().perform(on: image)
+        let width = Double(image.width)
+        let height = Double(image.height)
+        // 识别框为归一化坐标、原点在左下，换成像素并翻到左上原点。
+        let pixels = { (region: NormalizedRegion) -> CGRect in
+            let box = region.boundingBox.cgRect
+            return CGRect(x: box.minX * width, y: (1 - box.maxY) * height, width: box.width * width, height: box.height * height)
+        }
+        return observations.flatMap { observation -> [OCRBlock] in
+            let document = observation.document
+            var layout = OCRLayout()
+            layout.title = document.title.map { ($0.transcript, pixels($0.boundingRegion)) }
+            layout.paragraphs = document.paragraphs.map { ($0.transcript, pixels($0.boundingRegion)) }
+            layout.lists = document.lists.map { list in (list.items.map(\.itemString), pixels(list.boundingRegion)) }
+            layout.tables = document.tables.map { table in
+                let cells = table.rows.flatMap { $0 }.map {
+                    OCRLayout.Cell(row: $0.rowRange.lowerBound, column: $0.columnRange.lowerBound, text: $0.content.text.transcript)
+                }
+                return (cells, pixels(table.boundingRegion))
+            }
+            return markdownBlocks(layout)
+        }
+    }
+
+    /// layout 为一页文档结构。返回 Markdown 块（#96「工具」返回 4）：标题为 `# 标题`，段落为纯文本，列表每项一行 `- 项`，
+    /// 表格为首行作表头的 Markdown 表格；已在表格或列表内的段落与重复标题不再输出；按块顶部、再按左边缘排序。
+    static func markdownBlocks(_ layout: OCRLayout) -> [OCRBlock] {
+        var blocks: [OCRBlock] = []
+        let title = layout.title.map { (text: normalized($0.text), rect: $0.rect) }
+        if let title, !title.text.isEmpty {
+            blocks.append(OCRBlock(markdown: "# \(title.text.replacingOccurrences(of: "\n", with: " "))", rect: title.rect))
+        }
+        let covered = layout.lists.map(\.rect) + layout.tables.map(\.rect)
+        for paragraph in layout.paragraphs {
+            let text = normalized(paragraph.text)
+            let center = CGPoint(x: paragraph.rect.midX, y: paragraph.rect.midY)
+            // 段落中心落在表格或列表内，说明该文字已由表格或列表输出。
+            guard !text.isEmpty, text != title?.text, !covered.contains(where: { $0.contains(center) }) else { continue }
+            blocks.append(OCRBlock(markdown: text, rect: paragraph.rect))
+        }
+        for list in layout.lists {
+            let items = list.items.map { cellText($0, escapePipes: false) }.filter { !$0.isEmpty }
+            guard !items.isEmpty else { continue }
+            blocks.append(OCRBlock(markdown: items.map { "- \($0)" }.joined(separator: "\n"), rect: list.rect))
+        }
+        for table in layout.tables {
+            guard let markdown = tableMarkdown(table.cells) else { continue }
+            blocks.append(OCRBlock(markdown: markdown, rect: table.rect))
+        }
+        return blocks.sorted { ($0.rect.minY, $0.rect.minX) < ($1.rect.minY, $1.rect.minX) }
+    }
+
+    /// cells 为表格单元格。返回首行作表头的 Markdown 表格；合并单元格只写在起始格，同一起始格只取第一次出现；无单元格时为 nil。
+    private static func tableMarkdown(_ cells: [OCRLayout.Cell]) -> String? {
+        guard let rows = cells.map(\.row).max().map({ $0 + 1 }),
+              let columns = cells.map(\.column).max().map({ $0 + 1 }) else { return nil }
+        var grid = Array(repeating: Array(repeating: Optional<String>.none, count: columns), count: rows)
+        for cell in cells where grid[cell.row][cell.column] == nil {
+            grid[cell.row][cell.column] = cellText(cell.text, escapePipes: true)
+        }
+        let lines = grid.map { row in "| " + row.map { $0 ?? "" }.joined(separator: " | ") + " |" }
+        let separator = "| " + Array(repeating: "---", count: columns).joined(separator: " | ") + " |"
+        return ([lines[0], separator] + lines.dropFirst()).joined(separator: "\n")
+    }
+
+    /// text 为段落原文。返回合并连续空格、去掉每行首尾空白与空行后的文字。
+    private static func normalized(_ text: String) -> String {
+        text.components(separatedBy: .newlines)
+            .map { $0.split(whereSeparator: { $0 == " " || $0 == "\t" }).joined(separator: " ") }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    /// text 为表格单元格或列表项原文；escapePipes 为 true 时转义 `|`。返回单行文字，所有空白合并为一个空格。
+    private static func cellText(_ text: String, escapePipes: Bool) -> String {
+        let single = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return escapePipes ? single.replacingOccurrences(of: "|", with: "\\|") : single
     }
 
     /// pixelBuffer 为屏幕流帧。返回段落块：text 为整段原文，x/y/width/height 为段落外接矩形的像素框，坐标原点在图像左上。
@@ -179,16 +288,6 @@ enum ScreenCaptureService {
             observations.flatMap { $0.document.paragraphs },
             width: Double(CVPixelBufferGetWidth(pixelBuffer)),
             height: Double(CVPixelBufferGetHeight(pixelBuffer))
-        )
-    }
-
-    /// image 为截图像素。返回段落块，结构与 recognizeParagraphs(pixelBuffer:) 相同。
-    static func recognizeParagraphs(image: CGImage) async throws -> [[String: Any]] {
-        let observations = try await paragraphRequest().perform(on: image)
-        return paragraphBlocks(
-            observations.flatMap { $0.document.paragraphs },
-            width: Double(image.width),
-            height: Double(image.height)
         )
     }
 

@@ -410,10 +410,13 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
                 return
             }
-            do {
-                result(try ScreenCaptureService.recognizeText(png: payload))
-            } catch {
-                result(FlutterError(code: AppConstants.ocrFailedError, message: error.localizedDescription, details: nil))
+            // recognizeText 输出 OCR Markdown，Vision 文档识别为异步接口。
+            Task { @MainActor in
+                do {
+                    result(try await ScreenCaptureService.recognizeText(png: payload))
+                } catch {
+                    result(FlutterError(code: AppConstants.ocrFailedError, message: error.localizedDescription, details: nil))
+                }
             }
         case AppConstants.copyTextMethod:
             guard let text = args["text"] as? String, !text.isEmpty else {

@@ -110,7 +110,9 @@ App 包内的 `Contents/MacOS/translateapp-mcp` 由本机 MCP 客户端以 stdio
 
 `MCPCaptureServer` 随 App 启动常驻监听，按已提交偏好 `mcpEnabled` 受理请求，开关关闭时返回「MCP 未开启」；helper 断开时取消执行中的 Task，不再写回结果。`MCPToolRunner` 在 App 进程执行 `list_displays`、`list_windows`、`capture_screen`、`capture_rect`、`capture_window`：全部无需用户操作，不进入截图编辑或采集会话，不写翻译历史，不保存文件。截图前确认屏幕录制授权，执行期间 `StatusBarController` 把菜单栏图标换为 `camera.viewfinder` 并至少保持 1000ms，实时翻译的中止图标优先。
 
-`MCPImageOutput` 把原始像素等比缩到长边不超过 1568 px 后编码 PNG；`capture_rect` 的坐标取同一显示器 `capture_screen` 输出图的像素坐标，按相同缩放比向外取整换算回原始像素后裁剪。OCR 用段落识别在原始像素上执行，段落框换算到返回图片坐标。显示器序号为 `NSScreen.screens` 顺序，全局坐标原点在主显示器左上角、y 向下；窗口截图使用 ScreenCaptureKit 单窗口过滤器，遮挡时仍截取窗口自身内容。
+`MCPImageOutput` 按清晰度的视觉 token 上限（⌈宽/28⌉×⌈高/28⌉，standard 1568、low 512）与 1568 px 长边等比缩放后编码 PNG，客户端不再二次缩放；`capture_rect` 的坐标取同一显示器在 `reference_detail` 清晰度下 `capture_screen` 输出图的像素坐标，按同一尺寸向外取整换算回原始像素后裁剪。`list_windows` 把窗口全局点坐标换算为所在显示器 standard 输出图像素并裁到图内，可直接作为 `capture_rect` 参数。显示器序号为 `NSScreen.screens` 顺序；窗口截图使用 ScreenCaptureKit 单窗口过滤器，遮挡时仍截取窗口自身内容。
+
+OCR 由 `ScreenCaptureService.recognizeDocument` 用 Vision 文档识别在原始像素上执行，把标题、段落、列表与表格组织为按阅读顺序排列的 Markdown 块：表格首行作表头、合并单元格只写起始格，已在表格或列表中的段落不重复输出。截图编辑的「识别文字」与 MCP 共用该输出；MCP 在 `include_positions` 时为每块附返回图像素坐标。tools/list 由保序 JSON 输出，参数按声明顺序排列；工具说明、参数约束与返回文案为英文，列表结果为制表符分隔的表格文本。
 
 设置窗口的「MCP」分段与通用、翻译、截图平级。`McpSettingsPage` 通过设置窗口通道读取 helper 实际路径，开关随普通偏好进入主引擎设置提交队列；「复制客户端配置」写入 `mcpServers.translateapp.command` 为 helper 路径的 JSON，按钮文字显示「已复制」1000ms。接入平台由 `mcp_platforms.dart` 的注册表驱动：命令式平台（Claude Code、Codex、Grok）通过 dart:io 在用户主目录执行各 CLI 的 `mcp get/list`、`mcp add`、`mcp remove`，CLI 在用户交互式登录 shell 的 PATH 中查找，安装先删除同名条目再添加；配置文件式平台（Claude 桌面）只读写 `claude_desktop_config.json` 的 `mcpServers.translateapp`，写入前备份为 `.bak` 并经临时文件改名。安装前清除 helper 的 `com.apple.quarantine`。新增平台只增加注册项，界面按注册表渲染。打包脚本在外层 App 之前以 `<bundle id>.mcp` 标识签名 helper。
 
