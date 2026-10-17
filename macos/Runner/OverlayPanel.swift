@@ -22,8 +22,8 @@ final class OverlayPanelController {
             defer: false
         )
         panel.isFloatingPanel = true
-        // 来源 App 的浮动窗口可能反复置前；更高层级保持译文可见，仍不取得 key/main。
-        panel.level = .statusBar
+        // Warp 等来源 App 的置顶窗口可能位于 status-bar 及以上并反复置前；screenSaver 层级保持译文可见，仍不取得 key/main。
+        panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
