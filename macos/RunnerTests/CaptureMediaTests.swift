@@ -706,6 +706,112 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(try ambiguous.finish().png, confirmed)
     }
 
+    /// 无参数；文字在分数像素位置按覆盖面积重绘（网页平滑滚动），正文与稀疏评论都应接受并保持累计高度，
+    /// 完全重复的段落仍须拒绝。旧配准只拟合相邻行线性插值，这类帧在首次移动即误报缺少重叠。
+    func testAreaRasterizedTextScrollingKeepsOverlapAndHeight() throws {
+        let article = scrollingText(comments: false)
+        let comments = scrollingText(comments: true)
+        for (text, step) in [(article, 3.25), (article, 8.5), (article, 20.75), (comments, 8.5)] {
+            let initial = 0.25
+            let stitcher = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+            for index in 0...3 {
+                XCTAssertNoThrow(try stitcher.append(areaTextViewport(text, offset: initial + Double(index) * step)),
+                                 "步进\(step)第\(index)帧")
+            }
+            let result = try stitcher.finish()
+            XCTAssertEqual(result.frames, 4)
+            // 按累计分数位移取整，不能因逐帧舍入丢失或重复正文行。
+            XCTAssertLessThanOrEqual(abs(Double(result.height) - (640 + 3 * step)), 0.75)
+            let expected = try pixels(areaTextViewport(text, offset: initial, height: result.height))
+            let actual = try pixels(decode(result.png))
+            var total = 0.0
+            var affected = 0
+            for index in stride(from: 0, to: actual.count, by: 4) {
+                let differences = (0..<3).map { abs(Int(actual[index + $0]) - Int(expected[index + $0])) }
+                total += Double(differences.reduce(0, +))
+                if differences.max()! > 16 { affected += 1 }
+            }
+            XCTAssertLessThanOrEqual(total / Double(result.width * result.height * 3), 3)
+            XCTAssertLessThanOrEqual(Double(affected) / Double(result.width * result.height), 0.05)
+        }
+        let repeated = (0..<90).map { $0 % 4 == 3 ? "项目0001：列表项目需要清晰的信息结构、稳定的文字间距。\n\n\n"
+            : "项目0001：列表项目需要清晰的信息结构、稳定的文字间距。\n" }.joined()
+        let ambiguous = ScrollStitcher(edges: .init(top: 0, bottom: 0, automatic: true))
+        try ambiguous.append(areaTextViewport(repeated, offset: 0))
+        let confirmed = try ambiguous.finish().png
+        XCTAssertThrowsError(try ambiguous.append(areaTextViewport(repeated, offset: 8.5)))
+        XCTAssertEqual(try ambiguous.finish().png, confirmed)
+    }
+
+    /// comments决定稀疏评论或逐行不同的正文；返回固定伪随机生成的中文文本，不依赖网络页面。
+    private func scrollingText(comments: Bool) -> String {
+        if comments {
+            return (0..<60).map { "第\($0 + 1)条评论：" + String(repeating: "好看", count: $0 % 5 + 1)
+                + String(repeating: "\n", count: 2 + $0 % 3) }.joined()
+        }
+        let pool = Array("的一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经十三之进着等部度家电力里如水化高自二理起小物现实加量都两体制机当使点从业本去把性好应开它合还因由其些然前外天政四日那社义事平形相全表间样与关各重新线内数正心反你明看原又么利比或但气第向道命此变条只没结解问意建月公无系军很情者最立代想已通并提直题")
+        var seed: UInt32 = 7
+        var text = ""
+        for index in 0..<70 {
+            for _ in 0..<(18 + index * 29 % 40) {
+                seed = seed &* 1103515245 &+ 12345
+                text.append(pool[Int(seed >> 16) % pool.count])
+            }
+            text += index % 3 == 2 ? "。\n\n" : "。\n"
+        }
+        return text
+    }
+
+    /// text为页面正文，offset为四分之一像素滚动量，height为视口高度；4倍栅格后按面积缩回600像素宽，
+    /// 模拟网页在分数像素位置重绘文字，而不是对整数帧做线性插值。
+    private func areaTextViewport(_ text: String, offset: Double, height: Int = 640) throws -> CGImage {
+        let width = 600
+        let scale = 4
+        let pageHeight = 2000 * scale
+        let font = CTFontCreateWithName("PingFangSC-Regular" as CFString, CGFloat(15 * scale), nil)
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0.1, alpha: 1),
+        ])
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
+        let path = CGPath(rect: CGRect(x: 28 * scale, y: 20 * scale, width: (width - 56) * scale,
+                                       height: pageHeight - 40 * scale), transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
+        let largeWidth = width * scale
+        let largeHeight = height * scale
+        var coverage = [UInt8](repeating: 255, count: largeWidth * largeHeight)
+        try coverage.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: largeWidth, height: largeHeight,
+                bitsPerComponent: 8, bytesPerRow: largeWidth, space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue))
+            // CoreText页面原点在左下；4倍空间的整数位移把页顶offset处移到视口顶部。
+            context.translateBy(x: 0, y: CGFloat(largeHeight + Int((offset * Double(scale)).rounded()) - pageHeight))
+            CTFrameDraw(frame, context)
+        }
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        coverage.withUnsafeBufferPointer { source in
+            for y in 0..<height {
+                for x in 0..<width {
+                    var total = 0
+                    for dy in 0..<scale {
+                        let row = (y * scale + dy) * largeWidth + x * scale
+                        for dx in 0..<scale { total += Int(source[row + dx]) }
+                    }
+                    let value = UInt8((Double(total) / Double(scale * scale)).rounded())
+                    let index = (y * width + x) * 4
+                    bytes[index] = value
+                    bytes[index + 1] = value
+                    bytes[index + 2] = value
+                }
+            }
+        }
+        let provider = try XCTUnwrap(CGDataProvider(data: Data(bytes) as CFData))
+        return try XCTUnwrap(CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider,
+            decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+    }
+
     /// repeated决定唯一编号或完全重复的中文行；返回900×1600的真实CoreText栅格图，不依赖桌面内容。
     private func textDocument(repeated: Bool = false) throws -> CGImage {
         let width = 900
