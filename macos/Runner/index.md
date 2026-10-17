@@ -33,3 +33,4 @@ macOS应用生命周期、系统能力与窗口控制器。
 29. [ApplicationRecorder.swift](ApplicationRecorder.swift)：将所选应用在全部显示器上的可见窗口合成为固定黑底画布并编码视频。
 30. [LiveRegionCapture.swift](LiveRegionCapture.swift)：以未编码画面帧持续识别区域、窗口或全屏文字。
 31. [LiveRegionWindowController.swift](LiveRegionWindowController.swift)：承载不抢焦点的实时翻译结果窗，并连接捕获与主引擎会话。
+32. [MCP/](MCP/index.md)：MCP 截图接口的 JSON-RPC 协议、本地 socket 传输及 App 侧请求处理。

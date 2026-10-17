@@ -52,6 +52,14 @@
 		A13A00000000000000000012 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A00000000000000000011 /* SettingsWindowController.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		A26000000000000000000002 /* NativeGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = A26000000000000000000001 /* NativeGlass.swift */; };
+		A96M00000000000000000002 /* MCPSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M00000000000000000001 /* MCPSocket.swift */; };
+		A96M00000000000000000004 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M00000000000000000003 /* MCPProtocol.swift */; };
+		A96M00000000000000000006 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M00000000000000000005 /* main.swift */; };
+		A96M00000000000000000007 /* MCPSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M00000000000000000001 /* MCPSocket.swift */; };
+		A96M00000000000000000008 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M00000000000000000003 /* MCPProtocol.swift */; };
+		A96M00000000000000000009 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18C00000000000000000001 /* Constants.swift */; };
+		A96M00000000000000000017 /* translateapp-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = A96M0000000000000000000C /* translateapp-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A96M00000000000000000019 /* MCPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96M00000000000000000018 /* MCPTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +77,13 @@
 			remoteGlobalIDString = 33CC111A2044C6BA0003C045;
 			remoteInfo = FLX;
 		};
+		A96M00000000000000000014 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 33CC10E52044A3C60003C045 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A96M0000000000000000000D;
+			remoteInfo = "translateapp-mcp";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -80,6 +95,17 @@
 			files = (
 			);
 			name = "Bundle Framework";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A96M00000000000000000016 /* Embed MCP Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				A96M00000000000000000017 /* translateapp-mcp in Embed MCP Helper */,
+			);
+			name = "Embed MCP Helper";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -128,6 +154,11 @@
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		A26000000000000000000001 /* NativeGlass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGlass.swift; sourceTree = "<group>"; };
+		A96M00000000000000000001 /* MCPSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPSocket.swift; sourceTree = "<group>"; };
+		A96M00000000000000000003 /* MCPProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPProtocol.swift; sourceTree = "<group>"; };
+		A96M00000000000000000005 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A96M0000000000000000000C /* translateapp-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "translateapp-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A96M00000000000000000018 /* MCPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -146,6 +177,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A96M0000000000000000000F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -154,6 +192,7 @@
 			children = (
 				331C80D7294CF71000263BE5 /* RunnerTests.swift */,
 				A28000000000000000000009 /* CaptureMediaTests.swift */,
+				A96M00000000000000000018 /* MCPTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -175,6 +214,7 @@
 				33FAB671232836740065AC1E /* Runner */,
 				33CEB47122A05771004F2AC0 /* Flutter */,
 				331C80D6294CF71000263BE5 /* RunnerTests */,
+				A96M0000000000000000000B /* TranslateAppMCP */,
 				33CC10EE2044A3C60003C045 /* Products */,
 				D73912EC22F37F3D000D13A0 /* Frameworks */,
 			);
@@ -185,6 +225,7 @@
 			children = (
 				33CC10ED2044A3C60003C045 /* translate_app.app */,
 				331C80D5294CF71000263BE5 /* RunnerTests.xctest */,
+				A96M0000000000000000000C /* translateapp-mcp */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -225,6 +266,7 @@
 			isa = PBXGroup;
 			children = (
 				A18C00000000000000000005 /* Common */,
+				A96M0000000000000000000A /* MCP */,
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				A26000000000000000000001 /* NativeGlass.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
@@ -263,6 +305,23 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		A96M0000000000000000000A /* MCP */ = {
+			isa = PBXGroup;
+			children = (
+				A96M00000000000000000003 /* MCPProtocol.swift */,
+				A96M00000000000000000001 /* MCPSocket.swift */,
+			);
+			path = MCP;
+			sourceTree = "<group>";
+		};
+		A96M0000000000000000000B /* TranslateAppMCP */ = {
+			isa = PBXGroup;
+			children = (
+				A96M00000000000000000005 /* main.swift */,
+			);
+			path = TranslateAppMCP;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -292,12 +351,14 @@
 				33CC10EA2044A3C60003C045 /* Frameworks */,
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
+				A96M00000000000000000016 /* Embed MCP Helper */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				33CC11202044C79F0003C045 /* PBXTargetDependency */,
+				A96M00000000000000000015 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			packageProductDependencies = (
@@ -306,6 +367,22 @@
 			productName = Runner;
 			productReference = 33CC10ED2044A3C60003C045 /* translate_app.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A96M0000000000000000000D /* translateapp-mcp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A96M00000000000000000010 /* Build configuration list for PBXNativeTarget "translateapp-mcp" */;
+			buildPhases = (
+				A96M0000000000000000000E /* Sources */,
+				A96M0000000000000000000F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "translateapp-mcp";
+			productName = "translateapp-mcp";
+			productReference = A96M0000000000000000000C /* translateapp-mcp */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -357,6 +434,7 @@
 				33CC10EC2044A3C60003C045 /* Runner */,
 				331C80D4294CF70F00263BE5 /* RunnerTests */,
 				33CC111A2044C6BA0003C045 /* Flutter Assemble */,
+				A96M0000000000000000000D /* translateapp-mcp */,
 			);
 		};
 /* End PBXProject section */
@@ -428,6 +506,7 @@
 			files = (
 				331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */,
 				A2800000000000000000000A /* CaptureMediaTests.swift in Sources */,
+				A96M00000000000000000019 /* MCPTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -452,6 +531,8 @@
 				A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */,
 				A18C00000000000000000002 /* Constants.swift in Sources */,
 				A18C00000000000000000004 /* Utils.swift in Sources */,
+				A96M00000000000000000002 /* MCPSocket.swift in Sources */,
+				A96M00000000000000000004 /* MCPProtocol.swift in Sources */,
 				A17C00000000000000000002 /* AuxiliaryWindowController.swift in Sources */,
 				A13A00000000000000000004 /* MacPlatformBridge.swift in Sources */,
 				A13A00000000000000000006 /* AccessibilitySelection.swift in Sources */,
@@ -461,6 +542,17 @@
 				A13A00000000000000000010 /* StatusBarController.swift in Sources */,
 				A13A00000000000000000012 /* SettingsWindowController.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A96M0000000000000000000E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A96M00000000000000000006 /* main.swift in Sources */,
+				A96M00000000000000000007 /* MCPSocket.swift in Sources */,
+				A96M00000000000000000008 /* MCPProtocol.swift in Sources */,
+				A96M00000000000000000009 /* Constants.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -476,6 +568,11 @@
 			isa = PBXTargetDependency;
 			target = 33CC111A2044C6BA0003C045 /* Flutter Assemble */;
 			targetProxy = 33CC111F2044C79F0003C045 /* PBXContainerItemProxy */;
+		};
+		A96M00000000000000000015 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A96M0000000000000000000D /* translateapp-mcp */;
+			targetProxy = A96M00000000000000000014 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -770,6 +867,39 @@
 			};
 			name = Release;
 		};
+		A96M00000000000000000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				PRODUCT_BUNDLE_IDENTIFIER = com.coolyang.translateApp.mcp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A96M00000000000000000012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				PRODUCT_BUNDLE_IDENTIFIER = com.coolyang.translateApp.mcp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A96M00000000000000000013 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				PRODUCT_BUNDLE_IDENTIFIER = com.coolyang.translateApp.mcp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -809,6 +939,16 @@
 				33CC111C2044C6BA0003C045 /* Debug */,
 				33CC111D2044C6BA0003C045 /* Release */,
 				338D0CEB231458BD00FA5F75 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A96M00000000000000000010 /* Build configuration list for PBXNativeTarget "translateapp-mcp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A96M00000000000000000011 /* Debug */,
+				A96M00000000000000000012 /* Release */,
+				A96M00000000000000000013 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

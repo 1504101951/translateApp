@@ -287,7 +287,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             result(nil)
         case AppConstants.applicationSupportPathMethod:
             let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let dir = root.appendingPathComponent("TranslateApp", isDirectory: true)
+            let dir = root.appendingPathComponent(AppConstants.applicationSupportFolderName, isDirectory: true)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             result(dir.path)
         case AppConstants.historyChangedMethod:

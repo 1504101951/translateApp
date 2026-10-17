@@ -270,6 +270,26 @@ enum AppConstants {
     static let nativeGlassViewType = "translateapp/native-glass"
     /// undoPressed 协议值；与Dart常量及持久化调用方同步。
     static let undoPressedMethod = "undoPressed"
+
+    /// App 在用户 Application Support 下的数据目录名；历史库与 MCP socket 共用。
+    static let applicationSupportFolderName = "TranslateApp"
+    /// MCP 接口（#96、#68「MCP 接口边界」）：stdio helper 与 App 共用的名称和协议文案。
+    /// helper 可执行文件名，位于 App 包 Contents/MacOS。
+    static let mcpHelperName = "translateapp-mcp"
+    /// MCP serverInfo.name 与客户端配置中的服务名。
+    static let mcpServerName = "translateapp"
+    /// helper 连接 App 的 Unix domain socket 文件名，位于 Application Support 数据目录。
+    static let mcpSocketFileName = "mcp.sock"
+    /// 返回图片长边上限，单位像素；依据 #96 引用的 Claude 视觉文档标准档位。
+    static let mcpImageMaxEdge = 1568
+    /// 连接不到 App 时返回给 agent 的错误。
+    static let mcpNotRunningMessage = "TranslateApp 未运行"
+    /// 设置中 MCP 开关关闭时返回给 agent 的错误。
+    static let mcpDisabledMessage = "MCP 未开启"
+    /// 已有交互请求或用户正在截图、录屏、长截图时返回给 agent 的错误。
+    static let mcpBusyMessage = "忙：TranslateApp 正在截图、录屏或长截图，请稍后再试"
+    /// 用户取消交互截图时返回给 agent 的非错误结果。
+    static let mcpCancelledMessage = "用户已取消截图"
 }
 
 /// 跨端选区手势；rawValue与Dart SelectionGestureTypes保持一致。
@@ -290,4 +310,16 @@ enum SelectionGesture: String {
         if flags.contains(.shift), navigationKeys.contains(keyCode) { return .keyboard }
         return nil
     }
+}
+
+/// MCP 工具；rawValue 为协议工具名（#96）。
+enum MCPTool: String, Codable, CaseIterable {
+    case captureScreen = "capture_screen"
+    case captureRegion = "capture_region"
+    case captureScrolling = "capture_scrolling"
+}
+
+/// MCP 工具的 output 参数；rawValue 为协议取值，缺省为 both。
+enum MCPOutput: String, Codable, CaseIterable {
+    case image, text, both
 }
