@@ -20,6 +20,7 @@ class AppSettings {
     this.screenshotSaveDirectory = '',
     this.gifFramesPerSecond = 10,
     this.liveRecording = false,
+    this.mcpEnabled = false,
     this.gifMaximumWidth,
     this.glassAppearance = AppearanceModes.system,
     this.glassOpacity = 0.8,
@@ -55,6 +56,9 @@ class AppSettings {
 
   /// 实时翻译时是否同步录制；对区域、窗口和全屏目标都生效。
   bool liveRecording;
+
+  /// 是否允许本机 MCP 客户端截图；默认关闭，关闭时 App 对所有 MCP 工具返回「MCP 未开启」。
+  bool mcpEnabled;
   int? gifMaximumWidth;
 
   /// 视觉偏好与业务设置一同提交，不单独保存第二份配置。
@@ -122,6 +126,7 @@ class AppSettings {
           map[PreferenceKeys.screenshotSaveDirectory] as String? ?? '',
       gifFramesPerSecond: map[PreferenceKeys.gifFramesPerSecond] as int? ?? 10,
       liveRecording: map[PreferenceKeys.liveRecording] as bool? ?? false,
+      mcpEnabled: map[PreferenceKeys.mcpEnabled] as bool? ?? false,
       gifMaximumWidth: map[PreferenceKeys.gifMaximumWidth] as int?,
       glassAppearance:
           map[PreferenceKeys.glassAppearance] as String? ??
@@ -209,6 +214,7 @@ class AppSettings {
     PreferenceKeys.screenshotSaveDirectory: screenshotSaveDirectory,
     PreferenceKeys.gifFramesPerSecond: gifFramesPerSecond,
     PreferenceKeys.liveRecording: liveRecording,
+    PreferenceKeys.mcpEnabled: mcpEnabled,
     PreferenceKeys.gifMaximumWidth: ?gifMaximumWidth,
     PreferenceKeys.glassAppearance: glassAppearance,
     PreferenceKeys.glassOpacity: glassOpacity,

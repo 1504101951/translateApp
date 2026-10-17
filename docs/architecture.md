@@ -104,6 +104,16 @@ Swift 的系统截图模块用本进程 ScreenCaptureKit 申请屏幕录制并�
 
 区域框选时暂停文本手势采集并隐藏翻译浮层，完成后只恢复仍有效的浮层。截图的复制与保存不经过翻译层；“识别文字”“翻译文字”（`ScreenshotActions.ocrTranslate`，`_translateOcr`）经本地 OCR 取得文字后，由 `translateScreenshotText` 进入同一翻译层。
 
+## MCP 截图接口
+
+App 包内的 `Contents/MacOS/translateapp-mcp` 由本机 MCP 客户端以 stdio 启动，只处理 JSON-RPC 最小子集（initialize、tools/list、tools/call、ping 与取消通知），工具名、协议文案和 socket 文件名与 App 共用 `AppConstants`。helper 把 tools/call 参数校验为 `MCPToolRequest`，经 `~/Library/Application Support/TranslateApp/mcp.sock`（权限 0600）一连接一请求转给运行中的 App；连接失败即返回「TranslateApp 未运行」，不启动 App。
+
+`MCPCaptureServer` 随 App 启动常驻监听，按已提交偏好 `mcpEnabled` 受理请求，开关关闭时返回「MCP 未开启」；helper 断开时取消执行中的 Task，不再写回结果。`MCPToolRunner` 在 App 进程执行 `list_displays`、`list_windows`、`capture_screen`、`capture_rect`、`capture_window`：全部无需用户操作，不进入截图编辑或采集会话，不写翻译历史，不保存文件。截图前确认屏幕录制授权，执行期间 `StatusBarController` 把菜单栏图标换为 `camera.viewfinder` 并至少保持 1000ms，实时翻译的中止图标优先。
+
+`MCPImageOutput` 把原始像素等比缩到长边不超过 1568 px 后编码 PNG；`capture_rect` 的坐标取同一显示器 `capture_screen` 输出图的像素坐标，按相同缩放比向外取整换算回原始像素后裁剪。OCR 用段落识别在原始像素上执行，段落框换算到返回图片坐标。显示器序号为 `NSScreen.screens` 顺序，全局坐标原点在主显示器左上角、y 向下；窗口截图使用 ScreenCaptureKit 单窗口过滤器，遮挡时仍截取窗口自身内容。
+
+设置页截图分组中的 `McpSettingsCard` 通过设置窗口通道读取 helper 实际路径，开关随普通偏好进入主引擎设置提交队列；「复制客户端配置」写入 `mcpServers.translateapp.command` 为 helper 路径的 JSON，按钮文字显示「已复制」1000ms。打包脚本在外层 App 之前以 `<bundle id>.mcp` 标识签名 helper。
+
 ## 视觉偏好与分片恢复
 
 视觉设置与普通偏好一起由主 Dart 引擎提交；Swift 提交后通知每个 NativeGlassFactory，各独立引擎通过 appearance 通道只接收视觉快照。NativeGlassApp 重建主题并保留业务页面，NativeGlassSurface 使用单材料作用域防止嵌套折射。普通窗口由 NativeReadingCanvas 绘制贯穿标题与正文的 sRGB 阅读底色，NativeGlassWindowPage 使用同色且无内部圆角；contentLayoutGuide仅用于避让系统交互安全区。

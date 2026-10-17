@@ -108,6 +108,9 @@ abstract final class MethodNames {
   /// historyPage 的稳定协议值，变更须同步两端及持久化调用方。
   static const historyPage = 'historyPage';
 
+  /// 设置页读取 MCP helper 完整路径；与原生 AppConstants.mcpHelperPathMethod 一致。
+  static const mcpHelperPath = 'mcpHelperPath';
+
   /// historyRecording 的稳定协议值，变更须同步两端及持久化调用方。
   static const historyRecording = 'historyRecording';
 

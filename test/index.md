@@ -35,3 +35,4 @@ Dart业务逻辑和Flutter界面行为回归测试。
 30. [live_region_session_test.dart](live_region_session_test.dart)：验证实时翻译的段落块缓存、批次调度、三类失败、暂停恢复和迟到事件。
 31. [live_block_cache_test.dart](live_block_cache_test.dart)：验证段落块缓存的预算淘汰、最近使用顺序和失败记录。
 32. [numbered_batch_test.dart](numbered_batch_test.dart)：验证批次编号文本与流式输出按编号归属的边界。
+33. [mcp_settings_card_test.dart](mcp_settings_card_test.dart)：验证截图设置中 MCP 卡片的位置、开关自动保存、helper 路径展示、客户端配置复制与一秒「已复制」反馈。

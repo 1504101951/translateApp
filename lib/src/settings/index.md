@@ -11,3 +11,4 @@
 7. [service_editor.dart](service_editor.dart)：提供翻译服务参数与凭据的编辑表单。
 8. [settings_app.dart](settings_app.dart)：提供通用、翻译和截图设置以及后台自动保存。
 9. [settings_controller.dart](settings_controller.dart)：持有主引擎唯一设置快照、修订号和提交队列，并处理服务连接测试。
+10. [mcp_settings_card.dart](mcp_settings_card.dart)：提供截图设置中的 MCP 开关、helper 路径与客户端配置复制。

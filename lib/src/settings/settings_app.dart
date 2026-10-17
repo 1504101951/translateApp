@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import '../common/widgets/native_glass.dart';
 
 import 'app_settings.dart';
+import 'mcp_settings_card.dart';
 import 'service_config.dart';
 import 'screenshot_toolbar_editor.dart';
 import 'service_editor.dart';
@@ -802,6 +803,12 @@ class _SettingsPageState extends State<_SettingsPage>
                         screenshot: true,
                       ),
                     ],
+                  ),
+                  // McpSettingsCard 提供 MCP 开关、helper 路径与客户端配置复制；开关走同一自动保存。
+                  McpSettingsCard(
+                    enabled: settings.mcpEnabled,
+                    onChanged: (v) => _edit(() => settings.mcpEnabled = v),
+                    channel: _channel,
                   ),
                   NativeGlassGroup(
                     children: [

@@ -254,6 +254,8 @@ done < <(find "$package_stage/TranslateApp.app/Contents" -type f -name '*.dylib'
 for framework in "$package_stage/TranslateApp.app/Contents/Frameworks/"*.framework; do
   codesign "${sign_flags[@]}" "$framework"
 done
+# MCP helper 是 Contents/MacOS 中的独立可执行文件，须在外层 App 之前以固定标识签名（#96）。
+codesign "${sign_flags[@]}" --identifier "$bundle_id.mcp" "$package_stage/TranslateApp.app/Contents/MacOS/translateapp-mcp"
 # Flutter 可独立更新 App.framework；重新签封外层 App，使嵌套资源摘要与实际内容一致。
 codesign "${sign_flags[@]}" --entitlements macos/Runner/Release.entitlements "$package_stage/TranslateApp.app"
 codesign --verify --deep --strict "$package_stage/TranslateApp.app"
