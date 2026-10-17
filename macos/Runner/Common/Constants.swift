@@ -290,6 +290,8 @@ enum AppConstants {
     static let mcpDisabledMessage = "MCP is disabled in TranslateApp settings."
     /// 屏幕录制授权被拒绝时返回给 agent 的错误。
     static let mcpPermissionMessage = "TranslateApp lacks Screen Recording permission. Allow it in System Settings > Privacy & Security > Screen Recording, then retry."
+    /// 运行中的 App 与 helper 版本不一致、请求或结果结构无法解析时返回给 agent 的错误。
+    static let mcpVersionMismatchMessage = "TranslateApp and its MCP helper are different versions. Restart TranslateApp, then retry."
     /// OCR 没有识别到文字时返回给 agent 的文本。
     static let mcpNoTextMessage = "No text recognized."
     /// 设置中「允许 agent 截图」开关的偏好键；与 Dart PreferenceKeys.mcpEnabled 一致。

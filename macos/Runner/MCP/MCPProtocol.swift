@@ -400,18 +400,21 @@ final class MCPForwardCall {
         } catch MCPSocketError.notRunning {
             return .failed(message: AppConstants.mcpNotRunningMessage)
         } catch {
-            return .failed(message: "无法连接 TranslateApp：\(error)")
+            return .failed(message: "Cannot connect to TranslateApp: \(error)")
         }
         guard attach(connected) else { return nil }
         defer { detachAndClose(connected) }
         do {
             try MCPSocket.writeLine(JSONEncoder().encode(request), to: connected)
             guard let line = try MCPSocket.readLine(from: connected) else {
-                return isCancelled ? nil : .failed(message: "TranslateApp 未返回结果")
+                return isCancelled ? nil : .failed(message: "TranslateApp closed the connection without a result.")
             }
             return try JSONDecoder().decode(MCPToolReply.self, from: line)
+        } catch is DecodingError {
+            // 运行中的 App 与 helper 来自不同版本时结果结构不同。
+            return isCancelled ? nil : .failed(message: AppConstants.mcpVersionMismatchMessage)
         } catch {
-            return isCancelled ? nil : .failed(message: "与 TranslateApp 通信失败：\(error)")
+            return isCancelled ? nil : .failed(message: "Communication with TranslateApp failed: \(error)")
         }
     }
 

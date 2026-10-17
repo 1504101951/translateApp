@@ -69,7 +69,7 @@ final class MCPCaptureServer {
         }
         guard let request = try? JSONDecoder().decode(MCPToolRequest.self, from: line) else {
             // helper 与 App 版本不一致时请求结构可能不同，明确报错而不是静默断开。
-            let reply = MCPToolReply.failed(message: "TranslateApp 无法识别该请求，请确认 helper 与 App 来自同一版本")
+            let reply = MCPToolReply.failed(message: AppConstants.mcpVersionMismatchMessage)
             try? MCPSocket.writeLine(JSONEncoder().encode(reply), to: connection)
             close(connection)
             return
