@@ -30,6 +30,14 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         }
         return controller
     }()
+    /// MCP 请求入口；开关读取已提交的普通偏好，工具由 MCPToolRunner 执行。
+    @MainActor lazy var mcp = MCPCaptureServer(
+        isEnabled: {
+            let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+            return preferences[AppConstants.mcpEnabledKey] as? Bool == true
+        },
+        run: MCPToolRunner.run
+    )
     private var methods: FlutterMethodChannel?
     var onReady: (() -> Void)? {
         didSet {
@@ -287,9 +295,13 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             result(nil)
         case AppConstants.applicationSupportPathMethod:
             let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let dir = root.appendingPathComponent("TranslateApp", isDirectory: true)
+            let dir = root.appendingPathComponent(AppConstants.applicationSupportFolderName, isDirectory: true)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             result(dir.path)
+        case AppConstants.mcpHelperPathMethod:
+            // helper 与 App 主程序同在 Contents/MacOS，路径随 App 实际安装位置变化。
+            let executable = Bundle.main.executableURL!.deletingLastPathComponent()
+            result(executable.appendingPathComponent(AppConstants.mcpHelperName).path)
         case AppConstants.historyChangedMethod:
             NotificationCenter.default.post(name: AppConstants.historyChangedNotification, object: nil)
             result(nil)

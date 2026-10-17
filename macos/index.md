@@ -7,5 +7,6 @@ macOS原生代码、Xcode工程、构建配置与测试。
 3. [Runner.xcodeproj/](Runner.xcodeproj/index.md)：Xcode应用和测试目标的工程定义与共享方案。
 4. [Runner.xcworkspace/](Runner.xcworkspace/index.md)：macOS应用的顶层Xcode工作区。
 5. [RunnerTests/](RunnerTests/index.md)：原生平台桥、窗口、输入与截图存储回归测试。
-6. [.gitignore](.gitignore)：定义构建产物、缓存及本机配置的Git忽略范围。
-7. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
+6. [TranslateAppMCP/](TranslateAppMCP/index.md)：由 MCP 客户端以 stdio 启动、把截图请求转给运行中 App 的 helper 命令行程序。
+7. [.gitignore](.gitignore)：定义构建产物、缓存及本机配置的Git忽略范围。
+8. [index.md](index.md)：索引本目录直接子文件和子目录的用途。

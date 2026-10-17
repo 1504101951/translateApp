@@ -281,6 +281,37 @@ enum AppConstants {
     static let nativeGlassViewType = "translateapp/native-glass"
     /// undoPressed 协议值；与Dart常量及持久化调用方同步。
     static let undoPressedMethod = "undoPressed"
+
+    /// App 在用户 Application Support 下的数据目录名；历史库与 MCP socket 共用。
+    static let applicationSupportFolderName = "TranslateApp"
+    /// MCP 接口（#96、#68「MCP 接口边界」）：stdio helper 与 App 共用的名称、图片预算和英文协议文案。
+    /// helper 可执行文件名，位于 App 包 Contents/MacOS。
+    static let mcpHelperName = "translateapp-mcp"
+    /// MCP serverInfo.name 与客户端配置中的服务名。
+    static let mcpServerName = "translateapp"
+    /// helper 连接 App 的 Unix domain socket 文件名，位于 Application Support 数据目录。
+    static let mcpSocketFileName = "mcp.sock"
+    /// 返回图片长边上限，单位像素（#96 决策 3）。
+    static let mcpImageMaxEdge = 1568
+    /// Claude 视觉 token 的切块边长，单位像素；token 数为 ⌈宽/28⌉×⌈高/28⌉（#96 决策 3）。
+    static let mcpTokenPatch = 28
+    /// 连接不到 App 时返回给 agent 的错误。
+    static let mcpNotRunningMessage = "TranslateApp is not running."
+    /// 设置中 MCP 开关关闭时返回给 agent 的错误。
+    static let mcpDisabledMessage = "MCP is disabled in TranslateApp settings."
+    /// 屏幕录制授权被拒绝时返回给 agent 的错误。
+    static let mcpPermissionMessage = "TranslateApp lacks Screen Recording permission. Allow it in System Settings > Privacy & Security > Screen Recording, then retry."
+    /// 运行中的 App 与 helper 版本不一致、请求或结果结构无法解析时返回给 agent 的错误。
+    static let mcpVersionMismatchMessage = "TranslateApp and its MCP helper are different versions. Restart TranslateApp, then retry."
+    /// OCR 没有识别到文字时返回给 agent 的文本。
+    static let mcpNoTextMessage = "No text recognized."
+    /// 设置中「允许 agent 截图」开关的偏好键；与 Dart PreferenceKeys.mcpEnabled 一致。
+    static let mcpEnabledKey = "mcpEnabled"
+    /// 设置页读取 helper 完整路径的方法；与 Dart MethodNames.mcpHelperPath 一致。
+    static let mcpHelperPathMethod = "mcpHelperPath"
+    /// 截图类工具执行期间的菜单栏图标与最短保持时间（#96 待确认的界面数值）。
+    static let mcpCaptureSymbol = "camera.viewfinder"
+    static let mcpCaptureIndicatorMinimum = Duration.milliseconds(1000)
 }
 
 /// 跨端选区手势；rawValue与Dart SelectionGestureTypes保持一致。
@@ -300,5 +331,31 @@ enum SelectionGesture: String {
         let navigationKeys: Set<UInt16> = [115, 116, 119, 121, 123, 124, 125, 126]
         if flags.contains(.shift), navigationKeys.contains(keyCode) { return .keyboard }
         return nil
+    }
+}
+
+/// MCP 工具；rawValue 为协议工具名（#96），均无需用户操作。
+enum MCPTool: String, CaseIterable {
+    case listDisplays = "list_displays"
+    case listWindows = "list_windows"
+    case captureScreen = "capture_screen"
+    case captureRect = "capture_rect"
+    case captureWindow = "capture_window"
+}
+
+/// MCP 截图工具的 output 参数；rawValue 为协议取值，缺省为 image。
+enum MCPOutput: String, Codable, CaseIterable {
+    case image, text, both
+}
+
+/// MCP 截图工具的清晰度；rawValue 为协议取值，tokenBudget 为该清晰度的视觉 token 上限（#96 决策 3）。
+enum MCPDetail: String, Codable, CaseIterable {
+    case low, standard
+
+    var tokenBudget: Int {
+        switch self {
+        case .low: 512
+        case .standard: 1568
+        }
     }
 }

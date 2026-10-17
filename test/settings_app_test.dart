@@ -288,12 +288,22 @@ void main() {
     // 配置入口在截图页底部默认收起；展开后仍在当前页，且只包含顶层工具。
     final section = find.byKey(const ValueKey('screenshot-toolbar-section'));
     expect(find.text('设置快捷键'), findsNothing);
+    // 截图页高于窗口，列表按需构建；先滚到底部入口再比较两者位置。
+    await tester.scrollUntilVisible(
+      section,
+      150,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
     expect(
       tester.getTopLeft(section).dy,
       greaterThan(tester.getTopLeft(find.byKey(const ValueKey('区域截图快捷键'))).dy),
     );
-    await tester.ensureVisible(section);
-    await tester.pumpAndSettle();
     await tester.tap(find.text('截图工具栏'));
     await tester.pumpAndSettle();
     expect(find.byType(Dialog), findsNothing);
@@ -349,6 +359,9 @@ void main() {
     await tester.enterText(width, '600');
     await tester.pumpAndSettle();
     expect(settings[PreferenceKeys.gifMaximumWidth], 600);
+    // 输入框滚动后帧率下拉可能位于固定导航下方，点击前先滚入可见区域。
+    await tester.ensureVisible(find.text('10 fps'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('10 fps'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('15 fps'));
@@ -369,7 +382,17 @@ void main() {
           .first,
     );
     expect(find.textContaining('最大宽度须为正整数'), findsOneWidget);
-    await tester.ensureVisible(width);
+    // 滚到底部提示后输入框可能已移出按需构建范围，反向滚回。
+    await tester.scrollUntilVisible(
+      width,
+      -150,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.enterText(width, '');
     await tester.pumpAndSettle();
     expect(settings.containsKey(PreferenceKeys.gifMaximumWidth), isFalse);

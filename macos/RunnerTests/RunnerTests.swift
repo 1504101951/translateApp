@@ -626,9 +626,9 @@ class RunnerTests: XCTestCase {
         XCTAssertFalse(TextSelectionContext.shouldCopySelection(ancestorRoles: ["AXTextArea"], hasAXText: true, allowCopy: true))
     }
 
-    /// 无参数；在位图上绘制文字后 OCR 必须读出该词，空图返回空串。
+    /// 无参数；在位图上绘制文字后 OCR Markdown 必须读出该词，空图返回空串。
     @MainActor
-    func testScreenCaptureOcrReadsDrawnText() throws {
+    func testScreenCaptureOcrReadsDrawnText() async throws {
         let image = NSImage(size: NSSize(width: 200, height: 60))
         image.lockFocus()
         NSColor.white.setFill()
@@ -642,7 +642,7 @@ class RunnerTests: XCTestCase {
         let tiff = try XCTUnwrap(image.tiffRepresentation)
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-        let recognized = try ScreenCaptureService.recognizeText(png: png)
+        let recognized = try await ScreenCaptureService.recognizeText(png: png)
         XCTAssertTrue(recognized.contains("HelloOCR"), recognized)
         let blocks = try ScreenCaptureService.recognizeBlocks(png: png)
         XCTAssertFalse(blocks.isEmpty)
@@ -657,7 +657,7 @@ class RunnerTests: XCTestCase {
         let blankTiff = try XCTUnwrap(blank.tiffRepresentation)
         let blankBitmap = try XCTUnwrap(NSBitmapImageRep(data: blankTiff))
         let blankPng = try XCTUnwrap(blankBitmap.representation(using: .png, properties: [:]))
-        let empty = try ScreenCaptureService.recognizeText(png: blankPng)
+        let empty = try await ScreenCaptureService.recognizeText(png: blankPng)
         XCTAssertTrue(empty.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
