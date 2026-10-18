@@ -341,23 +341,26 @@ class RunnerTests: XCTestCase {
     func testOverlayStaysAboveReorderedFloatingSource() throws {
         let source = NSPanel(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        source.level = .floating
         let existing = Set(NSApp.windows.map { ObjectIdentifier($0) })
         let overlay = OverlayPanelController()
         let panel = try XCTUnwrap(NSApp.windows.first { $0 is TranslationPanel && !existing.contains(ObjectIdentifier($0)) })
         let sourcePID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         defer { overlay.hide(sessionId: "stacking"); source.orderOut(nil) }
-        for size in [NSSize(width: 84, height: 36), NSSize(width: 380, height: 360)] {
-            overlay.show(at: NSPoint(x: 250, y: 450), size: size, sessionId: "stacking")
-            // 模拟来源 App 在点击、重绘后重新置前；检查窗口服务器真实前后顺序。
-            source.orderFrontRegardless()
-            let windows = try XCTUnwrap(NSWindow.windowNumbers(options: .allApplications))
-            let overlayIndex = try XCTUnwrap(windows.firstIndex(of: NSNumber(value: panel.windowNumber)))
-            let sourceIndex = try XCTUnwrap(windows.firstIndex(of: NSNumber(value: source.windowNumber)))
-            XCTAssertLessThan(overlayIndex, sourceIndex, "翻译浮层被来源浮动窗口覆盖")
-            XCTAssertFalse(panel.canBecomeKey)
-            XCTAssertFalse(panel.canBecomeMain)
-            XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, sourcePID)
+        // Warp 等置顶窗口可能使用 floating、status-bar 或 pop-up 层级。
+        for level in [NSWindow.Level.floating, .statusBar, .popUpMenu] {
+            source.level = level
+            for size in [NSSize(width: 84, height: 36), NSSize(width: 380, height: 360)] {
+                overlay.show(at: NSPoint(x: 250, y: 450), size: size, sessionId: "stacking")
+                // 模拟来源 App 在点击、重绘后重新置前；检查窗口服务器真实前后顺序。
+                source.orderFrontRegardless()
+                let windows = try XCTUnwrap(NSWindow.windowNumbers(options: .allApplications))
+                let overlayIndex = try XCTUnwrap(windows.firstIndex(of: NSNumber(value: panel.windowNumber)))
+                let sourceIndex = try XCTUnwrap(windows.firstIndex(of: NSNumber(value: source.windowNumber)))
+                XCTAssertLessThan(overlayIndex, sourceIndex, "翻译浮层被来源浮动窗口覆盖")
+                XCTAssertFalse(panel.canBecomeKey)
+                XCTAssertFalse(panel.canBecomeMain)
+                XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, sourcePID)
+            }
         }
     }
 
