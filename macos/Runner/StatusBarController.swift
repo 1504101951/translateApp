@@ -111,7 +111,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     /// 无参数。菜单栏中止执行结束语义，不放弃本次结果。
-    /// 作用：MCP 截图开始，菜单栏图标换为采集图标（#96 待确认值：camera.viewfinder，至少保持 1000ms）。
+    /// 作用：MCP 截图开始，菜单栏图标换为采集图标（#96「界面数值」：camera.viewfinder，至少保持 1000ms）。
     /// 实时翻译的中止图标优先，期间不切换图标。
     /// 返回：截图结束时调用的回调；到达最短保持时间后计数减一，无进行中截图时恢复普通图标。
     func beginMCPCapture() -> () -> Void {

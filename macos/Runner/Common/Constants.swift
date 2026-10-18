@@ -298,7 +298,7 @@ enum AppConstants {
     static let mcpEnabledKey = "mcpEnabled"
     /// 设置页读取 helper 完整路径的方法；与 Dart MethodNames.mcpHelperPath 一致。
     static let mcpHelperPathMethod = "mcpHelperPath"
-    /// 截图类工具执行期间的菜单栏图标与最短保持时间（#96 待确认的界面数值）。
+    /// 截图类工具执行期间的菜单栏图标与最短保持时间（#96「界面数值」）。
     static let mcpCaptureSymbol = "camera.viewfinder"
     static let mcpCaptureIndicatorMinimum = Duration.milliseconds(1000)
 }

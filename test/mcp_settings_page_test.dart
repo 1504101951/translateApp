@@ -158,7 +158,7 @@ void main() {
     // 反馈文字切换不改变按钮宽度。
     expect(tester.getSize(copy).width, width);
 
-    // 边界依据：#96 待确认值 1000ms；999ms 仍显示，1000ms 恢复。
+    // 边界依据：#96「界面数值」1000ms；999ms 仍显示，1000ms 恢复。
     await tester.pump(const Duration(milliseconds: 999));
     expect(find.text('已复制'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 1));

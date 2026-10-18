@@ -158,7 +158,7 @@ class _McpSettingsPageState extends State<McpSettingsPage> {
     }
   }
 
-  /// 无参数；把客户端配置写入剪贴板，按钮文字显示「已复制」1000ms（#96 待确认值）。
+  /// 无参数；把客户端配置写入剪贴板，按钮文字显示「已复制」1000ms（#96「界面数值」）。
   Future<void> _copy() async {
     await Clipboard.setData(
       ClipboardData(text: McpSettingsPage.clientConfig(_helperPath!)),
