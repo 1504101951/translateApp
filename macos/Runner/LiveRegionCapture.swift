@@ -52,6 +52,8 @@ final class LiveRegionCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     var onFrame: ((NSRect) -> Void)?
 
     private let queue = DispatchQueue(label: "translateapp.live-frames")
+    /// SCStreamConfiguration.backgroundColor 为 assign/unowned，必须由本类持有，避免临时 CGColor 立刻释放。
+    private let background = CGColor(gray: 0, alpha: 1)
     private var slot = LiveOcrSlot()
     private var streams: [SCStream] = []
     private var frames: [ObjectIdentifier: CMSampleBuffer] = [:]
@@ -320,7 +322,7 @@ final class LiveRegionCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 let config = baseConfig(width: Int((display.frame.width * CGFloat(filter.pointPixelScale)).rounded()),
                                          height: Int((display.frame.height * CGFloat(filter.pointPixelScale)).rounded()),
                                          interval: interval)
-                config.backgroundColor = CGColor(gray: 0, alpha: 1)
+                config.backgroundColor = background
                 let stream = SCStream(filter: filter, configuration: config, delegate: self)
                 streams.append((
                     stream,
