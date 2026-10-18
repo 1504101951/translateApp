@@ -45,6 +45,9 @@ abstract final class PreferenceKeys {
   /// 实时翻译时是否同步录制；与原生偏好键一致。
   static const liveRecording = 'liveRecording';
 
+  /// 是否允许本机 MCP 客户端截图（#96）；与原生 AppConstants.mcpEnabledKey 一致。
+  static const mcpEnabled = 'mcpEnabled';
+
   /// GIF最大像素宽度；省略表示不限制，输出仍不会放大原视频。
   static const gifMaximumWidth = 'gifMaximumWidth';
 

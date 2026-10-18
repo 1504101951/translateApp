@@ -425,6 +425,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final bytes = await tester.runAsync(_pngCheckerboard);
     const channel = MethodChannel('test/screenshot-ocr');
+    // 原生识别结果为 Markdown；「复制全部」必须复制这段原文而不是渲染后的文字。
+    const markdown = '# Hello\n\n| World |\n| --- |';
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final calls = <MethodCall>[];
@@ -440,7 +442,7 @@ void main() {
           'directory': '',
         };
       }
-      if (call.method == MethodNames.recognizeText) return 'Hello\nWorld';
+      if (call.method == MethodNames.recognizeText) return markdown;
       if (call.method == MethodNames.copyText) return null;
       return null;
     });
@@ -452,22 +454,24 @@ void main() {
       calls.where((c) => c.method == MethodNames.recognizeText),
       isNotEmpty,
     );
-    // 识别完成只打开弹窗，不写剪贴板；弹窗里是识别到的全部文字。
+    // 识别完成只打开弹窗，不写剪贴板；弹窗渲染 Markdown，不显示标记符号。
     expect(calls.where((c) => c.method == MethodNames.copyText), isEmpty);
-    expect(find.text('Hello\nWorld'), findsOneWidget);
+    expect(find.text('Hello'), findsOneWidget);
+    expect(find.text('World'), findsOneWidget);
+    expect(find.textContaining('# '), findsNothing);
     await tester.tap(find.byTooltip('复制全部'));
     await tester.pump();
     expect(
       calls.where((c) => c.method == MethodNames.copyText).single.arguments,
-      {'text': 'Hello\nWorld'},
+      {'text': markdown},
     );
     expect(find.text('已复制文字'), findsOneWidget);
     // 复制后弹窗不自动关闭；点关闭才消失。
     await tester.pump(const Duration(seconds: 2));
-    expect(find.text('Hello\nWorld'), findsOneWidget);
+    expect(find.text('Hello'), findsOneWidget);
     await tester.tap(find.byTooltip('关闭').last);
     await tester.pump();
-    expect(find.text('Hello\nWorld'), findsNothing);
+    expect(find.text('Hello'), findsNothing);
   });
 
   testWidgets('截图翻译完成后在识别位置显示译文', (tester) async {

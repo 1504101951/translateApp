@@ -12,6 +12,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var accessItem: NSMenuItem?
     private var stopCaptureItem: NSMenuItem?
     private var liveAbort = false
+    /// 执行中或仍在最短保持时间内的 MCP 截图数；大于 0 时显示采集图标。
+    private var mcpCaptures = 0
     private var abortLiveTranslation: (() -> Void)?
     var showSettings: (() -> Void)?
     var refreshSettings: (() -> Void)?
@@ -24,12 +26,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.isVisible = true
-        if let image = NSImage(systemSymbolName: "translate", accessibilityDescription: "选区翻译")
-            ?? NSImage(systemSymbolName: "globe", accessibilityDescription: "选区翻译") {
-            image.isTemplate = true
-            item.button?.image = image
-            item.button?.imagePosition = .imageOnly
-        }
+        item.button?.image = idleImage()
+        item.button?.imagePosition = .imageOnly
         // 图标独占菜单栏方形位置，名称仍通过悬停与辅助功能提供。
         item.button?.title = ""
         item.button?.setAccessibilityLabel("选区翻译")
@@ -106,17 +104,46 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
         button?.action = nil
         button?.target = nil
-        if let image = NSImage(systemSymbolName: "translate", accessibilityDescription: "选区翻译")
-            ?? NSImage(systemSymbolName: "globe", accessibilityDescription: "选区翻译") {
-            image.isTemplate = true
-            button?.image = image
-        }
+        button?.image = idleImage()
         button?.toolTip = "选区翻译"
         button?.setAccessibilityLabel("选区翻译")
         reloadMenu()
     }
 
     /// 无参数。菜单栏中止执行结束语义，不放弃本次结果。
+    /// 作用：MCP 截图开始，菜单栏图标换为采集图标（#96 待确认值：camera.viewfinder，至少保持 1000ms）。
+    /// 实时翻译的中止图标优先，期间不切换图标。
+    /// 返回：截图结束时调用的回调；到达最短保持时间后计数减一，无进行中截图时恢复普通图标。
+    func beginMCPCapture() -> () -> Void {
+        mcpCaptures += 1
+        updateMCPIcon()
+        let started = ContinuousClock.now
+        return { [weak self] in
+            Task { @MainActor in
+                try? await Task.sleep(until: started + AppConstants.mcpCaptureIndicatorMinimum, clock: .continuous)
+                guard let self else { return }
+                self.mcpCaptures -= 1
+                self.updateMCPIcon()
+            }
+        }
+    }
+
+    /// 无参数；按 MCP 截图计数设置非实时翻译状态下的图标，无返回值。
+    private func updateMCPIcon() {
+        guard !liveAbort else { return }
+        statusItem?.button?.image = idleImage()
+    }
+
+    /// 无参数；返回非实时翻译状态的模板图标：MCP 截图进行中为采集图标，否则为翻译图标。
+    private func idleImage() -> NSImage? {
+        let image = mcpCaptures > 0
+            ? NSImage(systemSymbolName: AppConstants.mcpCaptureSymbol, accessibilityDescription: "agent 截图中")
+            : NSImage(systemSymbolName: "translate", accessibilityDescription: "选区翻译")
+                ?? NSImage(systemSymbolName: "globe", accessibilityDescription: "选区翻译")
+        image?.isTemplate = true
+        return image
+    }
+
     @objc private func abortLive() {
         abortLiveTranslation?()
     }

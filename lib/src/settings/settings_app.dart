@@ -11,28 +11,40 @@ import 'package:flutter/services.dart';
 import '../common/widgets/native_glass.dart';
 
 import 'app_settings.dart';
+import 'mcp_platforms.dart';
+import 'mcp_settings_page.dart';
 import 'service_config.dart';
 import 'screenshot_toolbar_editor.dart';
 import 'service_editor.dart';
 
 /// 设置窗口顶部分段；仅控制展示，不进入持久化偏好。
-enum SettingsSection { general, translation, screenshot }
+enum SettingsSection { general, translation, screenshot, mcp }
 
 /// 独立可激活窗口的设置 UI；所有偏好读写由主 Dart 引擎处理。
 class SettingsApp extends StatelessWidget {
-  const SettingsApp({super.key});
+  /// createMcpService 按 helper 路径创建 MCP 接入平台服务；缺省执行真实 CLI 与读写真实配置。
+  const SettingsApp({
+    super.key,
+    this.createMcpService = McpSettingsPage.defaultService,
+  });
+
+  final McpPlatformService Function(String helperPath) createMcpService;
 
   /// context 为设置引擎的构建上下文；返回完整设置应用。
   @override
   Widget build(BuildContext context) => NativeGlassApp(
     title: 'TranslateApp 设置',
-    home: const NativeGlassWindowPage(child: _SettingsPage()),
+    home: NativeGlassWindowPage(
+      child: _SettingsPage(createMcpService: createMcpService),
+    ),
   );
 }
 
 /// 设置页有状态入口；将主题应用与草稿、保存事务生命周期分开。
 class _SettingsPage extends StatefulWidget {
-  const _SettingsPage();
+  const _SettingsPage({required this.createMcpService});
+
+  final McpPlatformService Function(String helperPath) createMcpService;
   @override
   State<_SettingsPage> createState() => _SettingsPageState();
 }
@@ -430,11 +442,13 @@ class _SettingsPageState extends State<_SettingsPage>
                     SettingsSection.general: '通用',
                     SettingsSection.translation: '翻译',
                     SettingsSection.screenshot: '截图',
+                    SettingsSection.mcp: 'MCP',
                   },
                   icons: const {
                     SettingsSection.general: Icons.tune,
                     SettingsSection.translation: Icons.translate,
                     SettingsSection.screenshot: Icons.crop_free,
+                    SettingsSection.mcp: Icons.hub_outlined,
                   },
                   onChanged: (value) => setState(() => _section = value),
                 ),
@@ -713,7 +727,7 @@ class _SettingsPageState extends State<_SettingsPage>
                       ),
                     ],
                   ),
-                ] else ...[
+                ] else if (_section == SettingsSection.screenshot) ...[
                   NativeGlassGroup(
                     children: [
                       const Text(
@@ -827,6 +841,14 @@ class _SettingsPageState extends State<_SettingsPage>
                         ],
                       ),
                     ],
+                  ),
+                ] else ...[
+                  // McpSettingsPage 提供 MCP 开关、helper 路径、配置复制与接入平台列表；开关走同一自动保存。
+                  McpSettingsPage(
+                    enabled: settings.mcpEnabled,
+                    onChanged: (v) => _edit(() => settings.mcpEnabled = v),
+                    channel: _channel,
+                    createService: widget.createMcpService,
                   ),
                 ],
 
