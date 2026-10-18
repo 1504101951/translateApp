@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../common/constants/glass_metrics.dart';
 import '../common/widgets/native_glass.dart';
+import 'markdown_view.dart';
 
-/// 截图里“识别文字”结果的弹窗；外观与尺寸沿用翻译弹窗，只显示识别到的文字。
+/// 截图里“识别文字”结果的弹窗；外观与尺寸沿用翻译弹窗，正文把识别结果 Markdown 渲染后显示。
 ///
-/// 打开弹窗不写剪贴板：用户可以选中部分文字自行复制，或点“复制全部”。弹窗不自动关闭。
+/// 打开弹窗不写剪贴板：用户可以选中部分文字自行复制，或点“复制全部”复制 Markdown 原文。弹窗不自动关闭。
 class RecognizedTextPanel extends StatelessWidget {
-  /// text 为识别到的全部文字；onCopyAll 复制全部文字；onClose 关闭弹窗；
+  /// text 为识别结果 Markdown 原文；onCopyAll 复制原文；onClose 关闭弹窗；
   /// onDrag 接收标题区拖动的位移，由调用方移动弹窗。
   const RecognizedTextPanel({
     super.key,
@@ -94,14 +95,8 @@ class RecognizedTextPanel extends StatelessWidget {
                 child: SizedBox.expand(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(8),
-                    child: SelectableText(
-                      text,
-                      style: TextStyle(
-                        fontSize: GlassMetrics.bodyFont,
-                        height: GlassMetrics.bodyLine / GlassMetrics.bodyFont,
-                        color: colors.onSurface,
-                      ),
-                    ),
+                    // MarkdownView 只在显示时渲染识别结果；SelectionArea 让标题、段落、列表与表格内文字都可选中复制。
+                    child: SelectionArea(child: MarkdownView(source: text)),
                   ),
                 ),
               ),
