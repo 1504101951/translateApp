@@ -6,17 +6,11 @@ import ApplicationServices
 final class SelectionMonitor {
     private(set) var automatic = false
     private var excludedApps: Set<String> = []
-    private var hotKey: EventHotKeyRef?
-    private var screenshotHotKey: EventHotKeyRef?
-    private var translationHotKeyId: UInt32 = 1
-    private var screenshotHotKeyId: UInt32 = 2
-    private var nextHotKeyId: UInt32 = 3
-    private var screenshotKeyCode: UInt32?
-    private var screenshotModifiers: UInt32 = 0
+    /// 已注册的全局热键；键为用途，值为系统热键 ID、组合与注册引用，按用途查找避免多组平行变量。
+    private var hotKeys: [GlobalHotKey: RegisteredHotKey] = [:]
+    private var nextHotKeyId: UInt32 = 1
     var isCapturingScreenshot = false
     private var hotKeyHandler: EventHandlerRef?
-    private var shortcutKeyCode: UInt32?
-    private var shortcutModifiers: UInt32 = 0
     private var detector = SelectionGestureDetector()
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
@@ -30,12 +24,30 @@ final class SelectionMonitor {
     private var ignoreMouseGesture = false
     private var pendingKeySelection: (keyCode: UInt16, gesture: SelectionGesture)?
 
-    /// 配置均来自 Dart；注册新热键成功后才替换旧配置，失败抛出系统错误。
-    func configure(automatic: Bool, excludedApps: Set<String>, keyCode: UInt32, modifiers: UInt32, screenshotCode: UInt32, screenshotFlags: UInt32) throws {
-        try Self.validateShortcut(keyCode: keyCode, modifiers: modifiers)
-        try Self.validateShortcut(keyCode: screenshotCode, modifiers: screenshotFlags)
-        guard keyCode != screenshotCode || modifiers != screenshotFlags else {
-            throw NSError(domain: "TranslateApp", code: 3, userInfo: [NSLocalizedDescriptionKey: "翻译与截图快捷键不能相同。"])
+    /// 一个已注册的全局热键；id 为系统回调中的热键标识，binding 为组合，reference 为注销用的系统引用。
+    struct RegisteredHotKey {
+        let id: UInt32
+        let binding: HotKeyBinding
+        let reference: EventHotKeyRef
+    }
+
+    /// 一个快捷键组合；keyCode 为硬件键码，modifiers 为 Carbon 修饰键位。
+    struct HotKeyBinding: Hashable {
+        let keyCode: UInt32
+        let modifiers: UInt32
+    }
+
+    /// automatic/excludedApps 为选区采集配置，shortcuts 为三种用途各自的组合，均来自 Dart。
+    /// 全部新组合注册成功后才替换旧配置；组合非法、重复或被占用时抛出错误并保留原注册。
+    func configure(automatic: Bool, excludedApps: Set<String>, shortcuts: [GlobalHotKey: HotKeyBinding]) throws {
+        guard Set(GlobalHotKey.allCases) == Set(shortcuts.keys) else {
+            throw NSError(domain: "TranslateApp", code: 4, userInfo: [NSLocalizedDescriptionKey: "全局快捷键配置不完整。"])
+        }
+        for binding in shortcuts.values {
+            try Self.validateShortcut(keyCode: binding.keyCode, modifiers: binding.modifiers)
+        }
+        guard Set(shortcuts.values).count == shortcuts.count else {
+            throw NSError(domain: "TranslateApp", code: 3, userInfo: [NSLocalizedDescriptionKey: "翻译、输入翻译与截图快捷键不能相同。"])
         }
         if hotKeyHandler == nil {
             var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -47,59 +59,56 @@ final class SelectionMonitor {
                 guard identifier.signature == 0x5452414E else { return OSStatus(eventNotHandledErr) }
                 let monitor = Unmanaged<SelectionMonitor>.fromOpaque(context).takeUnretainedValue()
                 Task { @MainActor in
-                    guard identifier.id == monitor.translationHotKeyId || identifier.id == monitor.screenshotHotKeyId else { return }
+                    guard let entry = monitor.hotKeys.first(where: { $0.value.id == identifier.id }) else { return }
+                    // 录制快捷键时，已注册组合被系统吞掉，直接把组合交给录制方。
                     if let recorder = MacPlatformBridge.Shared.instance?.shortcutRecorder {
-                        let screenshot = identifier.id == monitor.screenshotHotKeyId
-                        recorder(screenshot ? monitor.screenshotKeyCode! : monitor.shortcutKeyCode!, screenshot ? monitor.screenshotModifiers : monitor.shortcutModifiers)
+                        recorder(entry.value.binding.keyCode, entry.value.binding.modifiers)
                         return
                     }
-                    if identifier.id == monitor.screenshotHotKeyId {
+                    switch entry.key {
+                    case .screenshot:
                         MacPlatformBridge.Shared.instance?.screenshot.capture()
-                        return
+                    case .translate:
+                        // 翻译热键复用选区读取，不激活 TranslateApp。
+                        monitor.capture(gesture: .hotkey)
+                    case .input:
+                        // 输入翻译读取当前输入，完成后由 Dart 请求替换原文。
+                        monitor.capture(gesture: .inputHotkey)
                     }
-                    // 翻译热键仍复用选区读取，不激活 TranslateApp。
-                    monitor.capture(gesture: .hotkey)
                 }
                 return noErr
             }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
             guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
         }
-        let previous = [
-            (translationHotKeyId, shortcutKeyCode, shortcutModifiers, hotKey),
-            (screenshotHotKeyId, screenshotKeyCode, screenshotModifiers, screenshotHotKey),
-        ]
-        var replacements: [(UInt32, EventHotKeyRef)] = []
+        var replacements: [GlobalHotKey: RegisteredHotKey] = [:]
         var created: [EventHotKeyRef] = []
         do {
-            // 同一个已注册组合可换用途：交换截图/翻译组合无需释放系统占用。
-            for (code, flags) in [(keyCode, modifiers), (screenshotCode, screenshotFlags)] {
-                if let existing = previous.first(where: { $0.1 == code && $0.2 == flags }), let reference = existing.3 {
-                    replacements.append((existing.0, reference))
+            // 已注册的组合可直接换用途：交换任意两个快捷键无需释放系统占用。
+            for purpose in GlobalHotKey.allCases {
+                let binding = shortcuts[purpose]!
+                if let existing = hotKeys.values.first(where: { $0.binding == binding }) {
+                    replacements[purpose] = RegisteredHotKey(id: existing.id, binding: binding, reference: existing.reference)
                     continue
                 }
-                var replacement: EventHotKeyRef?
+                var reference: EventHotKeyRef?
                 let id = nextHotKeyId
                 nextHotKeyId += 1
-                let status = RegisterEventHotKey(code, flags, EventHotKeyID(signature: 0x5452414E, id: id), GetEventDispatcherTarget(), OptionBits(kEventHotKeyExclusive), &replacement)
-                guard status == noErr, let replacement else {
+                let status = RegisterEventHotKey(binding.keyCode, binding.modifiers, EventHotKeyID(signature: 0x5452414E, id: id), GetEventDispatcherTarget(), OptionBits(kEventHotKeyExclusive), &reference)
+                guard status == noErr, let reference else {
                     throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [NSLocalizedDescriptionKey: "快捷键已被占用，请换一个组合。"])
                 }
-                created.append(replacement)
-                replacements.append((id, replacement))
+                created.append(reference)
+                replacements[purpose] = RegisteredHotKey(id: id, binding: binding, reference: reference)
             }
         } catch {
-            for key in created { UnregisterEventHotKey(key) }
+            for reference in created { UnregisterEventHotKey(reference) }
             throw error
         }
-        for old in previous where !replacements.contains(where: { $0.0 == old.0 }) {
-            if let key = old.3 { UnregisterEventHotKey(key) }
+        // 新配置不再使用的旧组合才注销，复用的组合保留系统占用。
+        for old in hotKeys.values where !replacements.values.contains(where: { $0.id == old.id }) {
+            UnregisterEventHotKey(old.reference)
         }
-        (translationHotKeyId, hotKey) = replacements[0]
-        (screenshotHotKeyId, screenshotHotKey) = replacements[1]
-        shortcutKeyCode = keyCode
-        shortcutModifiers = modifiers
-        screenshotKeyCode = screenshotCode
-        screenshotModifiers = screenshotFlags
+        hotKeys = replacements
         self.automatic = automatic
         self.excludedApps = excludedApps
         detector = SelectionGestureDetector()
@@ -176,8 +185,7 @@ final class SelectionMonitor {
 
     /// 无参数；释放事件监听和待完成读取，防止残留回调。
     deinit {
-        if let hotKey { UnregisterEventHotKey(hotKey) }
-        if let screenshotHotKey { UnregisterEventHotKey(screenshotHotKey) }
+        for registered in hotKeys.values { UnregisterEventHotKey(registered.reference) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
         captureTask?.cancel()
         validationTask?.cancel()
@@ -259,7 +267,7 @@ final class SelectionMonitor {
     private func capture(gesture: SelectionGesture) {
         guard !isCapturingScreenshot else { return }
         // 保留的译文框不消费新的被动选区；全局热键仍可明确发起下一次翻译。
-        guard gesture == .hotkey || MacPlatformBridge.Shared.instance?.retainsResult != true else { return }
+        guard gesture.isExplicit || MacPlatformBridge.Shared.instance?.retainsResult != true else { return }
         captureTask?.cancel()
         guard let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != getpid(),
@@ -270,14 +278,20 @@ final class SelectionMonitor {
         captureTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
             // 读取绑定手势来源，切换应用或新手势会取消本次读取。
-            let selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid, allowCopy: gesture == .hotkey)
+            var selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid, allowCopy: gesture.isExplicit)
+            // 输入翻译读不到选区时，在非安全文本输入框内全选后再读，替换整个输入框。
+            if gesture == .inputHotkey, (selection.text ?? "").isEmpty, !Task.isCancelled,
+               AccessibilitySelection.selectAllInFocusedTextInput(sourcePID: pid) {
+                do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
+                selection = await AccessibilitySelection.readFrontmostSelection(sourcePID: pid, allowCopy: true)
+            }
             guard self?.isCapturingScreenshot != true, !Task.isCancelled, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-                  gesture == .hotkey || MacPlatformBridge.Shared.instance?.retainsResult != true else { return }
+                  gesture.isExplicit || MacPlatformBridge.Shared.instance?.retainsResult != true else { return }
             let text = selection.text ?? ""
             let keyboardCandidate = (gesture == .selectAll || gesture == .keyboard)
                 && AccessibilitySelection.permitsKeyboardTrigger(sourcePID: pid)
             // 明确热键即使读不到文字也要展示失败卡片，不能静默丢弃用户操作。
-            guard gesture == .hotkey || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || keyboardCandidate else {
+            guard gesture.isExplicit || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || keyboardCandidate else {
                 MacPlatformBridge.Shared.instance?.invalidateSelection()
                 return
             }

@@ -1,4 +1,5 @@
 import Cocoa
+import Carbon
 import Security
 import LocalAuthentication
 import NaturalLanguage
@@ -205,6 +206,18 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 guard let self, !Task.isCancelled, self.currentSessionId == sessionId else { result(nil); return }
                 result(selection.text)
             }
+        case AppConstants.replaceSelectionMethod:
+            guard let sessionId = args["sessionId"] as? String, let text = args["text"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "替换选区需要 sessionId/text", details: nil)); return
+            }
+            // 只替换仍属于本会话、仍在前台且未开启安全输入的来源应用；其余情况保留卡片供手动复制。
+            guard currentSessionId == sessionId, let pid = sourceProcessIdentifier,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+                  !IsSecureEventInputEnabled() else { result(false); return }
+            Task { @MainActor in
+                // pasteReplacingSelection 经剪贴板粘贴，并在来源应用读取后还原原剪贴板。
+                result(await AccessibilitySelection.pasteReplacingSelection(text, pasteboard: .general, paste: AccessibilitySelection.postPasteKey))
+            }
         case AppConstants.isCurrentScreenshotMethod:
             guard let id = args["id"] as? String else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "核对截图需要 id", details: nil)); return
@@ -408,11 +421,15 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
 
     /// settings 为 Dart 校验过的完整偏好；先完成系统副作用再落盘，结果通过 result 返回。
     private func applySettings(_ settings: [String: Any], credentials: [String: Any], result: @escaping FlutterResult) {
+        // 三种全局快捷键按用途读取组合；任一缺失都视为参数不完整。
+        var shortcuts: [GlobalHotKey: SelectionMonitor.HotKeyBinding] = [:]
+        for purpose in GlobalHotKey.allCases {
+            if let keyCode = settings[purpose.keyCodeKey] as? UInt32, let modifiers = settings[purpose.modifiersKey] as? UInt32 {
+                shortcuts[purpose] = SelectionMonitor.HotKeyBinding(keyCode: keyCode, modifiers: modifiers)
+            }
+        }
         guard let automatic = settings[AppConstants.automaticKey] as? Bool,
-              let keyCode = settings[AppConstants.shortcutKeyCodeKey] as? UInt32,
-              let modifiers = settings[AppConstants.shortcutModifiersKey] as? UInt32,
-              let screenshotCode = settings[AppConstants.screenshotShortcutKeyCodeKey] as? UInt32,
-              let screenshotFlags = settings[AppConstants.screenshotShortcutModifiersKey] as? UInt32,
+              shortcuts.count == GlobalHotKey.allCases.count,
               let excluded = settings[AppConstants.excludedAppsKey] as? [String: String],
               let login = settings[AppConstants.launchAtLoginKey] as? Bool,
               credentials.values.allSatisfy({ $0 is NSNull || $0 is [String: String] }) else {
@@ -434,7 +451,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 else { try SMAppService.mainApp.unregister() }
                 loginChanged = true
             }
-            try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), keyCode: keyCode, modifiers: modifiers, screenshotCode: screenshotCode, screenshotFlags: screenshotFlags)
+            try selectionMonitor.configure(automatic: automatic, excludedApps: Set(excluded.keys), shortcuts: shortcuts)
             // 截图导出仍读独立键；保存设置时与 preferences 字典同步，避免双源互相覆盖。
             if let directory = settings[AppConstants.screenshotSaveDirectoryKey] as? String, !directory.isEmpty {
                 UserDefaults.standard.set(directory, forKey: AppConstants.screenshotSaveDirectoryKey)
@@ -539,7 +556,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
 
     /// text 为选中文字，gesture 为手势，x/y 为屏幕锚点，sourcePID 为来源进程、sourceAppName为采集时冻结的应用名；发送新会话，无返回值。
     func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat, sourcePID: pid_t, sourceAppName: String?) {
-        guard !retainsResult || gesture == SelectionGesture.hotkey.rawValue else { return }
+        guard !retainsResult || SelectionGesture(rawValue: gesture)?.isExplicit == true else { return }
         // 只有显式热键可以替换保留的结果；被动手势不打断阅读或正在进行的翻译。
         retainsResult = false
         // 结束被替换的会话，迟到命令仍由新旧 sessionId 隔离。

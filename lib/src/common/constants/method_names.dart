@@ -168,6 +168,9 @@ abstract final class MethodNames {
   /// retainOverlay 的稳定协议值，变更须同步两端及持久化调用方。
   static const retainOverlay = 'retainOverlay';
 
+  /// 输入翻译完成后把译文粘贴回来源应用；参数含 sessionId 与 text，返回是否已替换。
+  static const replaceSelection = 'replaceSelection';
+
   /// revealFile 的稳定协议值，变更须同步两端及持久化调用方。
   static const revealFile = 'revealFile';
 

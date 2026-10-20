@@ -135,6 +135,33 @@ void main() {
     );
   });
 
+  test('输入翻译快捷键默认 ⌃⌥R 可往返保存，三个全局快捷键任意两个相同都被拒绝', () {
+    // 边界：默认组合与另外两个默认值都不同；把输入翻译分别改成与翻译、截图相同，各自必须失败。
+    final settings = AppSettings(primaryLanguage: 'zh-CN');
+    expect(settings.validate, returnsNormally);
+    final restored = AppSettings.fromMap(settings.toMap());
+    expect(
+      (
+        restored.inputShortcutKeyCode,
+        restored.inputShortcutModifiers,
+        restored.inputShortcutLabel,
+      ),
+      (15, 6144, 'R'),
+    );
+    for (final (code, modifiers) in [
+      (settings.shortcutKeyCode, settings.shortcutModifiers),
+      (
+        settings.screenshotShortcutKeyCode,
+        settings.screenshotShortcutModifiers,
+      ),
+    ]) {
+      final duplicate = AppSettings.fromMap(settings.toMap())
+        ..inputShortcutKeyCode = code
+        ..inputShortcutModifiers = modifiers;
+      expect(duplicate.validate, throwsFormatException);
+    }
+  });
+
   test('Apple 系统翻译无端点、无凭据即为完整配置，同样为空的远程服务仍被拒绝', () async {
     // 边界：地址与凭据都为空；系统翻译必须通过，远程服务必须失败，证明豁免只作用于系统类型。
     const apple = ServiceConfig(

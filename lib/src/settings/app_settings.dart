@@ -14,6 +14,9 @@ class AppSettings {
     this.shortcutKeyCode = 17,
     this.shortcutLabel = 'T',
     this.shortcutModifiers = 6144,
+    this.inputShortcutKeyCode = 15,
+    this.inputShortcutLabel = 'R',
+    this.inputShortcutModifiers = 6144,
     this.screenshotShortcutKeyCode = 1,
     this.screenshotShortcutLabel = 'S',
     this.screenshotShortcutModifiers = 6144,
@@ -44,6 +47,11 @@ class AppSettings {
   int shortcutKeyCode;
   String shortcutLabel;
   int shortcutModifiers;
+
+  /// 输入翻译快捷键；默认 ⌃⌥R（键码 15），翻译完成后用译文替换来源输入框中的原文。
+  int inputShortcutKeyCode;
+  String inputShortcutLabel;
+  int inputShortcutModifiers;
   int screenshotShortcutKeyCode;
   String screenshotShortcutLabel;
   int screenshotShortcutModifiers;
@@ -116,6 +124,12 @@ class AppSettings {
       shortcutKeyCode: map[PreferenceKeys.shortcutKeyCode] as int? ?? 17,
       shortcutLabel: map[PreferenceKeys.shortcutLabel] as String? ?? 'T',
       shortcutModifiers: map[PreferenceKeys.shortcutModifiers] as int? ?? 6144,
+      inputShortcutKeyCode:
+          map[PreferenceKeys.inputShortcutKeyCode] as int? ?? 15,
+      inputShortcutLabel:
+          map[PreferenceKeys.inputShortcutLabel] as String? ?? 'R',
+      inputShortcutModifiers:
+          map[PreferenceKeys.inputShortcutModifiers] as int? ?? 6144,
       screenshotShortcutKeyCode:
           map[PreferenceKeys.screenshotShortcutKeyCode] as int? ?? 1,
       screenshotShortcutLabel:
@@ -170,14 +184,16 @@ class AppSettings {
       throw const FormatException('主要语言和次要语言必须不同。');
     }
     // Shift 单独搭配字母会吞掉普通输入，至少要求一个系统修饰键。
-    for (final (code, label, modifiers) in [
+    final shortcuts = [
       (shortcutKeyCode, shortcutLabel, shortcutModifiers),
+      (inputShortcutKeyCode, inputShortcutLabel, inputShortcutModifiers),
       (
         screenshotShortcutKeyCode,
         screenshotShortcutLabel,
         screenshotShortcutModifiers,
       ),
-    ]) {
+    ];
+    for (final (code, label, modifiers) in shortcuts) {
       if (code < 0 ||
           code > 127 ||
           code == 53 ||
@@ -189,9 +205,12 @@ class AppSettings {
         );
       }
     }
-    if (shortcutKeyCode == screenshotShortcutKeyCode &&
-        shortcutModifiers == screenshotShortcutModifiers) {
-      throw const FormatException('翻译与截图快捷键不能相同。');
+    // 三个全局快捷键在同一注册事务中生效，组合（键码与修饰键）不能重复。
+    final combinations = {
+      for (final (code, _, modifiers) in shortcuts) (code, modifiers),
+    };
+    if (combinations.length != shortcuts.length) {
+      throw const FormatException('翻译、输入翻译与截图快捷键不能相同。');
     }
   }
 
@@ -208,6 +227,9 @@ class AppSettings {
     PreferenceKeys.shortcutKeyCode: shortcutKeyCode,
     PreferenceKeys.shortcutLabel: shortcutLabel,
     PreferenceKeys.shortcutModifiers: shortcutModifiers,
+    PreferenceKeys.inputShortcutKeyCode: inputShortcutKeyCode,
+    PreferenceKeys.inputShortcutLabel: inputShortcutLabel,
+    PreferenceKeys.inputShortcutModifiers: inputShortcutModifiers,
     PreferenceKeys.screenshotShortcutKeyCode: screenshotShortcutKeyCode,
     PreferenceKeys.screenshotShortcutLabel: screenshotShortcutLabel,
     PreferenceKeys.screenshotShortcutModifiers: screenshotShortcutModifiers,

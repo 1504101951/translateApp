@@ -48,7 +48,8 @@ flowchart TD
 - Swift 保存来源 PID、sessionId 及结果保留标记。Dart 激活时先发送 `retainOverlay`，再补读文字并进入翻译；保留后忽略被动失效和自动新选区，只允许 Escape/× 关闭或全局热键明确替换。旧 sessionId 的指令不能影响新会话。
 - 选区、失效事件和窗口命令携带 sessionId。系统设置命令不属于选区会话，使用独立方法和设置修订号。
 - 「仅使用快捷键」开启表示 automatic=false；菜单与表单均反向显示底层自动捕获状态。自动捕获关闭时保留 Escape、外部点击和前台变化监听，使快捷键产生的会话仍能正常关闭。
-- 全局热键使用 RegisterEventHotKey；同一组合不重复注册，新组合注册成功后才释放旧组合。
+- 全局热键使用 RegisterEventHotKey；翻译、输入翻译与截图三个用途按 `GlobalHotKey` 表在同一事务注册，同一组合不重复注册，新组合注册成功后才释放旧组合。
+- 输入翻译快捷键以 `inputHotkey` 手势进入与全局翻译快捷键相同的会话：读不到选区时在非安全文本输入框内先发送 ⌘A。完整成功后 Dart 调用 `replaceSelection`，Swift 核对会话、来源前台与安全输入后经剪贴板粘贴，`AppConstants.pasteRestoreDelay` 后在剪贴板未被改写时还原。
 
 ## 服务与凭据
 
@@ -101,7 +102,7 @@ AX 读取优先使用文本标记范围获取跨节点选区，再读取普通�
 
 Swift 的系统截图模块用本进程 ScreenCaptureKit 申请屏幕录制并取得显示器冻结帧；未授权不进入编辑。Dart 的 `ScreenshotApp` 在冻结帧上框选（选区外变暗、选区内清晰），负责标注、自动文件名和导出。截图结果用独立 captureId 拒绝过期操作，不属于选区会话。
 
-固定目录保存在 UserDefaults 的 `screenshotSaveDirectory`，只通过设置页修改。ScreenshotStorage 通过拒绝覆盖的实际写入和序号处理重名。翻译与截图热键由同一 Carbon 注册事务管理，已有组合交换用途时复用注册，全部新注册成功才更新配置。
+固定目录保存在 UserDefaults 的 `screenshotSaveDirectory`，只通过设置页修改。ScreenshotStorage 通过拒绝覆盖的实际写入和序号处理重名。翻译、输入翻译与截图热键由同一 Carbon 注册事务管理，已有组合交换用途时复用注册，全部新注册成功才更新配置。
 
 区域框选时暂停文本手势采集并隐藏翻译浮层，完成后只恢复仍有效的浮层。截图的复制与保存不经过翻译层；“识别文字”“翻译文字”（`ScreenshotActions.ocrTranslate`，`_translateOcr`）经本地 OCR 取得文字后，由 `translateScreenshotText` 进入同一翻译层。
 

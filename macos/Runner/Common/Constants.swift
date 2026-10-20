@@ -221,6 +221,10 @@ enum AppConstants {
     static let requestScreenAccessMethod = "requestScreenAccess"
     /// retainOverlay 协议值；与Dart常量及持久化调用方同步。
     static let retainOverlayMethod = "retainOverlay"
+    /// replaceSelection 协议值；输入翻译完成后把译文粘贴回来源应用，与Dart常量同步。
+    static let replaceSelectionMethod = "replaceSelection"
+    /// 输入翻译粘贴后等待来源应用读取剪贴板的时长，之后才还原原剪贴板（#99）。
+    static let pasteRestoreDelay = Duration.milliseconds(500)
     /// revealFile 协议值；与Dart常量及持久化调用方同步。
     static let revealFileMethod = "revealFile"
     /// rollback_failed 协议值；与Dart常量及持久化调用方同步。
@@ -257,6 +261,12 @@ enum AppConstants {
     static let shortcutLabelKey = "shortcutLabel"
     /// shortcutModifiers 协议值；与Dart常量及持久化调用方同步。
     static let shortcutModifiersKey = "shortcutModifiers"
+    /// inputShortcutKeyCode 协议值；输入翻译快捷键键码，与Dart常量同步。
+    static let inputShortcutKeyCodeKey = "inputShortcutKeyCode"
+    /// inputShortcutLabel 协议值；输入翻译快捷键显示名，与Dart常量同步。
+    static let inputShortcutLabelKey = "inputShortcutLabel"
+    /// inputShortcutModifiers 协议值；输入翻译快捷键修饰键，与Dart常量同步。
+    static let inputShortcutModifiersKey = "inputShortcutModifiers"
     /// shortcut_invalid 协议值；与Dart常量及持久化调用方同步。
     static let shortcutInvalidError = "shortcut_invalid"
     /// showOverlay 协议值；与Dart常量及持久化调用方同步。
@@ -342,6 +352,10 @@ enum SelectionGesture: String {
     case selectAll
     case keyboard
     case hotkey
+    case inputHotkey
+
+    /// 无参数；返回是否为用户按下全局快捷键发起的明确请求，明确请求允许一次性复制读取并替换保留的结果。
+    var isExplicit: Bool { self == .hotkey || self == .inputHotkey }
 
     /// keyCode 为硬件键码，modifiers 为修饰键；返回创建文本选区的手势或 nil。
     static func keyboardGesture(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> SelectionGesture? {
@@ -351,6 +365,40 @@ enum SelectionGesture: String {
         let navigationKeys: Set<UInt16> = [115, 116, 119, 121, 123, 124, 125, 126]
         if flags.contains(.shift), navigationKeys.contains(keyCode) { return .keyboard }
         return nil
+    }
+}
+
+/// 全局热键用途；三者在同一注册事务中校验，偏好键给出各自的键码、修饰键与显示名。
+enum GlobalHotKey: CaseIterable {
+    case translate
+    case input
+    case screenshot
+
+    /// 无参数；返回该用途键码在偏好字典中的键。
+    var keyCodeKey: String {
+        switch self {
+        case .translate: AppConstants.shortcutKeyCodeKey
+        case .input: AppConstants.inputShortcutKeyCodeKey
+        case .screenshot: AppConstants.screenshotShortcutKeyCodeKey
+        }
+    }
+
+    /// 无参数；返回该用途修饰键在偏好字典中的键。
+    var modifiersKey: String {
+        switch self {
+        case .translate: AppConstants.shortcutModifiersKey
+        case .input: AppConstants.inputShortcutModifiersKey
+        case .screenshot: AppConstants.screenshotShortcutModifiersKey
+        }
+    }
+
+    /// 无参数；返回该用途显示名在偏好字典中的键。
+    var labelKey: String {
+        switch self {
+        case .translate: AppConstants.shortcutLabelKey
+        case .input: AppConstants.inputShortcutLabelKey
+        case .screenshot: AppConstants.screenshotShortcutLabelKey
+        }
     }
 }
 

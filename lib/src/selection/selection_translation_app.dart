@@ -40,6 +40,9 @@ class _TranslateAppState extends State<TranslateApp> {
   /// 来源在接受选区时冻结，不读取翻译完成后的前台应用。
   String? _sourceAppName;
 
+  /// 由输入翻译快捷键发起的会话 ID；完整成功后用译文替换来源输入框，其他会话为 null。
+  String? _replaceSessionId;
+
   /// 无参数；订阅原生事件与会话状态，无返回值。
   @override
   void initState() {
@@ -68,12 +71,19 @@ class _TranslateAppState extends State<TranslateApp> {
         :final x,
         :final y,
       ):
+        // 全局翻译与输入翻译快捷键都是明确请求，读取完成即直接翻译。
+        final explicit =
+            gesture == SelectionGestureTypes.hotkey ||
+            gesture == SelectionGestureTypes.inputHotkey;
         // 被动捕获只更新小按钮，不能替换用户正在阅读的结果。
-        if (widget.session.isExpanded &&
-            gesture != SelectionGestureTypes.hotkey) {
+        if (widget.session.isExpanded && !explicit) {
           return;
         }
         _sourceAppName = sourceAppName;
+        // 输入翻译会话在完整成功后用译文替换来源输入框中的原文。
+        _replaceSessionId = gesture == SelectionGestureTypes.inputHotkey
+            ? sessionId
+            : null;
         // 键盘选择先显示候选按钮；明确热键的空读取也必须进入可见失败状态。
         widget.session.begin(
           sessionId: sessionId,
@@ -81,17 +91,15 @@ class _TranslateAppState extends State<TranslateApp> {
           awaitSelection:
               gesture == SelectionGestureTypes.selectAll ||
               gesture == SelectionGestureTypes.keyboard ||
-              gesture == SelectionGestureTypes.hotkey,
+              explicit,
         );
         // 没有可用触发态时先退出，后续只处理需要展示的选区。
         if (widget.session.snapshot.phase != TranslationPhase.trigger) {
           widget.bridge.hideOverlay(sessionId: sessionId);
           return;
         }
-        final size = gesture == SelectionGestureTypes.hotkey
-            ? _resultSize
-            : _triggerSize;
-        if (gesture == SelectionGestureTypes.hotkey) {
+        final size = explicit ? _resultSize : _triggerSize;
+        if (explicit) {
           unawaited(_activate(readSelection: false));
         }
         widget.bridge.showOverlay(
@@ -190,6 +198,15 @@ class _TranslateAppState extends State<TranslateApp> {
         sourceLabel: sourceLabel,
         completedAt: DateTime.now().millisecondsSinceEpoch,
       );
+      // 输入翻译成功后粘贴替换原文；替换失败时保留卡片，用户仍可复制译文。
+      if (_replaceSessionId == id &&
+          await widget.bridge.replaceSelection(
+            sessionId: id,
+            text: widget.session.snapshot.translatedText,
+          ) &&
+          widget.session.sessionId == id) {
+        _dismiss();
+      }
     }
   }
 

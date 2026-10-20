@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import Carbon
 import Darwin
 import Foundation
 
@@ -274,11 +275,50 @@ enum AccessibilitySelection {
         return nil
     }
 
+    /// sourcePID 为来源进程；焦点为非安全的文本输入控件且未开启安全输入时发送 Command-A，返回是否已全选。
+    /// 只在输入翻译读不到选区时调用，非文本控件不发送，避免全选文件列表等其他内容。
+    static func selectAllInFocusedTextInput(sourcePID: pid_t) -> Bool {
+        guard !IsSecureEventInputEnabled(),
+              let focused = focusedElement(from: AXUIElementCreateApplication(sourcePID)),
+              !isSecure(focused),
+              let role = role(of: focused),
+              ["AXTextField", "AXTextArea", "AXComboBox"].contains(role) else { return false }
+        postCommandKey(0x00)
+        return true
+    }
+
+    /// text 为译文，pasteboard 为剪贴板，paste 向来源应用发送粘贴；写入译文并粘贴，返回是否已发出粘贴。
+    /// 来源应用读取后（延迟见 AppConstants.pasteRestoreDelay）若剪贴板仍是本次写入则还原原内容，用户期间新复制的内容不被覆盖。
+    static func pasteReplacingSelection(_ text: String, pasteboard: NSPasteboard, paste: () -> Void) async -> Bool {
+        let snapshot = PasteboardSnapshot.capture(pasteboard)
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            snapshot.restore(pasteboard)
+            return false
+        }
+        let written = pasteboard.changeCount
+        paste()
+        // 来源应用异步处理粘贴事件；等待期间被取消也要还原，不能把译文留在剪贴板。
+        try? await Task.sleep(for: AppConstants.pasteRestoreDelay)
+        if pasteboard.changeCount == written { snapshot.restore(pasteboard) }
+        return true
+    }
+
     /// 无参数；向前台应用发送Command-C，仅用于已验证允许复制的显式翻译流程，无返回值。
     private static func postCopyKey() {
+        postCommandKey(0x08)
+    }
+
+    /// 无参数；向前台应用发送Command-V，仅用于输入翻译写回译文，无返回值。
+    static func postPasteKey() {
+        postCommandKey(0x09)
+    }
+
+    /// virtualKey 为硬件键码；向前台应用发送一次 Command 组合键的按下与抬起，无返回值。
+    private static func postCommandKey(_ virtualKey: CGKeyCode) {
         let source = CGEventSource(stateID: .hidSystemState)
-        let down = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: true)
-        let up = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: false)
+        let down = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: true)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: false)
         down?.flags = .maskCommand
         up?.flags = .maskCommand
         down?.post(tap: .cghidEventTap)

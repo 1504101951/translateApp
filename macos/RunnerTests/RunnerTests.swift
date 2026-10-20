@@ -378,6 +378,7 @@ class RunnerTests: XCTestCase {
         let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)
         let settings: [String: Any] = [
             AppConstants.automaticKey: false, AppConstants.shortcutKeyCodeKey: 128, AppConstants.shortcutModifiersKey: 6144,
+            AppConstants.inputShortcutKeyCodeKey: 15, AppConstants.inputShortcutModifiersKey: 6144,
             AppConstants.screenshotShortcutKeyCodeKey: 1, AppConstants.screenshotShortcutModifiersKey: 6144,
             AppConstants.excludedAppsKey: [String: String](),
             AppConstants.launchAtLoginKey: [.enabled, .requiresApproval].contains(SMAppService.mainApp.status),
@@ -430,8 +431,8 @@ class RunnerTests: XCTestCase {
         let bytes = output.fileHandleForReading.availableData
         XCTAssertEqual(String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines), "0")
         let monitor = SelectionMonitor()
-        try monitor.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912)
-        XCTAssertThrowsError(try monitor.configure(automatic: false, excludedApps: [], keyCode: 9, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912))
+        try monitor.configure(automatic: true, excludedApps: [], shortcuts: hotKeys(16, 11, 3))
+        XCTAssertThrowsError(try monitor.configure(automatic: false, excludedApps: [], shortcuts: hotKeys(9, 11, 3)))
         XCTAssertTrue(monitor.automatic)
     }
 
@@ -442,16 +443,63 @@ class RunnerTests: XCTestCase {
         let second = SelectionMonitor()
         let probe = SelectionMonitor()
         // 四个修饰键用于避免占用用户常用组合；同一组合是系统冲突边界。
-        try first.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912)
-        try first.configure(automatic: true, excludedApps: [], keyCode: 7, modifiers: 6912, screenshotCode: 3, screenshotFlags: 6912)
+        try first.configure(automatic: false, excludedApps: [], shortcuts: hotKeys(7, 6, 3))
+        try first.configure(automatic: true, excludedApps: [], shortcuts: hotKeys(7, 6, 3))
         XCTAssertTrue(first.automatic)
-        // 两种用途互换不是系统冲突，已有注册应被复用且返回成功。
-        try first.configure(automatic: true, excludedApps: [], keyCode: 3, modifiers: 6912, screenshotCode: 7, screenshotFlags: 6912)
-        try second.configure(automatic: true, excludedApps: [], keyCode: 16, modifiers: 6912, screenshotCode: 4, screenshotFlags: 6912)
-        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], keyCode: 7, modifiers: 6912, screenshotCode: 4, screenshotFlags: 6912))
+        // 三种用途轮换不是系统冲突，已有注册应被复用且返回成功。
+        try first.configure(automatic: true, excludedApps: [], shortcuts: hotKeys(3, 7, 6))
+        try second.configure(automatic: true, excludedApps: [], shortcuts: hotKeys(16, 13, 4))
+        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], shortcuts: hotKeys(7, 13, 4)))
         XCTAssertTrue(second.automatic)
-        XCTAssertThrowsError(try probe.configure(automatic: false, excludedApps: [], keyCode: 16, modifiers: 6912, screenshotCode: 5, screenshotFlags: 6912))
+        XCTAssertThrowsError(try probe.configure(automatic: false, excludedApps: [], shortcuts: hotKeys(16, 14, 5)))
+        // 同一配置内两种用途相同在注册前即被拒绝，原配置保持不变。
+        XCTAssertThrowsError(try second.configure(automatic: false, excludedApps: [], shortcuts: hotKeys(17, 17, 4)))
+        XCTAssertTrue(second.automatic)
         withExtendedLifetime((first, second, probe)) {}
+    }
+
+    /// translate/input/screenshot 为三种用途的键码，修饰键统一为四个修饰键以避开用户常用组合（键码 12 即 ⌃⌥⇧⌘Q 为系统快捷键，不可用）；返回 configure 所需的组合表。
+    private func hotKeys(_ translate: UInt32, _ input: UInt32, _ screenshot: UInt32) -> [GlobalHotKey: SelectionMonitor.HotKeyBinding] {
+        [
+            .translate: SelectionMonitor.HotKeyBinding(keyCode: translate, modifiers: 6912),
+            .input: SelectionMonitor.HotKeyBinding(keyCode: input, modifiers: 6912),
+            .screenshot: SelectionMonitor.HotKeyBinding(keyCode: screenshot, modifiers: 6912),
+        ]
+    }
+
+    /// 无参数；输入翻译粘贴后还原原剪贴板，用户在等待期间新复制的内容不被覆盖，无返回值。
+    @MainActor
+    func testPasteReplacingSelectionRestoresClipboard() async throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("translateapp-paste-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("原剪贴板", forType: .string)
+        // 边界一：来源应用读取到的是译文，等待结束后剪贴板回到原内容。
+        var pasted: String?
+        let sent = await AccessibilitySelection.pasteReplacingSelection("译文", pasteboard: pasteboard) {
+            pasted = pasteboard.string(forType: .string)
+        }
+        XCTAssertTrue(sent)
+        XCTAssertEqual(pasted, "译文")
+        XCTAssertEqual(pasteboard.string(forType: .string), "原剪贴板")
+        // 边界二：等待期间剪贴板被用户改写，不能用旧快照覆盖用户的新内容。
+        _ = await AccessibilitySelection.pasteReplacingSelection("译文", pasteboard: pasteboard) {
+            pasteboard.clearContents()
+            pasteboard.setString("用户新复制", forType: .string)
+        }
+        XCTAssertEqual(pasteboard.string(forType: .string), "用户新复制")
+    }
+
+    /// 无参数；没有对应会话时替换请求返回 false，不向任何应用粘贴，无返回值。
+    @MainActor
+    func testReplaceSelectionRejectsStaleSession() {
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        var response: Any?
+        // 边界：会话已结束（从未创建）是替换前必须拒绝的状态。
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.replaceSelectionMethod, arguments: [
+            "sessionId": "stale", "text": "译文",
+        ])) { response = $0 }
+        XCTAssertEqual(response as? Bool, false)
     }
 
     /// 无参数；从实际应用PID生成并编解码原生事件，验证来源不是Dart测试手工补入的值。

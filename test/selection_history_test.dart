@@ -134,4 +134,82 @@ void main() {
     }
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('输入翻译完整成功后替换原文并关闭卡片，替换被拒时保留译文卡片', (tester) async {
+    const methods = MethodChannel('test/input-translation/methods');
+    const events = EventChannel('test/input-translation/events');
+    const codec = StandardMethodCodec();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    // 原生是否接受替换：模拟来源仍在前台（true）与已切换应用或安全输入（false）两种边界。
+    var replaceAccepted = true;
+    messenger.setMockMethodCallHandler(
+      methods,
+      (call) async =>
+          call.method == MethodNames.replaceSelection ? replaceAccepted : null,
+    );
+    messenger.setMockMethodCallHandler(
+      MethodChannel(events.name),
+      (_) async => null,
+    );
+    final database = sqlite3.openInMemory();
+    final history = TranslationHistoryStore(database);
+    final session = SelectionSession(
+      provider: _Provider(
+        'input',
+        Stream.fromIterable([
+          const TranslationUpdate('Hello'),
+          const TranslationCompleted(),
+        ]),
+      ),
+      detectLanguage: (_) async => 'zh-Hans',
+      language: const LanguageDirection(
+        primaryCode: 'zh-CN',
+        secondaryCode: 'en',
+      ),
+    );
+    addTearDown(() {
+      session.dispose();
+      database.close();
+      messenger.setMockMethodCallHandler(methods, null);
+      messenger.setMockMethodCallHandler(MethodChannel(events.name), null);
+    });
+    await tester.pumpWidget(
+      TranslateApp(
+        bridge: MacosPlatformBridge(methods: methods, events: events),
+        session: session,
+        history: history,
+      ),
+    );
+    await tester.pump();
+
+    /// sessionId 标识本次输入翻译；发送输入翻译快捷键的选区事件并等待翻译与替换结束。
+    Future<void> sendInput(String sessionId) async {
+      await messenger.handlePlatformMessage(
+        events.name,
+        codec.encodeSuccessEnvelope({
+          'type': BridgeEventTypes.selectionCaptured,
+          'sessionId': sessionId,
+          'gesture': SelectionGestureTypes.inputHotkey,
+          'text': '你好',
+          'sourceAppName': 'Notes',
+        }),
+        (_) {},
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await sendInput('replaced');
+    // 替换成功：卡片关闭，翻译仍记入历史。
+    expect(session.snapshot.phase, TranslationPhase.idle);
+    expect(history.page(), hasLength(1));
+
+    replaceAccepted = false;
+    await sendInput('kept');
+    // 替换被拒：卡片保留完整译文，用户仍可手动复制。
+    expect(session.snapshot.phase, TranslationPhase.completed);
+    expect(session.snapshot.translatedText, 'Hello');
+    expect(history.page(), hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
 }

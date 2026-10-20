@@ -75,8 +75,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         recordingResult = result
         MacPlatformBridge.Shared.instance?.shortcutRecorder = { [weak self] keyCode, modifiers in
             let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
-            let screenshot = preferences[AppConstants.screenshotShortcutKeyCodeKey] as? UInt32 == keyCode && preferences[AppConstants.screenshotShortcutModifiersKey] as? UInt32 == modifiers
-            let label = preferences[screenshot ? AppConstants.screenshotShortcutLabelKey : AppConstants.shortcutLabelKey] as? String ?? ""
+            // 被系统吞掉的只会是已注册的三种全局快捷键之一，按组合找回已保存的显示名。
+            let purpose = GlobalHotKey.allCases.first {
+                preferences[$0.keyCodeKey] as? UInt32 == keyCode && preferences[$0.modifiersKey] as? UInt32 == modifiers
+            }
+            let label = purpose.flatMap { preferences[$0.labelKey] as? String } ?? ""
             self?.finishRecording(["keyCode": keyCode, "modifiers": modifiers, "label": label])
         }
         recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

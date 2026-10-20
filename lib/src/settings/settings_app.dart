@@ -213,25 +213,30 @@ class _SettingsPageState extends State<_SettingsPage>
     }
   }
 
-  /// screenshot 区分截图/翻译快捷键；录制一次按键，取消保留当前组合，无返回值。
-  Future<void> _recordShortcut({bool screenshot = false}) async {
+  /// apply 把录制到的键码、修饰键与显示名写入对应快捷键；录制一次按键，取消保留当前组合，无返回值。
+  Future<void> _recordShortcut(
+    void Function(
+      AppSettings settings,
+      int keyCode,
+      int modifiers,
+      String label,
+    )
+    apply,
+  ) async {
     setState(() => _recording = true);
     try {
       final key = await _channel.invokeMapMethod<Object?, Object?>(
         MethodNames.recordShortcut,
       );
       if (!mounted || key == null) return;
-      _edit(() {
-        if (screenshot) {
-          _settings!.screenshotShortcutKeyCode = key['keyCode'] as int;
-          _settings!.screenshotShortcutModifiers = key['modifiers'] as int;
-          _settings!.screenshotShortcutLabel = key['label'] as String;
-        } else {
-          _settings!.shortcutKeyCode = key['keyCode'] as int;
-          _settings!.shortcutModifiers = key['modifiers'] as int;
-          _settings!.shortcutLabel = key['label'] as String;
-        }
-      });
+      _edit(
+        () => apply(
+          _settings!,
+          key['keyCode'] as int,
+          key['modifiers'] as int,
+          key['label'] as String,
+        ),
+      );
     } on PlatformException catch (error) {
       if (mounted) {
         setState(() {
@@ -348,12 +353,12 @@ class _SettingsPageState extends State<_SettingsPage>
     );
   }
 
-  /// title 为按钮标题，code/label 为当前组合，screenshot 区分录制目标；返回热键录制区块。
+  /// title 为按钮标题，code/label 为当前组合，apply 把录制结果写入对应快捷键；返回热键录制区块。
   List<Widget> _shortcutBlock({
     required String title,
     required int code,
     required String label,
-    required bool screenshot,
+    required void Function(AppSettings, int, int, String) apply,
   }) => [
     // 同一行保留标题和录制命中区，不通过常驻说明增加页面高度。
     ConstrainedBox(
@@ -371,9 +376,7 @@ class _SettingsPageState extends State<_SettingsPage>
             material: true,
             child: OutlinedButton.icon(
               key: ValueKey(title),
-              onPressed: _recording
-                  ? null
-                  : () => _recordShortcut(screenshot: screenshot),
+              onPressed: _recording ? null : () => _recordShortcut(apply),
               icon: const Icon(Icons.keyboard_outlined),
               label: Text(
                 _recording
@@ -723,7 +726,20 @@ class _SettingsPageState extends State<_SettingsPage>
                         title: '全局翻译快捷键',
                         code: settings.shortcutModifiers,
                         label: settings.shortcutLabel,
-                        screenshot: false,
+                        apply: (target, keyCode, modifiers, label) => target
+                          ..shortcutKeyCode = keyCode
+                          ..shortcutModifiers = modifiers
+                          ..shortcutLabel = label,
+                      ),
+                      // 输入翻译把来源输入框的原文替换为译文（#99）。
+                      ..._shortcutBlock(
+                        title: '输入翻译快捷键',
+                        code: settings.inputShortcutModifiers,
+                        label: settings.inputShortcutLabel,
+                        apply: (target, keyCode, modifiers, label) => target
+                          ..inputShortcutKeyCode = keyCode
+                          ..inputShortcutModifiers = modifiers
+                          ..inputShortcutLabel = label,
                       ),
                     ],
                   ),
@@ -813,7 +829,10 @@ class _SettingsPageState extends State<_SettingsPage>
                         title: '区域截图快捷键',
                         code: settings.screenshotShortcutModifiers,
                         label: settings.screenshotShortcutLabel,
-                        screenshot: true,
+                        apply: (target, keyCode, modifiers, label) => target
+                          ..screenshotShortcutKeyCode = keyCode
+                          ..screenshotShortcutModifiers = modifiers
+                          ..screenshotShortcutLabel = label,
                       ),
                     ],
                   ),

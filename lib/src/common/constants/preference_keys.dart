@@ -74,4 +74,13 @@ abstract final class PreferenceKeys {
 
   /// shortcutModifiers 的稳定协议值，变更须同步两端及持久化调用方。
   static const shortcutModifiers = 'shortcutModifiers';
+
+  /// 输入翻译快捷键键码；变更须同步两端及持久化调用方。
+  static const inputShortcutKeyCode = 'inputShortcutKeyCode';
+
+  /// 输入翻译快捷键显示名；变更须同步两端及持久化调用方。
+  static const inputShortcutLabel = 'inputShortcutLabel';
+
+  /// 输入翻译快捷键修饰键；变更须同步两端及持久化调用方。
+  static const inputShortcutModifiers = 'inputShortcutModifiers';
 }

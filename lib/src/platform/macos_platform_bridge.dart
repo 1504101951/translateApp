@@ -90,6 +90,16 @@ class MacosPlatformBridge implements SettingsPlatform {
     );
   }
 
+  /// sessionId 为输入翻译会话，text 为完整译文；请求原生粘贴替换来源应用中的原文。
+  /// 返回是否已替换：来源已切换、会话已结束或开启安全输入时为 false。
+  Future<bool> replaceSelection({
+    required String sessionId,
+    required String text,
+  }) async => (await _methods.invokeMethod<bool>(MethodNames.replaceSelection, {
+    'sessionId': sessionId,
+    'text': text,
+  }))!;
+
   /// 让 Swift 上报一条探测用选区事件，验证通道而不是实现 #2。
   Future<void> probeEmitSelection() {
     return _methods.invokeMethod<void>(MethodNames.probeEmitSelection);
