@@ -676,6 +676,91 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   });
 
+  testWidgets('美化行选择背景后复制输出扩出内边距的图片，贴图仍是原图，切换工具收起美化行', (tester) async {
+    // 边界：倍率 1、默认内边距 64pt，64px 原图复制后为 192px；贴图不受美化影响。
+    tester.view.physicalSize = const Size(900, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = await tester.runAsync(() => _solidPng(64, 64, _blue));
+    const channel = MethodChannel('test/screenshot-beautify');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    Uint8List? copied;
+    Uint8List? pinned;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case MethodNames.getScreenshot:
+          return {
+            'id': 'shot-beautify',
+            'bytes': bytes,
+            'capturedAt': 1788662400000,
+            'width': 64,
+            'height': 64,
+            'directory': '',
+            // 贴图按显示器坐标定位，需要冻结帧所在显示器。
+            'displayX': 0,
+            'displayY': 0,
+            'displayWidth': 900,
+            'displayHeight': 900,
+          };
+        case MethodNames.copyScreenshot:
+          copied = (call.arguments as Map)['bytes'] as Uint8List;
+          return null;
+        case MethodNames.pinScreenshot:
+          pinned = (call.arguments as Map)['bytes'] as Uint8List;
+          return 'pin-beautify';
+        default:
+          return null;
+      }
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(const ScreenshotApp(channel: channel));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.ensureVisible(find.byKey(const Key('screenshot-beautify')));
+    await tester.tap(find.byKey(const Key('screenshot-beautify')));
+    await tester.pump();
+    expect(find.byKey(const Key('beautify-row')), findsOneWidget);
+    await tester.tap(find.byTooltip('海洋'));
+    await tester.pump();
+
+    /// key 为工具栏按钮；点击并等待导出完成。
+    Future<void> press(String key) async {
+      await tester.ensureVisible(find.byKey(Key(key)));
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(Key(key)));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pump();
+    }
+
+    await press('screenshot-copy');
+    final image = await tester.runAsync(() async {
+      final codec = await ui.instantiateImageCodec(copied!);
+      return (await codec.getNextFrame()).image;
+    });
+    expect((image!.width, image.height), (192, 192));
+    image.dispose();
+
+    // 切换工具收起美化行，已选美化仍生效。
+    await tester.ensureVisible(find.byKey(const Key('screenshot-tool-rect')));
+    await tester.tap(find.byKey(const Key('screenshot-tool-rect')));
+    await tester.pump();
+    expect(find.byKey(const Key('beautify-row')), findsNothing);
+    await press('screenshot-pin');
+    expect(pinned, isNotNull);
+    final pin = await tester.runAsync(() async {
+      final codec = await ui.instantiateImageCodec(pinned!);
+      return (await codec.getNextFrame()).image;
+    });
+    expect((pin!.width, pin.height), (64, 64));
+    pin.dispose();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
   testWidgets('画笔拖拽导出不是填充矩形；⌘Z 撤销同一份历史', (tester) async {
     tester.view.physicalSize = const Size(640, 640);
     tester.view.devicePixelRatio = 1;

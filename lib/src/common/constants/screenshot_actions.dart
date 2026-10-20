@@ -19,6 +19,7 @@ abstract final class ScreenshotActions {
   static const text = 'screenshot-tool-text';
   static const mask = 'screenshot-tool-mask';
   static const brush = 'screenshot-tool-brush';
+  static const beautify = 'screenshot-beautify';
   static const pin = 'screenshot-pin';
   static const save = 'screenshot-save';
   static const copy = 'screenshot-copy';
@@ -45,6 +46,8 @@ abstract final class ScreenshotActions {
     arrow: (icon: Icons.north_east, hostsChildren: true),
     text: (icon: Icons.text_fields, hostsChildren: true),
     brush: (icon: Icons.brush, hostsChildren: true),
+    // 美化展开自己的设置行，不承载子级（#103）。
+    beautify: (icon: Icons.auto_awesome_outlined, hostsChildren: false),
     pin: (icon: Icons.push_pin_outlined, hostsChildren: false),
     save: (icon: Icons.save_outlined, hostsChildren: false),
     copy: (icon: Icons.copy_outlined, hostsChildren: false),
@@ -85,6 +88,7 @@ abstract final class ScreenshotActions {
     text: '文字',
     mask: '图形',
     brush: '画笔',
+    beautify: '美化',
     pin: '贴图',
     save: '保存',
     copy: '复制图片',

@@ -10,6 +10,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 
 import '../common/constants/channel_names.dart';
+import '../common/constants/drawing_metrics.dart';
 import '../common/constants/glass_metrics.dart';
 import '../common/constants/method_names.dart';
 import '../common/constants/screenshot_enums.dart';
@@ -19,6 +20,7 @@ import '../common/widgets/native_glass.dart';
 import '../common/widgets/toolbar_feedback.dart';
 import '../common/widgets/native_brush_cursor.dart';
 import '../common/widgets/native_resize_cursor.dart';
+import 'beautify.dart';
 import 'edit_document.dart';
 import 'drawing_style.dart';
 import 'drawing_controls.dart';
@@ -82,6 +84,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   // 录制目标属于当前截图草稿；应用异步查询按截图身份和目标隔离。
   bool _recordingExpanded = false;
   bool _liveExpanded = false;
+
+  /// 美化行是否展开；收起后已选美化仍生效（#103）。
+  bool _beautifyExpanded = false;
+
+  /// 本次截图的美化参数；null 表示不美化，新截图重置。
+  BeautifyStyle? _beautify;
   CaptureTarget _recordingTarget = CaptureTarget.region;
   Map<Object?, Object?>? _recordingApplication;
   List<Map<Object?, Object?>> _recordingApplications = [];
@@ -186,6 +194,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       ? ScreenshotActions.live
       : _recordingExpanded
       ? ScreenshotActions.record
+      : _beautifyExpanded
+      ? ScreenshotActions.beautify
       : _toolIds.entries.firstWhere((entry) => entry.value == _tool).key;
 
   /// 无参数；返回第二行应展示其子级的一级工具。
@@ -233,10 +243,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         // 原生键路由与 Flutter 键盘共用确认语义，过期捕获不能触发导出。
         await _confirmScreenshot();
       } else if (call.method == MethodNames.escapePressed) {
-        if (_recordingExpanded || _liveExpanded) {
+        if (_recordingExpanded || _liveExpanded || _beautifyExpanded) {
           setState(() {
             _recordingExpanded = false;
             _liveExpanded = false;
+            _beautifyExpanded = false;
             unawaited(_syncRecordingPreview());
             unawaited(_syncLivePreview());
           });
@@ -282,6 +293,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     if (!mounted) return;
     _recordingExpanded = false;
     _liveExpanded = false;
+    // 每次截图默认不美化。
+    _beautifyExpanded = false;
+    _beautify = null;
     unawaited(_syncLivePreview());
     _recordingTarget = CaptureTarget.region;
     _recordingApplication = null;
@@ -774,7 +788,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     });
     String? saved;
     try {
-      final bytes = await _document.renderPng();
+      // 复制与保存输出美化图；贴图沿用原图，不在屏幕上钉出背景。
+      final bytes = await _document.renderPng(
+        beautify: action == 'pin' ? null : _beautify,
+        unit: _pixelRatio,
+      );
       if (!mounted || _capture['id'] != id) return;
       if (action == 'save') {
         saved = await widget.channel.invokeMethod<String>(
@@ -1683,10 +1701,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         onKeyEvent: (node, event) {
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
           if (event.logicalKey == LogicalKeyboardKey.escape) {
-            if (_recordingExpanded || _liveExpanded) {
+            if (_recordingExpanded || _liveExpanded || _beautifyExpanded) {
               setState(() {
                 _recordingExpanded = false;
                 _liveExpanded = false;
+                _beautifyExpanded = false;
                 unawaited(_syncRecordingPreview());
                 unawaited(_syncLivePreview());
               });
@@ -1851,6 +1870,14 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                       ? (_recordingTarget == CaptureTarget.application ? 2 : 1)
                       : 0,
                   applicationCount: _recordingApplications.length,
+                  beautify: _beautify,
+                  // 美化行：无背景 + 渐变 + 内边距 + 两种圆角 + 阴影。
+                  beautifyItems: _beautifyExpanded
+                      ? 1 +
+                            BeautifyMetrics.backgrounds.length +
+                            BeautifyMetrics.paddings.length +
+                            3
+                      : 0,
                   feedbackIsError: _failed,
                   feedback: _message,
                   ocrOverlays: _ocrOverlays,
@@ -2036,6 +2063,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                 _tool = ScreenshotTool.crop;
                 _recordingExpanded = !_recordingExpanded;
                 _liveExpanded = false;
+                _beautifyExpanded = false;
                 _selectedShapeId = null;
                 _selectedTextId = null;
               });
@@ -2066,6 +2094,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           _tool = entry.value;
           _recordingExpanded = false;
           _liveExpanded = false;
+          _beautifyExpanded = false;
           unawaited(_syncRecordingPreview());
           unawaited(_syncLivePreview());
           _recordingApplication = null;
@@ -2079,8 +2108,21 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                 _tool = ScreenshotTool.crop;
                 _liveExpanded = !_liveExpanded;
                 _recordingExpanded = false;
+                _beautifyExpanded = false;
                 _selectedShapeId = null;
                 _selectedTextId = null;
+              });
+              unawaited(_syncRecordingPreview());
+              unawaited(_syncLivePreview());
+            }
+          : null,
+      // 美化只改变导出外观：展开或收起设置行，与录制、实时翻译目标行互斥。
+      ScreenshotActions.beautify: _document.hasImage
+          ? () {
+              setState(() {
+                _beautifyExpanded = !_beautifyExpanded;
+                _recordingExpanded = false;
+                _liveExpanded = false;
               });
               unawaited(_syncRecordingPreview());
               unawaited(_syncLivePreview());
@@ -2260,9 +2302,79 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             children: children,
           ),
         );
+    final beautify = _beautify;
     final rows = <Widget>[
       row(top, 'screenshot-tools-row', loading: _busy),
       if (attributes.isNotEmpty) row(attributes, 'screenshot-attributes-row'),
+      // 美化行：背景、内边距、圆角与阴影；未选背景时其余选项不可用（#103）。
+      if (_beautifyExpanded)
+        captureRow('beautify-row', [
+          captureButton(
+            '无背景',
+            const Icon(Icons.block, size: 16),
+            () => setState(() => _beautify = null),
+            selected: beautify == null,
+          ),
+          for (final (index, preset) in BeautifyMetrics.backgrounds.indexed)
+            captureButton(
+              preset.name,
+              Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [preset.from, preset.to],
+                  ),
+                ),
+              ),
+              () => setState(
+                () => _beautify =
+                    beautify?.copyWith(background: index) ??
+                    BeautifyStyle(background: index),
+              ),
+              selected: beautify?.background == index,
+            ),
+          for (final option in BeautifyMetrics.paddings)
+            captureButton(
+              '内边距${option.label}',
+              Text(option.label),
+              beautify == null
+                  ? null
+                  : () => setState(
+                      () =>
+                          _beautify = beautify.copyWith(padding: option.value),
+                    ),
+              selected: beautify?.padding == option.value,
+            ),
+          for (final (label, icon, radius) in const [
+            ('直角', Icons.crop_square, BeautifyMetrics.squareRadius),
+            ('圆角', Icons.rounded_corner, BeautifyMetrics.roundRadius),
+          ])
+            captureButton(
+              label,
+              Icon(icon, size: 16),
+              beautify == null
+                  ? null
+                  : () => setState(
+                      () => _beautify = beautify.copyWith(cornerRadius: radius),
+                    ),
+              selected: beautify?.cornerRadius == radius,
+            ),
+          captureButton(
+            '阴影',
+            const Icon(Icons.layers, size: 16),
+            beautify == null
+                ? null
+                : () => setState(
+                    () =>
+                        _beautify = beautify.copyWith(shadow: !beautify.shadow),
+                  ),
+            selected: beautify?.shadow == true,
+          ),
+        ]),
       if ((_recordingExpanded || _liveExpanded) &&
           _tool == ScreenshotTool.crop)
         captureRow('recording-targets-row', [
@@ -2389,6 +2501,8 @@ class _EditorSurface extends StatefulWidget {
     required this.toolbarItemCount,
     this.secondaryItemCount = 0,
     this.recordingRows = 0,
+    this.beautify,
+    this.beautifyItems = 0,
     this.applicationCount = 0,
     required this.feedbackIsError,
     required this.feedback,
@@ -2405,6 +2519,12 @@ class _EditorSurface extends StatefulWidget {
   final int toolbarItemCount;
   final int secondaryItemCount;
   final int recordingRows;
+
+  /// 本次截图的美化参数；非 null 时在选区外预览背景与阴影。
+  final BeautifyStyle? beautify;
+
+  /// 美化行的按钮数；0 表示美化行收起，参与工具栏尺寸计算。
+  final int beautifyItems;
   final int applicationCount;
   final bool feedbackIsError;
   final MethodChannel channel;
@@ -2488,6 +2608,7 @@ class _EditorSurfaceState extends State<_EditorSurface> {
             widget.secondaryItemCount,
             if (widget.recordingRows > 0) 5,
             if (widget.recordingRows > 1) widget.applicationCount,
+            if (widget.beautifyItems > 0) widget.beautifyItems,
           ].reduce(math.max);
           final layout = ScreenshotEditorLayout.place(
             viewport: constraints.biggest,
@@ -2515,7 +2636,8 @@ class _EditorSurfaceState extends State<_EditorSurface> {
             rowCount:
                 1 +
                 (widget.secondaryItemCount > 0 ? 1 : 0) +
-                widget.recordingRows,
+                widget.recordingRows +
+                (widget.beautifyItems > 0 ? 1 : 0),
           );
           final fitted = layout.canvas;
           Rect cropDisplay = mapRectToFitted(
@@ -2770,6 +2892,10 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                     painter: _DimPainter(
                       recordingPreview: widget.recordingPreview,
                       cropDisplay: cropDisplay,
+                      beautify: widget.beautify,
+                      // 显示坐标中每个屏幕点的长度，使预览内边距与导出一致。
+                      beautifyUnit:
+                          fitted.width / (imageSize.width / widget.pixelRatio),
                       showHandles: widget.cropSelected,
                       windows: widget.recordingWindows
                           ?.map(
@@ -2950,7 +3076,13 @@ class _DimPainter extends CustomPainter {
     required this.showHandles,
     this.windows,
     this.recordingPreview = false,
+    this.beautify,
+    this.beautifyUnit = 1,
   });
+
+  /// 美化参数与显示坐标中每屏幕点的长度；非 null 时在选区外画出背景与阴影预览。
+  final BeautifyStyle? beautify;
+  final double beautifyUnit;
 
   final List<Rect>? windows;
   final bool recordingPreview;
@@ -2974,6 +3106,10 @@ class _DimPainter extends CustomPainter {
     }
     final shade = Path.combine(PathOperation.difference, outer, visible);
     canvas.drawPath(shade, Paint()..color = const Color(0x99000000));
+    // paintBeautifyBackdrop 与导出共用，预览即导出外观；窗口录制预览不显示美化。
+    if (beautify != null && windows == null) {
+      paintBeautifyBackdrop(canvas, cropDisplay, beautify!, unit: beautifyUnit);
+    }
     if (windows != null) {
       final border = Paint()
         ..color = NativeGlassTheme.selectionBlue
@@ -3024,6 +3160,8 @@ class _DimPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DimPainter oldDelegate) =>
       oldDelegate.recordingPreview != recordingPreview ||
+      oldDelegate.beautify != beautify ||
+      oldDelegate.beautifyUnit != beautifyUnit ||
       oldDelegate.windows != windows ||
       oldDelegate.cropDisplay != cropDisplay ||
       oldDelegate.showHandles != showHandles;

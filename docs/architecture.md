@@ -142,6 +142,8 @@ TranslationProgress 只保存已完成分片、配对和上一片双尾；Select
 
 ## 绘制样式与来源身份
 
+截图美化（#103）由 `BeautifyStyle` 描述，`paintBeautifyBackdrop` 在内容外画渐变背景并在背景上画阴影、覆盖圆角外四角；编辑器的 `_DimPainter` 以显示坐标调用它预览，`EditDocument.renderPng(beautify:, unit:)` 以像素倍率调用它导出，二者一致。复制与保存传入美化参数，贴图与 OCR 不传。美化参数只属于本次截图，不写偏好。
+
 DrawingStyle是标注组合的不可变样式，颜色与线宽控件只返回已确认的值；文档沿用现有命令历史。原生采集在取得前台应用时冻结显示名，不在异步完成后按PID重新查询。
 
 图形工具采用rect配置身份，四种图形和普通/马赛克画笔通过同一绘制方法服务预览与PNG导出；浮层选择框不进入像素。共享数值在common/constants/drawing_metrics.dart，控件在screenshot/drawing_controls.dart。

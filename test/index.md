@@ -41,3 +41,4 @@ Dart业务逻辑和Flutter界面行为回归测试。
 36. [apple_translation_provider_test.dart](apple_translation_provider_test.dart)：用假原生通道验证Apple系统翻译的段落配对、错误文案与类别及取消后的输出。
 37. [vocabulary_test.dart](vocabulary_test.dart)：验证生词本的增改删、排序、CSV 转义与查词判定边界。
 38. [vocabulary_page_test.dart](vocabulary_page_test.dart)：验证生词本分段的展示、删除、导出反馈与空列表状态。
+39. [beautify_test.dart](beautify_test.dart)：按像素验证截图美化的导出尺寸、背景、圆角与阴影，以及不美化时与原图一致。

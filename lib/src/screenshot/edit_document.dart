@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../common/constants/screenshot_enums.dart';
+import 'beautify.dart';
 import 'drawing_style.dart';
 import '../common/constants/drawing_metrics.dart';
 
@@ -282,8 +283,9 @@ class EditDocument extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 无参数；按当前裁剪与标注合成 PNG；遮挡直接烤进像素，导出后不可还原原图。
-  Future<Uint8List> renderPng() async {
+  /// beautify 为美化参数（null 表示不美化），unit 为每屏幕点的像素数；按当前裁剪与标注合成 PNG。
+  /// 遮挡直接烤进像素，导出后不可还原原图；美化时画布向四周扩出内边距，内容按圆角裁切。
+  Future<Uint8List> renderPng({BeautifyStyle? beautify, double unit = 1}) async {
     final sourceBytes = _sourcePng;
     if (sourceBytes == null || _width <= 0 || _height <= 0) {
       throw StateError('没有可导出的截图');
@@ -318,14 +320,52 @@ class EditDocument extends ChangeNotifier {
       paintAnnotation(canvas, annotation, sourceImage: source);
     }
     canvas.restore();
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(outWidth, outHeight);
+    final content = recorder.endRecording();
+    // 未美化时输出就是裁剪内容；美化时把内容画到扩出内边距的画布上。
+    final padding = beautify == null ? 0 : (beautify.padding * unit).round();
+    final picture = beautify == null
+        ? content
+        : _beautified(content, outWidth, outHeight, padding, beautify, unit);
+    final image = await picture.toImage(
+      outWidth + padding * 2,
+      outHeight + padding * 2,
+    );
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     image.dispose();
-    picture.dispose();
+    if (!identical(picture, content)) picture.dispose();
+    content.dispose();
     source.dispose();
     if (data == null) throw StateError('无法编码截图 PNG');
     return data.buffer.asUint8List();
+  }
+
+  /// content 为裁剪内容，width/height 为内容像素尺寸，padding 为每侧像素内边距，style/unit 为美化参数；
+  /// 返回背景、阴影与按圆角裁切的内容合成后的画面，预览与此共用 paintBeautifyBackdrop。
+  static ui.Picture _beautified(
+    ui.Picture content,
+    int width,
+    int height,
+    int padding,
+    BeautifyStyle style,
+    double unit,
+  ) {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final area = Rect.fromLTWH(
+      padding.toDouble(),
+      padding.toDouble(),
+      width.toDouble(),
+      height.toDouble(),
+    );
+    paintBeautifyBackdrop(canvas, area, style, unit: unit);
+    canvas.save();
+    canvas.clipRRect(
+      RRect.fromRectAndRadius(area, Radius.circular(style.cornerRadius * unit)),
+    );
+    canvas.translate(area.left, area.top);
+    canvas.drawPicture(content);
+    canvas.restore();
+    return recorder.endRecording();
   }
 
   /// canvas 为绘制目标，annotation 为源图像素坐标下的标注；无返回值。
