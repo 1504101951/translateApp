@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translate_app/src/common/constants/text_mode.dart';
 import 'package:translate_app/src/settings/service_config.dart';
 import 'package:translate_app/src/translation/model_result.dart';
 import 'package:translate_app/src/translation/providers/api_translation_provider.dart';
@@ -287,6 +288,55 @@ void main() {
       () => parseModelResult('{"segments":[', source),
       throwsFormatException,
     );
+  });
+
+  test('润色模式使用内置提示词整段发送纯文本，忽略段落对照，原文与目标同语言也发出请求', () async {
+    // 边界：服务开启了按段落双语对照、原文与目标语言都是英文；润色仍须整段请求并接受纯文本结果。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    const source = 'helo world.\n\nsecond line';
+    final serving = () async {
+      final incoming = await server.first;
+      final body = jsonDecode(await utf8.decoder.bind(incoming).join()) as Map;
+      final system = body['messages'][0]['content'] as String;
+      expect(system, contains('润色'));
+      expect(system, isNot(contains(ServiceConfig.defaultPrompt)));
+      expect(body.containsKey('response_format'), isFalse);
+      final input = jsonDecode(body['messages'][1]['content'] as String) as Map;
+      expect(input['text'], source);
+      expect(input.containsKey('paragraphs'), isFalse);
+      incoming.response.write(
+        'data: {"choices":[{"index":0,"delta":{"content":"Hello world.\\n\\nSecond line."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      );
+      await incoming.response.close();
+    }();
+    final events =
+        await ApiTranslationProvider(
+              config: ServiceConfig(
+                id: 'test',
+                kind: 'openai',
+                name: 'Test',
+                baseUrl: 'http://127.0.0.1:${server.port}',
+                model: 'test-model',
+                semanticPairs: true,
+              ),
+              credentials: () async => secrets,
+              mode: TextMode.polish,
+            )
+            .translate(
+              const TranslationRequest(
+                sourceText: source,
+                detectedLanguage: 'en',
+                targetLanguage: 'en',
+              ),
+            )
+            .toList();
+    expect(
+      events.whereType<TranslationUpdate>().map((e) => e.addition).join(),
+      'Hello world.\n\nSecond line.',
+    );
+    expect(events.last, isA<TranslationCompleted>());
+    await serving;
   });
 
   test('DeepSeek 禁用思考并按输入编号返回完整对照，不显示协议 JSON', () async {

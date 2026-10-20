@@ -1,3 +1,4 @@
+import '../common/constants/text_mode.dart';
 import '../platform/settings_platform.dart';
 import '../settings/app_settings.dart';
 import '../settings/service_config.dart';
@@ -23,6 +24,25 @@ BatchTranslationProvider providerForSettings(
   return ApiTranslationProvider(
     config: config,
     credentials: () => platform.readCredentials(settings.defaultServiceId),
+  );
+}
+
+/// settings 为发起时的配置，platform 提供凭据读取，mode 为润色、纠错或解释。
+/// 返回使用默认服务与内置提示词的模型 Provider；默认服务不是模型服务时返回 null，由调用方提示。
+TranslationProvider? assistProviderForSettings(
+  AppSettings settings,
+  SettingsPlatform platform,
+  TextMode mode,
+) {
+  if (settings.defaultServiceId == ServiceConfig.builtinId) return null;
+  final config = settings.services.singleWhere(
+    (service) => service.id == settings.defaultServiceId,
+  );
+  if (!config.isModel) return null;
+  return ApiTranslationProvider(
+    config: config,
+    credentials: () => platform.readCredentials(config.id),
+    mode: mode,
   );
 }
 

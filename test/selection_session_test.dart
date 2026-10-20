@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translate_app/src/common/constants/text_mode.dart';
 import 'package:translate_app/src/selection/selection_session.dart';
 import 'package:translate_app/src/translation/language_direction.dart';
 import 'package:translate_app/src/translation/translation_types.dart';
@@ -28,6 +29,44 @@ class RecordingProvider implements TranslationProvider {
 
 void main() {
   final language = LanguageDirection(primaryCode: 'zh-CN', secondaryCode: 'en');
+  test('切换模式对同一原文重新处理：解释用主要语言，润色保持原文语言，无模型服务时明确失败', () async {
+    // 边界：原文识别为英文、主要语言为简体中文；翻译目标为中文，解释目标也为中文，润色目标为英文本身。
+    final assist = RecordingProvider(
+      events: const [TranslationUpdate('结果'), TranslationCompleted()],
+    );
+    var available = true;
+    final session = SelectionSession(
+      detectLanguage: (_) async => 'en',
+      provider: RecordingProvider(),
+      language: language,
+    )..assistProviderFor = (_) => available ? assist : null;
+    addTearDown(session.dispose);
+    session.begin(sessionId: 's1', text: 'Hello');
+    await session.activate();
+    expect(session.snapshot.phase, TranslationPhase.completed);
+
+    await session.switchMode(TextMode.explain);
+    expect(session.mode, TextMode.explain);
+    expect(session.snapshot.sourceText, 'Hello');
+    expect(session.snapshot.translatedText, '结果');
+    expect(assist.requests.last.targetLanguage, 'zh-CN');
+
+    await session.switchMode(TextMode.polish);
+    expect(assist.requests.last.targetLanguage, 'en');
+
+    // 默认服务不是模型服务：不发请求，卡片给出可操作的失败说明。
+    available = false;
+    final sent = assist.requests.length;
+    await session.switchMode(TextMode.correct);
+    expect(session.snapshot.phase, TranslationPhase.failed);
+    expect(session.snapshot.message, SelectionSession.assistUnavailable);
+    expect(assist.requests, hasLength(sent));
+
+    // 新选区回到翻译模式。
+    session.begin(sessionId: 's2', text: 'World');
+    expect(session.mode, TextMode.translate);
+  });
+
   test('展开后的请求保留激活时服务和语言，设置变更只影响下一次翻译', () async {
     // 设置窗口保存可跨越选区补读/语言识别的 await，不能切换已授权请求的接收方。
     final detection = Completer<String?>();

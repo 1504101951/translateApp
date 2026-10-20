@@ -3,13 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../common/constants/selection_gesture_types.dart';
-import '../common/constants/translation_phase.dart';
+import '../common/constants/text_mode.dart';
 import '../common/widgets/native_glass.dart';
 import '../history/translation_history.dart';
 import '../overlay/translation_overlay.dart';
 import '../platform/macos_bridge_event.dart';
 import '../platform/macos_platform_bridge.dart';
+import '../translation/language_direction.dart';
 import '../translation/provider_selection.dart';
+import '../translation/translation_types.dart';
 import 'selection_session.dart';
 
 /// 选区翻译界面与会话协调者；处理原生事件、取消和完整成功后的历史记录。
@@ -182,31 +184,59 @@ class _TranslateAppState extends State<TranslateApp> {
             : null,
       );
     }
+    // _recordAndReplace 只在翻译模式完整成功时记录历史，并完成输入翻译的替换。
+    await _recordAndReplace(id, activeProvider, activeLanguage, sourceLabel);
+  }
+
+  /// mode 为卡片菜单选择的处理模式；对当前原文重新处理，翻译模式成功时记录历史，返回结束的 Future。
+  Future<void> _switchMode(TextMode mode) async {
+    final id = widget.session.sessionId;
+    if (id == null) return;
+    final sourceLabel = _sourceAppName;
+    await widget.session.switchMode(mode);
+    await _recordAndReplace(
+      id,
+      widget.session.activeProvider,
+      widget.session.activeLanguage,
+      sourceLabel,
+    );
+  }
+
+  /// id 为发起时的会话，provider/language 为冻结的服务与方向，sourceLabel 为来源应用名。
+  /// 仅在会话未被替换、处于翻译模式且完整成功时写入历史；输入翻译会话随后粘贴替换原文，成功即关闭卡片。
+  Future<void> _recordAndReplace(
+    String id,
+    TranslationProvider provider,
+    LanguageDirection language,
+    String? sourceLabel,
+  ) async {
     // 旧请求结束时新会话可能已经完成，必须核对 ID，不能重复记录新会话。
-    if (widget.session.sessionId == id &&
-        widget.session.snapshot.phase == TranslationPhase.completed) {
-      widget.history.insert(
-        sourceText: widget.session.snapshot.sourceText,
-        translatedText: widget.session.snapshot.translatedText,
-        detectedLanguage: widget.session.snapshot.detectedLanguage ?? '',
-        // 按本次检测结果解析激活时的方向，不能把次要语言错误记录成主要语言。
-        targetLanguage: activeLanguage
-            .resolve(widget.session.snapshot.detectedLanguage)
-            .targetLanguage,
-        providerId: activeProvider.id,
-        model: translationHistoryModel(activeProvider),
-        sourceLabel: sourceLabel,
-        completedAt: DateTime.now().millisecondsSinceEpoch,
-      );
-      // 输入翻译成功后粘贴替换原文；替换失败时保留卡片，用户仍可复制译文。
-      if (_replaceSessionId == id &&
-          await widget.bridge.replaceSelection(
-            sessionId: id,
-            text: widget.session.snapshot.translatedText,
-          ) &&
-          widget.session.sessionId == id) {
-        _dismiss();
-      }
+    if (widget.session.sessionId != id ||
+        widget.session.mode != TextMode.translate ||
+        widget.session.snapshot.phase != TranslationPhase.completed) {
+      return;
+    }
+    widget.history.insert(
+      sourceText: widget.session.snapshot.sourceText,
+      translatedText: widget.session.snapshot.translatedText,
+      detectedLanguage: widget.session.snapshot.detectedLanguage ?? '',
+      // 按本次检测结果解析激活时的方向，不能把次要语言错误记录成主要语言。
+      targetLanguage: language
+          .resolve(widget.session.snapshot.detectedLanguage)
+          .targetLanguage,
+      providerId: provider.id,
+      model: translationHistoryModel(provider),
+      sourceLabel: sourceLabel,
+      completedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    // 输入翻译成功后粘贴替换原文；替换失败时保留卡片，用户仍可复制译文。
+    if (_replaceSessionId == id &&
+        await widget.bridge.replaceSelection(
+          sessionId: id,
+          text: widget.session.snapshot.translatedText,
+        ) &&
+        widget.session.sessionId == id) {
+      _dismiss();
     }
   }
 
@@ -228,6 +258,7 @@ class _TranslateAppState extends State<TranslateApp> {
         session: widget.session,
         onActivate: _activate,
         onDismiss: _dismiss,
+        onMode: (mode) => unawaited(_switchMode(mode)),
         onDrag: () {
           final id = widget.session.sessionId;
           // 原生拖动保持来源应用焦点，并保留当前会话的位置。

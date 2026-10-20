@@ -183,6 +183,7 @@ void main() {
             onActivate: session.activate,
             onDismiss: session.dismiss,
             onDrag: () => drags += 1,
+            onMode: session.switchMode,
           ),
         ),
       );
@@ -255,6 +256,7 @@ void main() {
           onActivate: () {},
           onDismiss: () {},
           onDrag: () {},
+          onMode: (_) {},
         ),
       ),
     );

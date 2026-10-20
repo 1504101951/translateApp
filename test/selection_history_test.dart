@@ -5,6 +5,9 @@ import 'package:translate_app/src/common/constants/bridge_event_types.dart';
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:translate_app/src/common/widgets/native_glass.dart';
+import 'package:translate_app/src/common/constants/text_mode.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:translate_app/src/selection/selection_translation_app.dart'
@@ -209,6 +212,84 @@ void main() {
     // 替换被拒：卡片保留完整译文，用户仍可手动复制。
     expect(session.snapshot.phase, TranslationPhase.completed);
     expect(session.snapshot.translatedText, 'Hello');
+    expect(history.page(), hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('卡片切换为润色只显示结果不写历史，切回翻译成功后再记录一条', (tester) async {
+    const methods = MethodChannel('test/mode-history/methods');
+    const events = EventChannel('test/mode-history/events');
+    const codec = StandardMethodCodec();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(methods, (_) async => null);
+    messenger.setMockMethodCallHandler(
+      MethodChannel(events.name),
+      (_) async => null,
+    );
+    final database = sqlite3.openInMemory();
+    final history = TranslationHistoryStore(database);
+    final session =
+        SelectionSession(
+            provider: _Provider(
+              'translate',
+              Stream.fromIterable([
+                const TranslationUpdate('你好'),
+                const TranslationCompleted(),
+              ]),
+            ),
+            detectLanguage: (_) async => 'en',
+            language: const LanguageDirection(primaryCode: 'zh-CN'),
+          )
+          ..assistProviderFor = (_) => _Provider(
+            'polish',
+            Stream.fromIterable([
+              const TranslationUpdate('Hello.'),
+              const TranslationCompleted(),
+            ]),
+          );
+    addTearDown(() {
+      session.dispose();
+      database.close();
+      messenger.setMockMethodCallHandler(methods, null);
+      messenger.setMockMethodCallHandler(MethodChannel(events.name), null);
+    });
+    await tester.pumpWidget(
+      TranslateApp(
+        bridge: MacosPlatformBridge(methods: methods, events: events),
+        session: session,
+        history: history,
+      ),
+    );
+    await tester.pump();
+    await messenger.handlePlatformMessage(
+      events.name,
+      codec.encodeSuccessEnvelope({
+        'type': BridgeEventTypes.selectionCaptured,
+        'sessionId': 'mode',
+        'gesture': SelectionGestureTypes.hotkey,
+        'text': 'hello',
+        'sourceAppName': 'Notes',
+      }),
+      (_) {},
+    );
+    await tester.pumpAndSettle();
+    expect(history.page(), hasLength(1));
+
+    /// label 为菜单选项；打开卡片标题区的模式菜单并选择该项，等待处理结束。
+    Future<void> choose(String label) async {
+      await tester.tap(find.byType(NativeGlassMenuButton<TextMode>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(MenuItemButton, label));
+      await tester.pumpAndSettle();
+    }
+
+    // 边界：润色完整成功也不属于翻译历史。
+    await choose('润色');
+    expect(session.snapshot.translatedText, 'Hello.');
+    expect(find.text('润色结果'), findsOneWidget);
+    expect(history.page(), hasLength(1));
+    await choose('翻译');
+    expect(session.snapshot.translatedText, '你好');
     expect(history.page(), hasLength(2));
     expect(tester.takeException(), isNull);
   });

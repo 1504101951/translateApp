@@ -62,6 +62,9 @@ Future<void> main() async {
       live.noteSettings(candidate);
     },
   );
+  // 润色、纠错与解释在切换时按已提交配置取得默认模型服务（#100）。
+  session.assistProviderFor = (mode) =>
+      assistProviderForSettings(settings.current, bridge, mode);
 
   // handleApplicationRequests只路由跨引擎请求；同引擎直接调用所属模块，不绕回原生通道。
   bridge.handleApplicationRequests((call) async {
@@ -89,9 +92,10 @@ Future<void> main() async {
           'resume' => live.resume(generation).toMap(),
           'end' => live.end(generation).toMap(),
           'discard' => live.discard(generation).toMap(),
-          'captureFailed' => live
-              .captureUnavailable(generation, command['failure'] as String)
-              .toMap(),
+          'captureFailed' =>
+            live
+                .captureUnavailable(generation, command['failure'] as String)
+                .toMap(),
           _ => throw ArgumentError('未知实时翻译操作：$action'),
         };
       case MethodNames.liveRegionOcr:

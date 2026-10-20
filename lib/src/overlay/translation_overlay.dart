@@ -1,4 +1,5 @@
 import '../common/constants/glass_metrics.dart';
+import '../common/constants/text_mode.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,13 +11,14 @@ import '../translation/translation_types.dart';
 
 /// 当前选区的触发按钮和译文卡片；窗口位置由 macOS 管理。
 class TranslationOverlay extends StatefulWidget {
-  /// session 提供状态；三个无参回调分别翻译、关闭、拖动；构造浮层内容。
+  /// session 提供状态；三个无参回调分别翻译、关闭、拖动，onMode 切换处理模式；构造浮层内容。
   const TranslationOverlay({
     super.key,
     required this.session,
     required this.onActivate,
     required this.onDismiss,
     required this.onDrag,
+    required this.onMode,
   });
 
   /// 视觉按钮84×30，透明命中窗口额外提供上下各1pt点击空间。
@@ -26,6 +28,15 @@ class TranslationOverlay extends StatefulWidget {
   final VoidCallback onActivate;
   final VoidCallback onDismiss;
   final VoidCallback onDrag;
+  final ValueChanged<TextMode> onMode;
+
+  /// 模式菜单的选项名称，也是左栏标题；顺序即菜单顺序（#100）。
+  static const modeLabels = {
+    TextMode.translate: '翻译',
+    TextMode.polish: '润色',
+    TextMode.correct: '纠错',
+    TextMode.explain: '解释',
+  };
 
   /// 无参数；创建只保存当前悬停段落的界面状态。
   @override
@@ -91,11 +102,13 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
         }
 
         final busy = snap.phase == TranslationPhase.translating;
+        final mode = widget.session.mode;
+        final modeLabel = TranslationOverlay.modeLabels[mode]!;
         final title = switch (snap.phase) {
-          TranslationPhase.translating => '翻译中…',
-          TranslationPhase.failed => snap.message ?? '翻译失败',
+          TranslationPhase.translating => '$modeLabel中…',
+          TranslationPhase.failed => snap.message ?? '$modeLabel失败',
           TranslationPhase.sizeLimited => snap.message ?? '选区过长',
-          _ => '双语对照',
+          _ => mode == TextMode.translate ? '双语对照' : '$modeLabel结果',
         };
         return NativeGlassSurface(
           child: Padding(
@@ -154,6 +167,13 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                           ),
                         ),
                       ),
+                      // 模式菜单在重试与关闭左侧；处理中禁用，避免同一卡片并发两个请求。
+                      NativeGlassMenuButton<TextMode>(
+                        value: mode,
+                        items: TranslationOverlay.modeLabels,
+                        onChanged: busy ? null : widget.onMode,
+                      ),
+                      const SizedBox(width: 8),
                       if (widget.session.canRetry)
                         NativeGlassSurface(
                           material: true,
@@ -178,7 +198,10 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                 Row(
                   children: [
                     for (final part in [
-                      ('译文', snap.translatedText),
+                      (
+                        mode == TextMode.translate ? '译文' : modeLabel,
+                        snap.translatedText,
+                      ),
                       ('原文', snap.sourceText),
                     ])
                       Expanded(

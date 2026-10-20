@@ -369,7 +369,7 @@ class NativeGlassSwitchTile extends StatelessWidget {
 }
 
 /// 紧凑选择器；当前值与菜单分别布局，避免菜单内边距裁切选中值。
-class NativeGlassDropdown<T> extends StatefulWidget {
+class NativeGlassDropdown<T> extends StatelessWidget {
   /// label/value/items 是字段名称、选中值和有序选项；onChanged 为空表示禁用。
   const NativeGlassDropdown({
     super.key,
@@ -383,13 +383,39 @@ class NativeGlassDropdown<T> extends StatefulWidget {
   final Map<T, String> items;
   final ValueChanged<T>? onChanged;
 
+  /// 无参数；返回带字段名称的设置行，右侧为玻璃菜单按钮。
+  @override
+  Widget build(BuildContext context) => NativeGlassSettingRow(
+    title: label,
+    child: NativeGlassMenuButton<T>(
+      value: value,
+      items: items,
+      onChanged: onChanged,
+    ),
+  );
+}
+
+/// 不带字段名称的玻璃菜单按钮；设置行与译文卡片标题区共用同一菜单材料与选项样式。
+class NativeGlassMenuButton<T> extends StatefulWidget {
+  /// value/items 是选中值和有序选项；onChanged 为空表示禁用。
+  const NativeGlassMenuButton({
+    super.key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+  final T value;
+  final Map<T, String> items;
+  final ValueChanged<T>? onChanged;
+
   /// 无参数；创建触发器和当前菜单项的焦点状态。
   @override
-  State<NativeGlassDropdown<T>> createState() => _NativeGlassDropdownState<T>();
+  State<NativeGlassMenuButton<T>> createState() =>
+      _NativeGlassMenuButtonState<T>();
 }
 
 /// 管理触发器与当前菜单选项焦点；选中值由调用方持有。
-class _NativeGlassDropdownState<T> extends State<NativeGlassDropdown<T>> {
+class _NativeGlassMenuButtonState<T> extends State<NativeGlassMenuButton<T>> {
   final _buttonFocus = FocusNode();
   final _selectedFocus = FocusNode();
 
@@ -404,110 +430,99 @@ class _NativeGlassDropdownState<T> extends State<NativeGlassDropdown<T>> {
   /// context 提供主题；菜单共享一层材料，值超过一行时按18pt行高增长。
   @override
   Widget build(BuildContext context) {
-    final label = widget.label;
     final value = widget.value;
     final items = widget.items;
     final onChanged = widget.onChanged;
-    return NativeGlassSettingRow(
-      title: label,
-      child: MenuAnchor(
-        childFocusNode: _buttonFocus,
-        onOpen: () {
-          // 菜单挂载后聚焦当前值，使鼠标和键盘打开都能直接用方向键选择。
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && _selectedFocus.context != null) {
-              _selectedFocus.requestFocus();
-            }
-          });
-        },
-        style: const MenuStyle(
-          padding: WidgetStatePropertyAll(EdgeInsets.zero),
-          backgroundColor: WidgetStatePropertyAll(Colors.transparent),
-          elevation: WidgetStatePropertyAll(0),
-        ),
-        menuChildren: [
-          NativeGlassSurface(
-            material: true,
-            radius: GlassMetrics.menuRadius,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minWidth: GlassMetrics.menuMinWidth,
-                maxWidth: GlassMetrics.menuMaxWidth,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final option in items.entries)
-                      _GlassButtonFeedback(
-                        radius: GlassMetrics.menuItemRadius,
-                        enabled: onChanged != null,
-                        inset: const EdgeInsets.symmetric(vertical: 2),
-                        child: MenuItemButton(
-                          focusNode: option.key == value
-                              ? _selectedFocus
-                              : null,
-                          onPressed: onChanged == null
-                              ? null
-                              : () => onChanged(option.key),
-                          style: ButtonStyle(
-                            overlayColor: const WidgetStatePropertyAll(
-                              Colors.transparent,
-                            ),
-                            minimumSize: const WidgetStatePropertyAll(
-                              Size(0, GlassMetrics.hitSize),
-                            ),
-                            padding: const WidgetStatePropertyAll(
-                              EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                            ),
-                            shape: WidgetStatePropertyAll(
-                              RoundedSuperellipseBorder(
-                                borderRadius: BorderRadius.circular(
-                                  GlassMetrics.menuItemRadius,
-                                ),
+    return MenuAnchor(
+      childFocusNode: _buttonFocus,
+      onOpen: () {
+        // 菜单挂载后聚焦当前值，使鼠标和键盘打开都能直接用方向键选择。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _selectedFocus.context != null) {
+            _selectedFocus.requestFocus();
+          }
+        });
+      },
+      style: const MenuStyle(
+        padding: WidgetStatePropertyAll(EdgeInsets.zero),
+        backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+        elevation: WidgetStatePropertyAll(0),
+      ),
+      menuChildren: [
+        NativeGlassSurface(
+          material: true,
+          radius: GlassMetrics.menuRadius,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: GlassMetrics.menuMinWidth,
+              maxWidth: GlassMetrics.menuMaxWidth,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final option in items.entries)
+                    _GlassButtonFeedback(
+                      radius: GlassMetrics.menuItemRadius,
+                      enabled: onChanged != null,
+                      inset: const EdgeInsets.symmetric(vertical: 2),
+                      child: MenuItemButton(
+                        focusNode: option.key == value ? _selectedFocus : null,
+                        onPressed: onChanged == null
+                            ? null
+                            : () => onChanged(option.key),
+                        style: ButtonStyle(
+                          overlayColor: const WidgetStatePropertyAll(
+                            Colors.transparent,
+                          ),
+                          minimumSize: const WidgetStatePropertyAll(
+                            Size(0, GlassMetrics.hitSize),
+                          ),
+                          padding: const WidgetStatePropertyAll(
+                            EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          ),
+                          shape: WidgetStatePropertyAll(
+                            RoundedSuperellipseBorder(
+                              borderRadius: BorderRadius.circular(
+                                GlassMetrics.menuItemRadius,
                               ),
                             ),
                           ),
-                          child: Text(option.value),
                         ),
+                        child: Text(option.value),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
             ),
           ),
-        ],
-        builder: (context, controller, _) => ConstrainedBox(
-          constraints: const BoxConstraints(
-            minWidth: GlassMetrics.dropdownMinWidth,
-            maxWidth: GlassMetrics.dropdownMaxWidth,
-          ),
-          child: NativeGlassSurface(
-            material: true,
-            child: TextButton(
-              focusNode: _buttonFocus,
-              onPressed: onChanged == null
-                  ? null
-                  : () => controller.isOpen
-                        ? controller.close()
-                        : controller.open(),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(items[value]!, textAlign: TextAlign.left),
-                  ),
-                  const SizedBox(width: 6),
-                  const Icon(Icons.unfold_more, size: 12),
-                ],
-              ),
+        ),
+      ],
+      builder: (context, controller, _) => ConstrainedBox(
+        constraints: const BoxConstraints(
+          minWidth: GlassMetrics.dropdownMinWidth,
+          maxWidth: GlassMetrics.dropdownMaxWidth,
+        ),
+        child: NativeGlassSurface(
+          material: true,
+          child: TextButton(
+            focusNode: _buttonFocus,
+            onPressed: onChanged == null
+                ? null
+                : () => controller.isOpen
+                      ? controller.close()
+                      : controller.open(),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            ),
+            child: Row(
+              children: [
+                Expanded(child: Text(items[value]!, textAlign: TextAlign.left)),
+                const SizedBox(width: 6),
+                const Icon(Icons.unfold_more, size: 12),
+              ],
             ),
           ),
         ),

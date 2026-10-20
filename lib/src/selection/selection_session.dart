@@ -4,6 +4,7 @@ import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
 
 import '../common/constants/text_limits.dart';
+import '../common/constants/text_mode.dart';
 import '../translation/language_direction.dart';
 import '../translation/segmented_translation.dart';
 import '../translation/translation_types.dart';
@@ -25,6 +26,16 @@ class SelectionSession extends ChangeNotifier {
 
   TranslationSnapshot snapshot = TranslationSnapshot.idle;
   String? sessionId;
+
+  /// 卡片当前的处理模式；新选区回到翻译，切换模式对同一原文重新处理（#100）。
+  TextMode mode = TextMode.translate;
+
+  /// mode 为润色、纠错或解释；返回按已提交设置构造的模型服务，默认服务不是模型服务时返回 null。
+  TranslationProvider? Function(TextMode mode) assistProviderFor = (_) => null;
+
+  /// 默认服务不是模型服务时，非翻译模式的失败说明。
+  static const assistUnavailable =
+      '润色、纠错与解释需要把默认翻译服务设为模型服务（OpenAI、DeepSeek 或 Anthropic）。';
 
   /// 无参数；返回当前是否为需要显式关闭的展开卡片。
   bool get isExpanded =>
@@ -56,8 +67,9 @@ class SelectionSession extends ChangeNotifier {
     bool awaitSelection = false,
   }) {
     this.sessionId = sessionId;
-    // 新选区结束旧请求，避免后台继续消耗连接。
+    // 新选区结束旧请求，避免后台继续消耗连接；模式回到翻译。
     _cancelTranslation();
+    mode = TextMode.translate;
     if (!awaitSelection && (text == null || text.trim().isEmpty)) {
       snapshot = TranslationSnapshot.idle;
       notifyListeners();
@@ -86,7 +98,6 @@ class SelectionSession extends ChangeNotifier {
     );
     notifyListeners();
 
-    String? detected;
     try {
       if (readSelection != null) {
         final text = await readSelection();
@@ -100,25 +111,81 @@ class SelectionSession extends ChangeNotifier {
         );
         notifyListeners();
       }
-      // 候选按钮尚未取得文字时不能产生空文本请求。
-      if (source.trim().isEmpty) {
-        snapshot = snapshot.copyWith(
-          phase: TranslationPhase.failed,
-          message: '未读取到选中文字，请重新选择后使用翻译快捷键。',
-        );
-        notifyListeners();
-        return;
-      }
-      if (source.characters.length > selectionLimit) {
-        snapshot = TranslationSnapshot(
-          phase: TranslationPhase.sizeLimited,
-          sourceText: source,
-          translatedText: '',
-          message: '选区超过 50,000 个字符，未发送翻译请求。',
-        );
-        notifyListeners();
-        return;
-      }
+    } catch (error) {
+      if (generation != _generation) return;
+      snapshot = snapshot.copyWith(
+        phase: TranslationPhase.failed,
+        message: '无法准备选区翻译：$error',
+      );
+      notifyListeners();
+      return;
+    }
+    // _translateSource 校验原文、识别语言并按当前模式发起请求。
+    await _translateSource(source, generation, activeProvider, activeLanguage);
+  }
+
+  /// mode 为目标处理模式；对卡片当前原文重新处理，翻译进行中或未展开时忽略，返回完成或取消的 Future。
+  Future<void> switchMode(TextMode mode) async {
+    if (!isExpanded || snapshot.phase == TranslationPhase.translating) return;
+    final source = snapshot.sourceText;
+    // 语言方向沿用本卡片冻结的设置，服务按目标模式取得。
+    final language = activeLanguage;
+    _cancelTranslation();
+    this.mode = mode;
+    final generation = _generation;
+    final provider = mode == TextMode.translate
+        ? this.provider
+        : assistProviderFor(mode);
+    if (provider == null) {
+      snapshot = TranslationSnapshot(
+        phase: TranslationPhase.failed,
+        sourceText: source,
+        translatedText: '',
+        message: assistUnavailable,
+      );
+      notifyListeners();
+      return;
+    }
+    _activeProvider = provider;
+    _activeLanguage = language;
+    snapshot = TranslationSnapshot(
+      phase: TranslationPhase.translating,
+      sourceText: source,
+      translatedText: '',
+    );
+    notifyListeners();
+    await _translateSource(source, generation, provider, language);
+  }
+
+  /// source 为已读取的原文，generation 为发起时代次，provider/language 为冻结的服务与方向。
+  /// 校验空文本与长度上限，识别语言并按当前模式确定目标语言后运行请求；返回完成或取消的 Future。
+  Future<void> _translateSource(
+    String source,
+    int generation,
+    TranslationProvider provider,
+    LanguageDirection language,
+  ) async {
+    // 候选按钮尚未取得文字时不能产生空文本请求。
+    if (source.trim().isEmpty) {
+      snapshot = snapshot.copyWith(
+        phase: TranslationPhase.failed,
+        message: '未读取到选中文字，请重新选择后使用翻译快捷键。',
+      );
+      notifyListeners();
+      return;
+    }
+    if (source.characters.length > selectionLimit) {
+      snapshot = TranslationSnapshot(
+        phase: TranslationPhase.sizeLimited,
+        sourceText: source,
+        translatedText: '',
+        message: '选区超过 50,000 个字符，未发送翻译请求。',
+      );
+      notifyListeners();
+      return;
+    }
+    final String? detected;
+    try {
       detected = await detectLanguage(source);
     } catch (error) {
       if (generation != _generation) return;
@@ -131,17 +198,25 @@ class SelectionSession extends ChangeNotifier {
     }
     // 设备识别是异步桥调用；等待期间换选区或关闭不能发出旧请求。
     if (generation != _generation) return;
-    final direction = activeLanguage.resolve(detected);
+    final direction = language.resolve(detected);
     snapshot = snapshot.copyWith(detectedLanguage: direction.detectedLanguage);
     final request = TranslationRequest(
       sourceText: source,
       detectedLanguage: direction.detectedLanguage,
-      targetLanguage: direction.targetLanguage,
+      targetLanguage: switch (mode) {
+        TextMode.translate => direction.targetLanguage,
+        // 解释给用户自己看，使用主要语言。
+        TextMode.explain => language.primaryCode,
+        // 润色与纠错保持原文语言；无法识别时按主要语言处理。
+        TextMode.polish || TextMode.correct =>
+          direction.detectedLanguage ??
+              LanguageDirection.normalize(language.primaryCode),
+      },
     );
 
     _progress = TranslationProgress(request);
-    // 共享运行路径让初次翻译和失败恢复遵循同一个取消、配对和完成边界。
-    await _runTranslation(activeProvider, _progress!);
+    // 共享运行路径让初次翻译、模式切换和失败恢复遵循同一个取消、配对和完成边界。
+    await _runTranslation(provider, _progress!);
   }
 
   /// 无参数；保留完整片并重新请求失败片，返回完成或取消的 Future。
