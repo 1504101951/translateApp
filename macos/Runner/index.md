@@ -35,3 +35,4 @@ macOS应用生命周期、系统能力与窗口控制器。
 31. [LiveRegionWindowController.swift](LiveRegionWindowController.swift)：承载不抢焦点的实时翻译结果窗，并连接捕获与主引擎会话。
 32. [MCP/](MCP/index.md)：MCP 截图接口的 JSON-RPC 协议、本地 socket 传输及 App 侧请求处理。
 33. [SystemTranslationService.swift](SystemTranslationService.swift)：按语言对创建无界面系统翻译会话，翻译一组段落、按请求取消并查询语言包状态。
+34. [SpeechService.swift](SpeechService.swift)：用系统离线语音朗读译文卡片的一栏文字，同一段再次请求即停止。

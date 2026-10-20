@@ -275,6 +275,10 @@ enum AppConstants {
     static let staleCaptureError = "stale_capture"
     /// systemStatus 协议值；与Dart常量及持久化调用方同步。
     static let systemStatusMethod = "systemStatus"
+    /// toggleSpeech 协议值；朗读或停止朗读卡片一栏文字，与Dart常量同步。
+    static let toggleSpeechMethod = "toggleSpeech"
+    /// stopSpeech 协议值；停止当前朗读，与Dart常量同步。
+    static let stopSpeechMethod = "stopSpeech"
     /// systemTranslate 协议值；Apple 系统翻译一组段落，与Dart常量同步。
     static let systemTranslateMethod = "systemTranslate"
     /// cancelSystemTranslation 协议值；按 requestId 取消系统翻译，与Dart常量同步。

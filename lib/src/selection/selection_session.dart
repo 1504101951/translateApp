@@ -56,6 +56,9 @@ class SelectionSession extends ChangeNotifier {
 
   /// 无参数；返回本会话冻结语言方向，供重试和成功历史使用。
   LanguageDirection get activeLanguage => _activeLanguage ?? language;
+
+  /// 无参数；返回当前请求的输出语言（翻译为目标语言，解释为主要语言，润色与纠错为原文语言），未发出请求时为 null。
+  String? get outputLanguage => _progress?.request.targetLanguage;
   int _generation = 0;
   StreamSubscription<TranslationEvent>? _translation;
   Completer<void>? _completion;

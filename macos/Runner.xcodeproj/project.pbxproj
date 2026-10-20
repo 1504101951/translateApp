@@ -39,6 +39,7 @@
 		A28000000000000000000004 /* GIFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000003 /* GIFExporter.swift */; };
 		A28000000000000000000002 /* ScrollStitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000001 /* ScrollStitcher.swift */; };
 		A98T00000000000000000002 /* SystemTranslationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98T00000000000000000001 /* SystemTranslationService.swift */; };
+		A98U00000000000000000002 /* SpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98U00000000000000000001 /* SpeechService.swift */; };
 		A15P00000000000000000002 /* PinOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15P00000000000000000001 /* PinOverlayController.swift */; };
 		A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16C00000000000000000001 /* ScreenCaptureService.swift */; };
 		A18C00000000000000000002 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18C00000000000000000001 /* Constants.swift */; };
@@ -137,6 +138,7 @@
 		A28000000000000000000003 /* GIFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GIFExporter.swift; sourceTree = "<group>"; };
 		A28000000000000000000001 /* ScrollStitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollStitcher.swift; sourceTree = "<group>"; };
 		A98T00000000000000000001 /* SystemTranslationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTranslationService.swift; sourceTree = "<group>"; };
+		A98U00000000000000000001 /* SpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechService.swift; sourceTree = "<group>"; };
 		A15P00000000000000000001 /* PinOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinOverlayController.swift; sourceTree = "<group>"; };
 		A16C00000000000000000001 /* ScreenCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureService.swift; sourceTree = "<group>"; };
 		A18C00000000000000000001 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
@@ -289,6 +291,7 @@
 				A28000000000000000000003 /* GIFExporter.swift */,
 				A28000000000000000000001 /* ScrollStitcher.swift */,
 				A98T00000000000000000001 /* SystemTranslationService.swift */,
+				A98U00000000000000000001 /* SpeechService.swift */,
 				A15P00000000000000000001 /* PinOverlayController.swift */,
 				A16C00000000000000000001 /* ScreenCaptureService.swift */,
 				A17C00000000000000000001 /* AuxiliaryWindowController.swift */,
@@ -540,6 +543,7 @@
 				A28000000000000000000004 /* GIFExporter.swift in Sources */,
 				A28000000000000000000002 /* ScrollStitcher.swift in Sources */,
 				A98T00000000000000000002 /* SystemTranslationService.swift in Sources */,
+				A98U00000000000000000002 /* SpeechService.swift in Sources */,
 				A15P00000000000000000002 /* PinOverlayController.swift in Sources */,
 				A16C00000000000000000002 /* ScreenCaptureService.swift in Sources */,
 				A18C00000000000000000002 /* Constants.swift in Sources */,

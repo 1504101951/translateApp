@@ -195,6 +195,12 @@ abstract final class MethodNames {
   /// systemStatus 的稳定协议值，变更须同步两端及持久化调用方。
   static const systemStatus = 'systemStatus';
 
+  /// 朗读或停止朗读卡片一栏文字；参数含 text 与 language，返回调用后是否在朗读。
+  static const toggleSpeech = 'toggleSpeech';
+
+  /// 停止当前朗读；关闭卡片、开始新翻译或切换模式时调用。
+  static const stopSpeech = 'stopSpeech';
+
   /// Apple 系统翻译一组段落；参数含 requestId、texts、source、target、strategy。
   static const systemTranslate = 'systemTranslate';
 

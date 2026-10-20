@@ -184,6 +184,7 @@ void main() {
             onDismiss: session.dismiss,
             onDrag: () => drags += 1,
             onMode: session.switchMode,
+            onSpeak: (_) {},
           ),
         ),
       );
@@ -233,6 +234,50 @@ void main() {
     },
   );
 
+  testWidgets('两栏各有朗读按钮，点击分别朗读结果栏与原文栏，空栏禁用', (tester) async {
+    // 边界：结果栏为空（翻译刚开始）时只能朗读原文；两栏都有内容时各自回报所属栏。
+    final session = SelectionSession(
+      provider: _Provider(),
+      detectLanguage: (_) async => 'en',
+    );
+    addTearDown(session.dispose);
+    session.snapshot = const TranslationSnapshot(
+      phase: TranslationPhase.translating,
+      sourceText: 'Hello',
+      translatedText: '',
+    );
+    final spoken = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TranslationOverlay(
+          session: session,
+          onActivate: () {},
+          onDismiss: () {},
+          onDrag: () {},
+          onMode: (_) {},
+          onSpeak: spoken.add,
+        ),
+      ),
+    );
+    IconButton speaker(String tooltip) => tester.widget<IconButton>(
+      find
+          .widgetWithIcon(IconButton, Icons.volume_up_rounded)
+          .at(tooltip == '朗读译文' ? 0 : 1),
+    );
+    expect(speaker('朗读译文').onPressed, isNull);
+    expect(speaker('朗读原文').onPressed, isNotNull);
+    session.snapshot = const TranslationSnapshot(
+      phase: TranslationPhase.completed,
+      sourceText: 'Hello',
+      translatedText: '你好',
+    );
+    session.notifyListeners();
+    await tester.pump();
+    await tester.tap(find.byTooltip('朗读译文'));
+    await tester.tap(find.byTooltip('朗读原文'));
+    expect(spoken, [false, true]);
+  });
+
   testWidgets('已验证的语义段落按译文原文成对展示', (tester) async {
     // 完整译文与分段译文不同，用最终可见文本证明使用了已校验配对。
     final session = SelectionSession(
@@ -257,6 +302,7 @@ void main() {
           onDismiss: () {},
           onDrag: () {},
           onMode: (_) {},
+          onSpeak: (_) {},
         ),
       ),
     );

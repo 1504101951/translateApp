@@ -100,6 +100,20 @@ class MacosPlatformBridge implements SettingsPlatform {
     'text': text,
   }))!;
 
+  /// text 为卡片一栏全文，language 为该栏语言码；同一段正在朗读时停止，否则改读该段。
+  /// 返回调用后是否处于朗读状态。
+  Future<bool> toggleSpeech({
+    required String text,
+    required String language,
+  }) async => (await _methods.invokeMethod<bool>(MethodNames.toggleSpeech, {
+    'text': text,
+    'language': language,
+  }))!;
+
+  /// 无参数；停止当前朗读，返回原生完成的 Future。
+  Future<void> stopSpeech() =>
+      _methods.invokeMethod<void>(MethodNames.stopSpeech);
+
   /// 让 Swift 上报一条探测用选区事件，验证通道而不是实现 #2。
   Future<void> probeEmitSelection() {
     return _methods.invokeMethod<void>(MethodNames.probeEmitSelection);

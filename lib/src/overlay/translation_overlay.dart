@@ -19,6 +19,7 @@ class TranslationOverlay extends StatefulWidget {
     required this.onDismiss,
     required this.onDrag,
     required this.onMode,
+    required this.onSpeak,
   });
 
   /// 视觉按钮84×30，透明命中窗口额外提供上下各1pt点击空间。
@@ -29,6 +30,9 @@ class TranslationOverlay extends StatefulWidget {
   final VoidCallback onDismiss;
   final VoidCallback onDrag;
   final ValueChanged<TextMode> onMode;
+
+  /// source 为 true 时朗读原文栏，否则朗读结果栏；同一栏正在朗读时再次点击停止（#101）。
+  final ValueChanged<bool> onSpeak;
 
   /// 模式菜单的选项名称，也是左栏标题；顺序即菜单顺序（#100）。
   static const modeLabels = {
@@ -201,8 +205,9 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                       (
                         mode == TextMode.translate ? '译文' : modeLabel,
                         snap.translatedText,
+                        false,
                       ),
-                      ('原文', snap.sourceText),
+                      ('原文', snap.sourceText, true),
                     ])
                       Expanded(
                         child: Row(
@@ -217,6 +222,21 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                                       .colorScheme
                                       .onSurfaceVariant,
                                 ),
+                              ),
+                            ),
+                            // 朗读按钮在复制左侧，与复制共用玻璃按钮样式；栏为空时禁用。
+                            NativeGlassSurface(
+                              material: true,
+                              child: IconButton(
+                                tooltip: '朗读${part.$1}',
+                                onPressed: part.$2.isEmpty
+                                    ? null
+                                    : () => widget.onSpeak(part.$3),
+                                icon: const Icon(
+                                  Icons.volume_up_rounded,
+                                  size: GlassMetrics.icon,
+                                ),
+                                visualDensity: VisualDensity.standard,
                               ),
                             ),
                             NativeGlassSurface(

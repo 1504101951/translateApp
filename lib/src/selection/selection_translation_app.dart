@@ -82,6 +82,8 @@ class _TranslateAppState extends State<TranslateApp> {
           return;
         }
         _sourceAppName = sourceAppName;
+        // 新选区替换卡片内容，停止朗读旧内容。
+        unawaited(widget.bridge.stopSpeech());
         // 输入翻译会话在完整成功后用译文替换来源输入框中的原文。
         _replaceSessionId = gesture == SelectionGestureTypes.inputHotkey
             ? sessionId
@@ -188,10 +190,28 @@ class _TranslateAppState extends State<TranslateApp> {
     await _recordAndReplace(id, activeProvider, activeLanguage, sourceLabel);
   }
 
+  /// source 为 true 时朗读原文栏，否则朗读结果栏；按该栏语言朗读，同一栏再次点击停止，无返回值。
+  void _speak(bool source) {
+    final snapshot = widget.session.snapshot;
+    final primary = widget.session.activeLanguage.primaryCode;
+    // 原文用识别出的语言，结果栏用本次请求的输出语言；缺失时按主要语言朗读。
+    final language = source
+        ? snapshot.detectedLanguage ?? primary
+        : widget.session.outputLanguage ?? primary;
+    unawaited(
+      widget.bridge.toggleSpeech(
+        text: source ? snapshot.sourceText : snapshot.translatedText,
+        language: language,
+      ),
+    );
+  }
+
   /// mode 为卡片菜单选择的处理模式；对当前原文重新处理，翻译模式成功时记录历史，返回结束的 Future。
   Future<void> _switchMode(TextMode mode) async {
     final id = widget.session.sessionId;
     if (id == null) return;
+    // 原文结果都会被替换，先停止朗读旧内容。
+    unawaited(widget.bridge.stopSpeech());
     final sourceLabel = _sourceAppName;
     await widget.session.switchMode(mode);
     await _recordAndReplace(
@@ -243,7 +263,8 @@ class _TranslateAppState extends State<TranslateApp> {
   /// 无参数；关闭当前会话及其原生窗口，无返回值。
   void _dismiss() {
     final id = widget.session.sessionId;
-    // 取消业务请求后，用关闭前的会话 ID 隐藏窗口。
+    // 关闭卡片即停止朗读；取消业务请求后，用关闭前的会话 ID 隐藏窗口。
+    unawaited(widget.bridge.stopSpeech());
     widget.session.dismiss();
     if (id != null) {
       widget.bridge.hideOverlay(sessionId: id);
@@ -259,6 +280,7 @@ class _TranslateAppState extends State<TranslateApp> {
         onActivate: _activate,
         onDismiss: _dismiss,
         onMode: (mode) => unawaited(_switchMode(mode)),
+        onSpeak: _speak,
         onDrag: () {
           final id = widget.session.sessionId;
           // 原生拖动保持来源应用焦点，并保留当前会话的位置。

@@ -45,14 +45,18 @@ void main() {
     await session.activate();
     expect(session.snapshot.phase, TranslationPhase.completed);
 
+    expect(session.outputLanguage, 'zh-CN');
     await session.switchMode(TextMode.explain);
     expect(session.mode, TextMode.explain);
+    expect(session.outputLanguage, 'zh-CN');
     expect(session.snapshot.sourceText, 'Hello');
     expect(session.snapshot.translatedText, '结果');
     expect(assist.requests.last.targetLanguage, 'zh-CN');
 
     await session.switchMode(TextMode.polish);
     expect(assist.requests.last.targetLanguage, 'en');
+    // 朗读结果栏使用请求的输出语言：润色结果仍是英文。
+    expect(session.outputLanguage, 'en');
 
     // 默认服务不是模型服务：不发请求，卡片给出可操作的失败说明。
     available = false;

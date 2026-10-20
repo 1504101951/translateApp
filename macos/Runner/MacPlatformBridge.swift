@@ -39,6 +39,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         },
         run: MCPToolRunner.run
     )
+    /// 译文卡片朗读；只持有当前朗读的文字。
+    private let speech = SpeechService()
     /// Apple 系统翻译；只持有进行中的会话供取消，翻译业务由 Dart 的 AppleTranslationProvider 负责。
     @MainActor lazy var systemTranslation = SystemTranslationService()
     private var methods: FlutterMethodChannel?
@@ -290,6 +292,15 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             recognizer.processString(text)
             let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first
             result(hypothesis.flatMap { $0.value >= 0.5 ? $0.key.rawValue : nil })
+        case AppConstants.toggleSpeechMethod:
+            guard let text = args["text"] as? String, let language = args["language"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "toggleSpeech 需要 text/language", details: nil)); return
+            }
+            // toggle 在同一段正在朗读时停止，否则改读新文字；返回调用后是否在朗读。
+            result(speech.toggle(text: text, language: language))
+        case AppConstants.stopSpeechMethod:
+            speech.stop()
+            result(nil)
         case AppConstants.systemTranslateMethod:
             guard let requestId = args["requestId"] as? String,
                   let texts = args["texts"] as? [String],

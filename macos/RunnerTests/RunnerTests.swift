@@ -490,6 +490,23 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(pasteboard.string(forType: .string), "用户新复制")
     }
 
+    /// 无参数；朗读声音按语言的默认地区补全，系统没有该地区声音时退回语言本身，无返回值。
+    func testSpeechVoiceUsesDefaultRegion() {
+        // 边界：只给语言码（en）应补全为美式发音；带地区的繁体中文保持地区；阿拉伯语默认地区无声音时仍能取到声音。
+        XCTAssertEqual(SpeechService.voice(for: "en")?.language, "en-US")
+        XCTAssertEqual(SpeechService.voice(for: "zh-TW")?.language, "zh-TW")
+        XCTAssertEqual(SpeechService.voice(for: "ar")?.language.hasPrefix("ar"), true)
+    }
+
+    /// 无参数；朗读请求缺少文字或语言时直接返回参数错误，不开始朗读，无返回值。
+    @MainActor
+    func testToggleSpeechRejectsMissingArguments() {
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        var response: Any?
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.toggleSpeechMethod, arguments: ["text": "Hello"])) { response = $0 }
+        XCTAssertEqual((response as? FlutterError)?.code, AppConstants.badArgsError)
+    }
+
     /// 无参数；没有对应会话时替换请求返回 false，不向任何应用粘贴，无返回值。
     @MainActor
     func testReplaceSelectionRejectsStaleSession() {
