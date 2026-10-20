@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import '../common/constants/error_codes.dart';
 import '../common/constants/method_names.dart';
 import '../common/constants/preference_keys.dart';
+import '../common/constants/system_translation.dart';
 import '../platform/settings_platform.dart';
 import '../translation/providers/api_translation_provider.dart';
+import '../translation/providers/apple_translation_provider.dart';
 import '../translation/translation_types.dart';
 import 'app_settings.dart';
 import 'service_config.dart';
@@ -133,6 +135,8 @@ class SettingsController {
     final config = ServiceConfig.fromMap(
       Map<Object?, Object?>.from(map['config'] as Map),
     );
+    // 系统翻译没有凭据与网络端点，只检查语言包，不访问钥匙串。
+    if (config.isSystem) return _testSystemTranslation(config);
     final credentials = {
       ...await platform.readCredentials(config.id),
       ...Map<String, String>.from(map['credentials'] as Map),
@@ -170,5 +174,48 @@ class SettingsController {
       );
     }
     return result.toString();
+  }
+
+  /// config 为系统翻译配置；按已提交的主次语言查询语言包安装状态，不发起翻译。
+  /// 返回已安装语言对的说明；有不支持或未安装的语言对时抛出带下载位置的测试失败。
+  Future<String> _testSystemTranslation(ServiceConfig config) async {
+    final direction = _current.direction;
+    final primary = direction.primaryCode;
+    final secondary = direction.secondaryCode;
+    // 设置了次要语言时检查双向；否则检查测试文本 Hello world. 的语言对（英文译为主要语言）。
+    final pairs = [
+      if (secondary != null) ...[(primary, secondary), (secondary, primary)],
+      if (secondary == null && primary != 'en') ('en', primary),
+    ];
+    if (pairs.isEmpty) return '主要语言为英文且未设置次要语言，翻译时按原文语言检查语言包。';
+    // statuses 只查询系统语言包状态，不触发下载。
+    final statuses = await AppleTranslationProvider(config: config)
+        .statuses(pairs);
+    final labels = [
+      for (final (source, target) in pairs)
+        AppleTranslationProvider.pairLabel(source, target),
+    ];
+    final unsupported = [
+      for (final (index, status) in statuses.indexed)
+        if (status == SystemTranslationStatus.unsupported) labels[index],
+    ];
+    if (unsupported.isNotEmpty) {
+      throw PlatformException(
+        code: ErrorCodes.testFailed,
+        message: 'Apple 系统翻译不支持：${unsupported.join('、')}。',
+      );
+    }
+    final missing = [
+      for (final (index, status) in statuses.indexed)
+        if (status == SystemTranslationStatus.supported) labels[index],
+    ];
+    if (missing.isNotEmpty) {
+      throw PlatformException(
+        code: ErrorCodes.testFailed,
+        message:
+            '缺少语言包：${missing.join('、')}。${AppleTranslationProvider.downloadHint}',
+      );
+    }
+    return '语言包已安装：${labels.join('、')}';
   }
 }

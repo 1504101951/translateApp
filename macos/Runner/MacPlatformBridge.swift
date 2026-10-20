@@ -38,6 +38,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         },
         run: MCPToolRunner.run
     )
+    /// Apple 系统翻译；只持有进行中的会话供取消，翻译业务由 Dart 的 AppleTranslationProvider 负责。
+    @MainActor lazy var systemTranslation = SystemTranslationService()
     private var methods: FlutterMethodChannel?
     var onReady: (() -> Void)? {
         didSet {
@@ -275,6 +277,42 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             recognizer.processString(text)
             let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first
             result(hypothesis.flatMap { $0.value >= 0.5 ? $0.key.rawValue : nil })
+        case AppConstants.systemTranslateMethod:
+            guard let requestId = args["requestId"] as? String,
+                  let texts = args["texts"] as? [String],
+                  let source = args["source"] as? String,
+                  let target = args["target"] as? String,
+                  let strategy = args["strategy"] as? String
+            else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "systemTranslate 需要 requestId/texts/source/target/strategy", details: nil)); return
+            }
+            Task { @MainActor in
+                // translate 返回按下标排列的译文；错误映射为跨端错误码，由 Dart 生成界面文案。
+                do {
+                    result(try await self.systemTranslation.translate(
+                        requestId: requestId, texts: texts, source: source, target: target, strategy: strategy
+                    ))
+                } catch {
+                    result(FlutterError(code: SystemTranslationService.errorCode(for: error), message: error.localizedDescription, details: nil))
+                }
+            }
+        case AppConstants.cancelSystemTranslationMethod:
+            guard let requestId = args["requestId"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "cancelSystemTranslation 需要 requestId", details: nil)); return
+            }
+            Task { @MainActor in
+                // cancel 停止对应会话；进行中的翻译随后以失败返回，Dart 已丢弃该结果。
+                self.systemTranslation.cancel(requestId: requestId)
+                result(nil)
+            }
+        case AppConstants.systemTranslationStatusMethod:
+            guard let pairs = args["pairs"] as? [[String]], pairs.allSatisfy({ $0.count == 2 }) else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "systemTranslationStatus 需要 [源语言, 目标语言] 列表", details: nil)); return
+            }
+            Task { @MainActor in
+                // status 只查询系统语言包状态，不触发下载；回复留在主线程。
+                result(await SystemTranslationService.status(pairs: pairs))
+            }
         case AppConstants.systemStatusMethod:
             result([
                 "accessibility": AccessibilitySelection.isTrusted(prompt: false),

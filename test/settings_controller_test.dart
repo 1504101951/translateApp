@@ -3,15 +3,18 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translate_app/src/common/constants/channel_names.dart';
 import 'package:translate_app/src/common/constants/error_codes.dart';
 import 'package:translate_app/src/common/constants/method_names.dart';
 import 'package:translate_app/src/common/constants/preference_keys.dart';
 import 'package:translate_app/src/platform/settings_platform.dart';
 import 'package:translate_app/src/settings/app_settings.dart';
+import 'package:translate_app/src/settings/service_config.dart';
 import 'package:translate_app/src/settings/settings_controller.dart';
 
-/// 无参数；验证唯一设置队列的状态提交、真实存储失败和修订冲突，无返回值。
+/// 无参数；验证唯一设置队列的状态提交、真实存储失败、修订冲突与系统翻译的测试连接，无返回值。
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
   late File saved;
   late SettingsController controller;
@@ -173,6 +176,94 @@ void main() {
     ) as Map;
     expect(next['revision'], 3);
     expect(controller.current.gifFramesPerSecond, 30);
+  });
+
+  group('Apple 系统翻译测试连接', () {
+    const methods = MethodChannel(ChannelNames.macos);
+    const apple = ServiceConfig(
+      id: 'apple-local',
+      kind: 'apple',
+      name: 'Apple 系统翻译',
+      baseUrl: '',
+    );
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+    /// statuses 以「源>目标」为键给出假原生的语言包状态，未列出的语言对视为已安装。
+    void nativeStatuses(Map<String, String> statuses) {
+      messenger.setMockMethodCallHandler(methods, (call) async {
+        final pairs = (call.arguments as Map)['pairs'] as List;
+        return [
+          for (final pair in pairs)
+            statuses['${pair[0]}>${pair[1]}'] ?? 'installed',
+        ];
+      });
+    }
+
+    /// primary/secondary 为已提交的主次语言；返回测试连接结果，失败时抛出 PlatformException。
+    Future<Object?> testApple(String primary, [String? secondary]) =>
+        SettingsController(
+          initial: AppSettings(
+            primaryLanguage: primary,
+            secondaryLanguage: secondary,
+          ),
+          platform: _FileSettingsPlatform(saved),
+          onSaved: (_) {},
+        ).handle(
+          MethodCall(MethodNames.testService, {
+            'config': apple.toMap(),
+            'credentials': <String, String>{},
+          }),
+        );
+
+    tearDown(() => messenger.setMockMethodCallHandler(methods, null));
+
+    test('设置次要语言时检查双向，只列出未安装的语言对并给出下载位置', () async {
+      // 边界：supported 表示系统支持但未下载，是「缺少语言包」的唯一状态。
+      nativeStatuses({'en>zh-CN': 'supported'});
+      await expectLater(
+        testApple('zh-CN', 'en'),
+        throwsA(
+          isA<PlatformException>()
+              .having((error) => error.code, 'code', ErrorCodes.testFailed)
+              .having(
+                (error) => error.message,
+                'message',
+                '缺少语言包：English → 简体中文。请到「系统设置 → 通用 → 语言与地区 → 翻译语言」下载。',
+              ),
+        ),
+      );
+    });
+
+    test('不支持的语言对优先于未安装提示', () async {
+      // 边界：两向都不支持时同时存在未安装项，也只报告不支持，避免引导用户下载无用的语言包。
+      nativeStatuses({
+        'zh-CN>zh-TW': 'unsupported',
+        'zh-TW>zh-CN': 'unsupported',
+      });
+      await expectLater(
+        testApple('zh-CN', 'zh-TW'),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.message,
+            'message',
+            'Apple 系统翻译不支持：简体中文 → 繁體中文、繁體中文 → 简体中文。',
+          ),
+        ),
+      );
+    });
+
+    test('未设置次要语言时检查英文译为主要语言，全部安装时返回已安装说明', () async {
+      // 边界：主要语言非英文且无次要语言，唯一需要的语言对是测试文本 Hello world. 的方向。
+      nativeStatuses({});
+      expect(await testApple('ja'), '语言包已安装：English → 日本語');
+    });
+
+    test('主要语言为英文且未设置次要语言时没有可检查的语言对', () async {
+      // 边界：测试文本与目标语言同为英文，不存在需要语言包的方向。
+      nativeStatuses({'en>en': 'unsupported'});
+      expect(await testApple('en'), '主要语言为英文且未设置次要语言，翻译时按原文语言检查语言包。');
+    });
   });
 }
 

@@ -68,7 +68,7 @@
 
 ## 翻译服务
 
-在「设置 → 翻译服务 → 添加服务」填写配置，「测试连接」只发送 `Hello world.`，「确定」保存，再选择默认服务。支持多个命名配置；翻译失败不会自动换用其他服务。
+在「设置 → 翻译服务 → 添加服务」填写配置，「测试连接」只发送 `Hello world.`（Apple 系统翻译只检查语言包），「确定」保存，再选择默认服务。支持多个命名配置；翻译失败不会自动换用其他服务。
 
 | 服务 | 必填项 | 默认 API Base URL |
 |---|---|---|
@@ -78,10 +78,12 @@
 | OpenAI | API Key、模型 ID | `https://api.openai.com/v1` |
 | DeepSeek | API Key、模型 ID，固定关闭思考 | `https://api.deepseek.com` |
 | Anthropic 原生 Messages | API Key、模型 ID | `https://api.anthropic.com/v1` |
+| Apple 系统翻译 | 无 | 无，本机离线翻译 |
 
 1. Base URL 不含接口路径或密钥；远程服务需要 HTTPS，本机 `localhost`、`127.0.0.1`、`::1` 可用 HTTP。可用性取决于服务商账户、网络和额度；消费端会员不等于 API 凭据。
 2. API Key 与百度 App ID 只存在 Keychain。编辑时不显示已存密钥，留空即保留；删除服务会删除凭据。只有翻译、测试连接和修改凭据时才访问钥匙串。
-3. 模型配置可编辑独立提示词。开启「按段落双语对照」后，模型按编号返回每段译文，编号缺失、乱序或为空都报失败。
-4. 长文按约 4,000 字分片；失败卡片保留已完成部分，「重试」从失败片继续，全部成功才写入历史。
+3. Apple 系统翻译使用 macOS 本机翻译模型，不联网、不保存凭据。语言包需先在「系统设置 → 通用 → 语言与地区 → 翻译语言」下载；缺少时失败卡片写明缺少的语言对，「测试连接」列出主要语言与次要语言双向的安装状态。原文语言无法识别或语言对不受支持（如简体与繁体中文互译）时直接提示。
+4. 模型配置可编辑独立提示词。开启「按段落双语对照」后，模型按编号返回每段译文，编号缺失、乱序或为空都报失败。
+5. 长文按约 4,000 字分片；失败卡片保留已完成部分，「重试」从失败片继续，全部成功才写入历史。
 
-接口参考：[百度通用翻译](https://fanyi-api.baidu.com/doc/21)、[Google Cloud v2](https://cloud.google.com/translate/docs/reference/rest/v2/translate)、[OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode)、[Anthropic Messages](https://platform.claude.com/docs/en/api/messages)。
+接口参考：[百度通用翻译](https://fanyi-api.baidu.com/doc/21)、[Google Cloud v2](https://cloud.google.com/translate/docs/reference/rest/v2/translate)、[OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode)、[Anthropic Messages](https://platform.claude.com/docs/en/api/messages)、[Apple Translation](https://developer.apple.com/documentation/translation/translationsession)。

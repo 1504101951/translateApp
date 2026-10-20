@@ -13,7 +13,7 @@ import 'package:translate_app/src/settings/service_config.dart';
 
 /// 验证用户六项修订的可见行为，边界为520×500最小设置窗口与滚动后导航可达。
 void main() {
-  testWidgets('导航滚动后仍固定，权限仅在通用，新建服务为四类', (tester) async {
+  testWidgets('导航滚动后仍固定，权限仅在通用，新建服务为五类', (tester) async {
     tester.view.physicalSize = const Size(520, 500);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -79,8 +79,9 @@ void main() {
     );
     await tester.tap(selector);
     await tester.pumpAndSettle();
-    expect(find.byType(MenuItemButton), findsNWidgets(4));
-    for (final label in ['谷歌翻译', '百度翻译', 'OpenAI', 'Anthropic']) {
+    // 规格 #1：新建服务类型为谷歌翻译、百度翻译、OpenAI、Anthropic、Apple 系统翻译五类。
+    expect(find.byType(MenuItemButton), findsNWidgets(5));
+    for (final label in ['谷歌翻译', '百度翻译', 'OpenAI', 'Anthropic', 'Apple 系统翻译']) {
       expect(find.widgetWithText(MenuItemButton, label), findsOneWidget);
     }
     expect(tester.takeException(), isNull);

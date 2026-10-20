@@ -20,3 +20,4 @@
 15. [capture_phase.dart](capture_phase.dart)：定义录屏、GIF与滚动长截图共享的资源阶段协议。
 16. [text_limits.dart](text_limits.dart)：定义翻译输入的长度上限。
 17. [mcp_constants.dart](mcp_constants.dart)：定义 MCP 客户端配置使用的服务名。
+18. [system_translation.dart](system_translation.dart)：定义Apple系统翻译语言包状态与模型策略的协议值。

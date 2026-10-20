@@ -1,6 +1,7 @@
 import Cocoa
 import FlutterMacOS
 import ServiceManagement
+import Translation
 import XCTest
 
 @testable import translate_app
@@ -488,6 +489,41 @@ class RunnerTests: XCTestCase {
         ])) { value in
             XCTAssertEqual(value as? String, "fr")
         }
+    }
+
+    /// 无参数；验证系统翻译错误映射：未安装与语言对不支持各有专用错误码，其余错误为一般翻译失败。
+    func testSystemTranslationErrorCodes() {
+        // 边界：三种「不支持」都归为同一错误码；框架内部错误与本服务的不完整响应都可重试。
+        XCTAssertEqual(SystemTranslationService.errorCode(for: TranslationError.notInstalled),
+                       AppConstants.translationNotInstalledError)
+        for unsupported in [TranslationError.unsupportedSourceLanguage,
+                            TranslationError.unsupportedTargetLanguage,
+                            TranslationError.unsupportedLanguagePairing] {
+            XCTAssertEqual(SystemTranslationService.errorCode(for: unsupported),
+                           AppConstants.translationUnsupportedError)
+        }
+        XCTAssertEqual(SystemTranslationService.errorCode(for: TranslationError.internalError),
+                       AppConstants.translateFailedError)
+        XCTAssertEqual(SystemTranslationService.errorCode(for: SystemTranslationService.IncompleteResponse()),
+                       AppConstants.translateFailedError)
+    }
+
+    /// 无参数；参数缺失或语言对格式错误时平台桥直接返回参数错误，不进入系统翻译。
+    @MainActor
+    func testSystemTranslationRejectsMalformedArguments() {
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        var codes: [String?] = []
+        // 边界：翻译缺 texts、状态查询的语言对只有一个元素、取消缺 requestId。
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.systemTranslateMethod, arguments: [
+            "requestId": "r1", "source": "en", "target": "zh-CN", "strategy": AppConstants.systemTranslationHighFidelity,
+        ])) { codes.append(($0 as? FlutterError)?.code) }
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.systemTranslationStatusMethod, arguments: [
+            "pairs": [["en"]],
+        ])) { codes.append(($0 as? FlutterError)?.code) }
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.cancelSystemTranslationMethod, arguments: [:])) {
+            codes.append(($0 as? FlutterError)?.code)
+        }
+        XCTAssertEqual(codes, Array(repeating: AppConstants.badArgsError, count: 3))
     }
     /// 无参数；验证非激活面板不能成为 key/main，避免点击浮层抢走键盘焦点。
     @MainActor

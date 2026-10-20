@@ -47,4 +47,10 @@ abstract final class ErrorCodes {
 
   /// translate_failed 的稳定协议值，变更须同步两端及持久化调用方。
   static const translateFailed = 'translate_failed';
+
+  /// Apple 系统翻译的语言对未下载语言包；变更须同步两端。
+  static const translationNotInstalled = 'translation_not_installed';
+
+  /// Apple 系统翻译不支持该语言对；变更须同步两端。
+  static const translationUnsupported = 'translation_unsupported';
 }

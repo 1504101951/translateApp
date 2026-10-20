@@ -17,14 +17,16 @@ class ServiceConfig {
     'openai': 'OpenAI',
     'deepseek': 'DeepSeek',
     'anthropic': 'Anthropic',
+    'apple': 'Apple 系统翻译',
   };
 
-  /// 新建服务仅展示四类；既有协议ID仍用于原请求与凭据账户，不迁移用户配置。
+  /// 新建服务展示的五类；既有协议ID仍用于原请求与凭据账户，不迁移用户配置。
   static const selectableKinds = {
     'google': '谷歌翻译',
     'baidu': '百度翻译',
     'openai': 'OpenAI',
     'anthropic': 'Anthropic',
+    'apple': 'Apple 系统翻译',
   };
 
   /// 无参数；系统默认名使用当前产品名称，用户自定义配置名保持原样。
@@ -39,6 +41,8 @@ class ServiceConfig {
     'openai': 'https://api.openai.com/v1',
     'deepseek': 'https://api.deepseek.com',
     'anthropic': 'https://api.anthropic.com/v1',
+    // 系统翻译在本机完成，没有服务端点；编辑窗口切换类型时按此清空地址。
+    'apple': '',
   };
   static const defaultPrompt =
       '你是一名专业翻译。请将用户消息 text 中的原文翻译为 target_language 指定的语言。'
@@ -55,6 +59,12 @@ class ServiceConfig {
   final int maxOutputTokens;
   bool get isModel =>
       kind == 'openai' || kind == 'deepseek' || kind == 'anthropic';
+
+  /// 无参数；返回是否为 Apple 系统翻译。系统翻译无服务端点、无凭据，不读写 Keychain。
+  bool get isSystem => isSystemKind(kind);
+
+  /// kind 为服务类型 ID；返回该类型是否为系统翻译，供只持有类型的编辑表单判断字段显隐。
+  static bool isSystemKind(String kind) => kind == 'apple';
 
   /// map 为无凭据的设置字典；返回一个翻译服务配置。
   factory ServiceConfig.fromMap(Map<Object?, Object?> map) => ServiceConfig(
@@ -85,6 +95,8 @@ class ServiceConfig {
     if (id.isEmpty || name.trim().isEmpty || !kinds.containsKey(kind)) {
       throw const FormatException('请选择服务类型并填写名称。');
     }
+    // 系统翻译不发送网络请求，没有需要校验的端点。
+    if (isSystem) return;
     final uri = Uri.tryParse(baseUrl);
     if (uri == null ||
         uri.host.isEmpty ||
@@ -108,6 +120,8 @@ class ServiceConfig {
 
   /// credentials 为内存中的 Keychain 凭据；缺少协议必需字段时抛用户可读错误。
   void validateCredentials(Map<String, String> credentials) {
+    // 系统翻译不使用凭据，空凭据即为完整配置。
+    if (isSystem) return;
     if ((credentials['apiKey'] ?? '').trim().isEmpty ||
         kind == 'baidu' && (credentials['appId'] ?? '').trim().isEmpty) {
       throw const FormatException('请填写 API Key／密钥，百度翻译还需要 App ID。');

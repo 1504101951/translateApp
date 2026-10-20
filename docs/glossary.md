@@ -147,4 +147,6 @@ Topic: selection-translation
 
 **Anthropic 服务**：按 Anthropic 原生模型端点配置的模型翻译服务。
 
+**Apple 系统翻译**：使用 macOS 本机翻译模型的翻译服务，无端点、无凭据，只能翻译已下载语言包的语言对。
+
 不要使用：OpenAI 兼容的 Claude

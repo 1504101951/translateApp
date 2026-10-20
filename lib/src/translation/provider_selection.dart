@@ -2,6 +2,7 @@ import '../platform/settings_platform.dart';
 import '../settings/app_settings.dart';
 import '../settings/service_config.dart';
 import 'providers/api_translation_provider.dart';
+import 'providers/apple_translation_provider.dart';
 import 'providers/unofficial_google_provider.dart';
 import 'translation_types.dart';
 
@@ -14,10 +15,13 @@ BatchTranslationProvider providerForSettings(
   if (settings.defaultServiceId == ServiceConfig.builtinId) {
     return UnofficialGoogleProvider();
   }
+  final config = settings.services.singleWhere(
+    (service) => service.id == settings.defaultServiceId,
+  );
+  // 系统翻译在本机完成，不读取凭据。
+  if (config.isSystem) return AppleTranslationProvider(config: config);
   return ApiTranslationProvider(
-    config: settings.services.singleWhere(
-      (service) => service.id == settings.defaultServiceId,
-    ),
+    config: config,
     credentials: () => platform.readCredentials(settings.defaultServiceId),
   );
 }

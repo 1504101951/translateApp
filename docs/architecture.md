@@ -63,7 +63,8 @@ AX 读取优先使用文本标记范围获取跨节点选区，再读取普通�
 - 主 Dart 引擎串行处理设置保存、菜单修改和示例连接测试；修订号阻止过期表单覆盖。设置保存不关闭已展开卡片，已激活请求固定使用激活时的 Provider 和语言方向，更新供下一次翻译使用。
 - `ServiceConfig` 保存服务类型、名称、Base URL、模型、独立提示词及语义对照选项；凭据独立传给 Swift，按配置 ID 存入用户 Keychain。
 - 打开设置仅查询 Keychain 凭据存在状态，禁止查询触发授权 UI。保存普通配置不读取密钥；有凭据变更时 Swift 才读取对应账户的回滚快照。凭据、登录项与快捷键配置成功后才保存普通偏好；同一服务 ID 不可更换协议。
-- 默认服务支持非官方 Google、Google Cloud v2、百度通用翻译、OpenAI-compatible Chat Completions、DeepSeek 与 Anthropic Messages。协议、百度签名、SSE 解析均由 Dart 实现。DeepSeek 类型及官方域名发送 `thinking.type=disabled`，段落模式另发送 `response_format.type=json_object`。
+- 默认服务支持非官方 Google、Google Cloud v2、百度通用翻译、OpenAI-compatible Chat Completions、DeepSeek、Anthropic Messages 与 Apple 系统翻译。协议、百度签名、SSE 解析均由 Dart 实现。DeepSeek 类型及官方域名发送 `thinking.type=disabled`，段落模式另发送 `response_format.type=json_object`。
+- Apple 系统翻译（`ServiceConfig.isSystem`）无端点、无凭据。`AppleTranslationProvider` 把每个分片的非空段落一次交给 `SystemTranslationService`，以下标对应原段并由 `pairParagraph` 套回原文分隔；Swift 按语言对创建只用已安装语言包的无界面 `TranslationSession`，单篇翻译传高保真策略、实时翻译传低延迟策略（macOS 26.4 以下不传）。取消按请求 ID 停止原生会话；语言包未安装与语言对不支持为服务级失败，原文语言未知为单段失败。测试连接只查询主次语言双向的安装状态。
 - 每个请求独占 HttpClient；取消关闭连接，请求不跟随重定向，失败信息不回显响应正文或密钥，也不自动切换服务。
 - 模型段落对照一次接收全文上下文：本地按非空行分段并给出连续编号，模型仅返回各编号与完整译文。编号数量、顺序、整数类型和非空译文均需通过校验，再与本地原文配对；不使用模型回传的原文，不接受整篇高亮兜底。损坏 JSON、流中断和长度截断不算成功。
 - 普通模型模式产生增量 Translation Update；语义模式在校验完成后一次发布译文和配对，避免向用户展示协议 JSON。

@@ -192,6 +192,15 @@ abstract final class MethodNames {
   /// systemStatus 的稳定协议值，变更须同步两端及持久化调用方。
   static const systemStatus = 'systemStatus';
 
+  /// Apple 系统翻译一组段落；参数含 requestId、texts、source、target、strategy。
+  static const systemTranslate = 'systemTranslate';
+
+  /// 按 requestId 取消进行中的 Apple 系统翻译。
+  static const cancelSystemTranslation = 'cancelSystemTranslation';
+
+  /// 查询 Apple 系统翻译语言对的安装状态；参数 pairs 为 [源语言, 目标语言] 列表。
+  static const systemTranslationStatus = 'systemTranslationStatus';
+
   /// testService 的稳定协议值，变更须同步两端及持久化调用方。
   static const testService = 'testService';
 

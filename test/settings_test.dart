@@ -135,6 +135,35 @@ void main() {
     );
   });
 
+  test('Apple 系统翻译无端点、无凭据即为完整配置，同样为空的远程服务仍被拒绝', () async {
+    // 边界：地址与凭据都为空；系统翻译必须通过，远程服务必须失败，证明豁免只作用于系统类型。
+    const apple = ServiceConfig(
+      id: 'apple-local',
+      kind: 'apple',
+      name: 'Apple 系统翻译',
+      baseUrl: '',
+    );
+    expect(apple.validate, returnsNormally);
+    expect(() => apple.validateCredentials(const {}), returnsNormally);
+    const remote = ServiceConfig(
+      id: 'remote',
+      kind: 'openai',
+      name: 'OpenAI',
+      baseUrl: '',
+      model: 'gpt-test',
+    );
+    expect(remote.validate, throwsFormatException);
+    expect(() => remote.validateCredentials(const {}), throwsFormatException);
+    // 新增系统翻译不产生钥匙串变更；读取钥匙串即视为错误。
+    final changes = await prepareCredentialChanges(
+      previous: const [],
+      current: const [apple],
+      drafts: const {},
+      readCredentials: (_) async => throw StateError('系统翻译不得读取钥匙串'),
+    );
+    expect(changes, isEmpty);
+  });
+
   test('主次语言方向支持多语言、繁体中文以及无法识别的文本', () {
     // nil 必须译向主要语言；BCP-47 同语言不同地区不能误切方向。
     const direction = LanguageDirection(primaryCode: 'fr', secondaryCode: 'en');

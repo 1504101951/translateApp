@@ -43,6 +43,7 @@ open /Applications/TranslateApp.app
 | OpenAI | API Key、模型 ID |
 | DeepSeek | API Key、模型 ID |
 | Anthropic | API Key、模型 ID |
+| Apple 系统翻译（本机离线） | 无；需在系统设置下载语言包 |
 
 ## 开发
 

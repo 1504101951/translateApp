@@ -31,10 +31,11 @@ Dart业务逻辑和Flutter界面行为回归测试。
 
 27. [drawing_style_test.dart](drawing_style_test.dart)：验证马赛克像素、样式隔离、撤销及调色盘与粗细的提交边界。
 28. [capture_app_test.dart](capture_app_test.dart)：验证录制目标与应用图标动态行、安全区域布局和选择状态、长截图直启选区、四气泡暂停恢复与立即放弃、长图等比预览和原尺寸导出、视频内容区工具布局、直接GIF导出及工具栏外的一秒响应。
-29. [settings_controller_test.dart](settings_controller_test.dart)：验证配置快照隔离、设置提交顺序、真实文件存储失败恢复和过期修订拒绝。
+29. [settings_controller_test.dart](settings_controller_test.dart)：验证配置快照隔离、设置提交顺序、真实文件存储失败恢复、过期修订拒绝和Apple系统翻译测试连接的语言包提示。
 30. [live_region_session_test.dart](live_region_session_test.dart)：验证实时翻译的段落块缓存、批次调度、三类失败、暂停恢复和迟到事件。
 31. [live_block_cache_test.dart](live_block_cache_test.dart)：验证段落块缓存的预算淘汰、最近使用顺序和失败记录。
 32. [numbered_batch_test.dart](numbered_batch_test.dart)：验证批次编号文本与流式输出按编号归属的边界。
 33. [mcp_settings_page_test.dart](mcp_settings_page_test.dart)：验证设置 MCP 页的导航分段、开关自动保存、helper 路径与配置复制、平台状态与按钮可用性、安装失败原文及删除二次确认。
 34. [mcp_platforms_test.dart](mcp_platforms_test.dart)：用模拟 CLI 与临时主目录验证接入平台的检测、安装、重复安装、路径变化、删除、配置备份与隔离属性清除。
 35. [markdown_view_test.dart](markdown_view_test.dart)：验证识别结果 Markdown 的块拆分、表格分隔行与转义竖线、块间距及宽表格横向滚动。
+36. [apple_translation_provider_test.dart](apple_translation_provider_test.dart)：用假原生通道验证Apple系统翻译的段落配对、错误文案与类别及取消后的输出。

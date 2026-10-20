@@ -265,12 +265,32 @@ enum AppConstants {
     static let staleCaptureError = "stale_capture"
     /// systemStatus 协议值；与Dart常量及持久化调用方同步。
     static let systemStatusMethod = "systemStatus"
+    /// systemTranslate 协议值；Apple 系统翻译一组段落，与Dart常量同步。
+    static let systemTranslateMethod = "systemTranslate"
+    /// cancelSystemTranslation 协议值；按 requestId 取消系统翻译，与Dart常量同步。
+    static let cancelSystemTranslationMethod = "cancelSystemTranslation"
+    /// systemTranslationStatus 协议值；查询语言对安装状态，与Dart常量同步。
+    static let systemTranslationStatusMethod = "systemTranslationStatus"
+    /// 系统翻译语言对状态：语言包已安装；与Dart SystemTranslationStatus同步。
+    static let systemTranslationInstalled = "installed"
+    /// 系统翻译语言对状态：支持但语言包未下载；与Dart SystemTranslationStatus同步。
+    static let systemTranslationSupported = "supported"
+    /// 系统翻译语言对状态：不支持；与Dart SystemTranslationStatus同步。
+    static let systemTranslationUnsupported = "unsupported"
+    /// 系统翻译高保真策略；与Dart SystemTranslationStrategy同步，其余值按低延迟处理。
+    static let systemTranslationHighFidelity = "highFidelity"
     /// testService 协议值；与Dart常量及持久化调用方同步。
     static let testServiceMethod = "testService"
     /// toggleAutomatic 协议值；与Dart常量及持久化调用方同步。
     static let toggleAutomaticMethod = "toggleAutomatic"
     /// translatePlainText 协议值；与Dart常量及持久化调用方同步。
     static let translatePlainTextMethod = "translatePlainText"
+    /// translate_failed 协议值；与Dart常量同步。
+    static let translateFailedError = "translate_failed"
+    /// translation_not_installed 协议值；系统翻译语言包未下载，与Dart常量同步。
+    static let translationNotInstalledError = "translation_not_installed"
+    /// translation_unsupported 协议值；系统翻译不支持该语言对，与Dart常量同步。
+    static let translationUnsupportedError = "translation_unsupported"
     /// translateapp/appearance 协议值；与Dart常量及持久化调用方同步。
     static let appearanceChannel = "translateapp/appearance"
     /// translateapp/macos 协议值；与Dart常量及持久化调用方同步。
