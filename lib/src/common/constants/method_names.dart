@@ -195,6 +195,21 @@ abstract final class MethodNames {
   /// systemStatus 的稳定协议值，变更须同步两端及持久化调用方。
   static const systemStatus = 'systemStatus';
 
+  /// 查询 macOS 词典释义；参数 text 为单词或短语，返回释义全文或 null（#102）。
+  static const lookupDefinition = 'lookupDefinition';
+
+  /// 历史窗口读取生词本；返回按加入时间倒序的条目列表。
+  static const vocabularyList = 'vocabularyList';
+
+  /// 历史窗口删除一条生词；参数 word。
+  static const deleteVocabulary = 'deleteVocabulary';
+
+  /// 历史窗口取得生词本 CSV 全文（UTF-8、无表头，列为单词、译文、释义）。
+  static const vocabularyCsv = 'vocabularyCsv';
+
+  /// 经系统保存面板保存文本文件；参数 text 与 suggestedName，返回保存路径，取消为 null。
+  static const saveTextFile = 'saveTextFile';
+
   /// 朗读或停止朗读卡片一栏文字；参数含 text 与 language，返回调用后是否在朗读。
   static const toggleSpeech = 'toggleSpeech';
 

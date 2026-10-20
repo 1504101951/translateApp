@@ -20,6 +20,7 @@ class TranslationOverlay extends StatefulWidget {
     required this.onDrag,
     required this.onMode,
     required this.onSpeak,
+    required this.onAddVocabulary,
   });
 
   /// 视觉按钮84×30，透明命中窗口额外提供上下各1pt点击空间。
@@ -33,6 +34,9 @@ class TranslationOverlay extends StatefulWidget {
 
   /// source 为 true 时朗读原文栏，否则朗读结果栏；同一栏正在朗读时再次点击停止（#101）。
   final ValueChanged<bool> onSpeak;
+
+  /// 把当前单词、译文与词典释义加入生词本（#102）。
+  final VoidCallback onAddVocabulary;
 
   /// 模式菜单的选项名称，也是左栏标题；顺序即菜单顺序（#100）。
   static const modeLabels = {
@@ -58,7 +62,11 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
       listenable: widget.session,
       builder: (context, _) {
         final snap = widget.session.snapshot;
-        final pairs = snap.pairs.isEmpty
+        final definition = widget.session.definition;
+        // 查到词典释义时右栏展示释义全文（释义首行即原文单词），不按段落配对。
+        final pairs = definition != null
+            ? [TranslationPair(definition, snap.translatedText)]
+            : snap.pairs.isEmpty
             ? [TranslationPair(snap.sourceText, snap.translatedText)]
             : snap.pairs;
         if (snap.phase == TranslationPhase.idle) {
@@ -171,6 +179,29 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                           ),
                         ),
                       ),
+                      // 查到释义且翻译完成后可加入生词本；本卡片加入后改为已加入并禁用。
+                      if (definition != null &&
+                          snap.phase == TranslationPhase.completed) ...[
+                        NativeGlassSurface(
+                          material: true,
+                          child: IconButton(
+                            onPressed: widget.session.savedToVocabulary
+                                ? null
+                                : widget.onAddVocabulary,
+                            tooltip: widget.session.savedToVocabulary
+                                ? '已加入生词本'
+                                : '加入生词本',
+                            icon: Icon(
+                              widget.session.savedToVocabulary
+                                  ? Icons.bookmark_added
+                                  : Icons.bookmark_add_outlined,
+                              size: 16,
+                            ),
+                            visualDensity: VisualDensity.standard,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       // 模式菜单在重试与关闭左侧；处理中禁用，避免同一卡片并发两个请求。
                       NativeGlassMenuButton<TextMode>(
                         value: mode,
@@ -207,7 +238,12 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                         snap.translatedText,
                         false,
                       ),
-                      ('原文', snap.sourceText, true),
+                      // 词典栏复制释义，朗读仍读原文单词作为发音。
+                      (
+                        definition == null ? '原文' : '词典',
+                        definition ?? snap.sourceText,
+                        true,
+                      ),
                     ])
                       Expanded(
                         child: Row(

@@ -1,5 +1,6 @@
 import Cocoa
 import Carbon
+import CoreServices
 import Security
 import LocalAuthentication
 import NaturalLanguage
@@ -292,6 +293,31 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             recognizer.processString(text)
             let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first
             result(hypothesis.flatMap { $0.value >= 0.5 ? $0.key.rawValue : nil })
+        case AppConstants.lookupDefinitionMethod:
+            guard let text = args["text"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "lookupDefinition 需要 text", details: nil)); return
+            }
+            // 词典服务使用「词典」App 已启用的词典离线查询；查不到返回 nil。
+            let range = CFRange(location: 0, length: (text as NSString).length)
+            result(DCSCopyTextDefinition(nil, text as CFString, range)?.takeRetainedValue() as String?)
+        case AppConstants.saveTextFileMethod:
+            guard let text = args["text"] as? String, let suggestedName = args["suggestedName"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "saveTextFile 需要 text/suggestedName", details: nil)); return
+            }
+            // 用户在保存面板选择位置，取消返回 nil；写入失败返回错误，不静默丢弃导出内容。
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = suggestedName
+            panel.allowedContentTypes = [.commaSeparatedText]
+            NSApp.activate(ignoringOtherApps: true)
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { result(nil); return }
+                do {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                    result(url.path)
+                } catch {
+                    result(FlutterError(code: AppConstants.saveFailedError, message: error.localizedDescription, details: nil))
+                }
+            }
         case AppConstants.toggleSpeechMethod:
             guard let text = args["text"] as? String, let language = args["language"] as? String else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "toggleSpeech 需要 text/language", details: nil)); return
@@ -546,7 +572,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         case AppConstants.getSettingsMethod, AppConstants.saveSettingsMethod, AppConstants.testServiceMethod,
              AppConstants.saveDrawingPreferencesMethod, AppConstants.toggleAutomaticMethod,
              AppConstants.historyPageMethod, AppConstants.historyRecordingMethod,
-             AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod:
+             AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod,
+             AppConstants.vocabularyListMethod, AppConstants.deleteVocabularyMethod, AppConstants.vocabularyCsvMethod:
             // requestApplication只跨越引擎边界；业务状态由主引擎所属模块管理。
             requestApplication(call.method, arguments: call.arguments, result: result)
         default:

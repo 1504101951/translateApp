@@ -6,6 +6,7 @@ import '../common/constants/selection_gesture_types.dart';
 import '../common/constants/text_mode.dart';
 import '../common/widgets/native_glass.dart';
 import '../history/translation_history.dart';
+import '../history/vocabulary.dart';
 import '../overlay/translation_overlay.dart';
 import '../platform/macos_bridge_event.dart';
 import '../platform/macos_platform_bridge.dart';
@@ -16,17 +17,19 @@ import 'selection_session.dart';
 
 /// 选区翻译界面与会话协调者；处理原生事件、取消和完整成功后的历史记录。
 class TranslateApp extends StatefulWidget {
-  /// bridge为选区系统能力，session为唯一翻译会话，history为主引擎历史存储；构造不启动请求。
+  /// bridge为选区系统能力，session为唯一翻译会话，history为主引擎历史存储，vocabulary为生词本；构造不启动请求。
   const TranslateApp({
     super.key,
     required this.bridge,
     required this.session,
     required this.history,
+    required this.vocabulary,
   });
 
   final MacosPlatformBridge bridge;
   final SelectionSession session;
   final TranslationHistoryStore history;
+  final VocabularyStore vocabulary;
 
   /// 无参数；返回管理事件订阅与浮层同步的界面状态。
   @override
@@ -190,6 +193,23 @@ class _TranslateAppState extends State<TranslateApp> {
     await _recordAndReplace(id, activeProvider, activeLanguage, sourceLabel);
   }
 
+  /// 无参数；把卡片的单词、译文与词典释义加入生词本，同一单词已存在时更新，无返回值。
+  void _addVocabulary() {
+    final session = widget.session;
+    final definition = session.definition;
+    if (definition == null) return;
+    widget.vocabulary.add(
+      VocabularyEntry(
+        word: session.snapshot.sourceText.trim(),
+        translation: session.snapshot.translatedText,
+        definition: definition,
+        addedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+    // markSavedToVocabulary 置位并通知卡片把按钮改为已加入。
+    session.markSavedToVocabulary();
+  }
+
   /// source 为 true 时朗读原文栏，否则朗读结果栏；按该栏语言朗读，同一栏再次点击停止，无返回值。
   void _speak(bool source) {
     final snapshot = widget.session.snapshot;
@@ -281,6 +301,7 @@ class _TranslateAppState extends State<TranslateApp> {
         onDismiss: _dismiss,
         onMode: (mode) => unawaited(_switchMode(mode)),
         onSpeak: _speak,
+        onAddVocabulary: _addVocabulary,
         onDrag: () {
           final id = widget.session.sessionId;
           // 原生拖动保持来源应用焦点，并保留当前会话的位置。

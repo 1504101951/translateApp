@@ -13,6 +13,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:translate_app/src/selection/selection_translation_app.dart'
     show TranslateApp;
 import 'package:translate_app/src/history/translation_history.dart';
+import 'package:translate_app/src/history/vocabulary.dart';
 import 'package:translate_app/src/platform/macos_platform_bridge.dart';
 import 'package:translate_app/src/selection/selection_session.dart';
 import 'package:translate_app/src/translation/language_direction.dart';
@@ -72,6 +73,7 @@ void main() {
         bridge: MacosPlatformBridge(methods: methods, events: events),
         session: session,
         history: history,
+        vocabulary: VocabularyStore(database),
       ),
     );
     await tester.pump();
@@ -182,6 +184,7 @@ void main() {
         bridge: MacosPlatformBridge(methods: methods, events: events),
         session: session,
         history: history,
+        vocabulary: VocabularyStore(database),
       ),
     );
     await tester.pump();
@@ -258,6 +261,7 @@ void main() {
         bridge: MacosPlatformBridge(methods: methods, events: events),
         session: session,
         history: history,
+        vocabulary: VocabularyStore(database),
       ),
     );
     await tester.pump();
@@ -291,6 +295,87 @@ void main() {
     await choose('翻译');
     expect(session.snapshot.translatedText, '你好');
     expect(history.page(), hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('单词查到释义时右栏为词典并可加入生词本，长句只翻译不查词典', (tester) async {
+    const methods = MethodChannel('test/dictionary/methods');
+    const events = EventChannel('test/dictionary/events');
+    const codec = StandardMethodCodec();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(methods, (_) async => null);
+    messenger.setMockMethodCallHandler(
+      MethodChannel(events.name),
+      (_) async => null,
+    );
+    final database = sqlite3.openInMemory();
+    final vocabulary = VocabularyStore(database);
+    final looked = <String>[];
+    final session = SelectionSession(
+      provider: _Provider(
+        'translate',
+        Stream.fromIterable([
+          const TranslationUpdate('机缘凑巧'),
+          const TranslationCompleted(),
+        ]),
+      ),
+      detectLanguage: (_) async => 'en',
+      language: const LanguageDirection(primaryCode: 'zh-CN'),
+      lookupDefinition: (text) async {
+        looked.add(text);
+        return 'serendipity | noun 机缘凑巧';
+      },
+    );
+    addTearDown(() {
+      session.dispose();
+      database.close();
+      messenger.setMockMethodCallHandler(methods, null);
+      messenger.setMockMethodCallHandler(MethodChannel(events.name), null);
+    });
+    await tester.pumpWidget(
+      TranslateApp(
+        bridge: MacosPlatformBridge(methods: methods, events: events),
+        session: session,
+        history: TranslationHistoryStore(database),
+        vocabulary: vocabulary,
+      ),
+    );
+    await tester.pump();
+
+    /// text 为快捷键读取到的原文；发送全局翻译快捷键事件并等待翻译与查词结束。
+    Future<void> translate(String sessionId, String text) async {
+      await messenger.handlePlatformMessage(
+        events.name,
+        codec.encodeSuccessEnvelope({
+          'type': BridgeEventTypes.selectionCaptured,
+          'sessionId': sessionId,
+          'gesture': SelectionGestureTypes.hotkey,
+          'text': text,
+          'sourceAppName': 'Notes',
+        }),
+        (_) {},
+      );
+      await tester.pumpAndSettle();
+    }
+
+    // 边界一：单词带首尾空白，查词使用去空白后的原文，右栏改为词典。
+    await translate('word', ' serendipity ');
+    expect(looked, ['serendipity']);
+    expect(find.text('词典'), findsOneWidget);
+    expect(find.text('serendipity | noun 机缘凑巧'), findsOneWidget);
+    await tester.tap(find.byTooltip('加入生词本'));
+    await tester.pump();
+    expect(find.byTooltip('已加入生词本'), findsOneWidget);
+    expect(
+      [for (final e in vocabulary.list()) (e.word, e.translation)],
+      [('serendipity', '机缘凑巧')],
+    );
+
+    // 边界二：超过三个词的句子不查词典，右栏仍为原文，也没有加入按钮。
+    await translate('sentence', 'this is a long sentence');
+    expect(looked, ['serendipity']);
+    expect(find.text('原文'), findsOneWidget);
+    expect(find.byTooltip('加入生词本'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

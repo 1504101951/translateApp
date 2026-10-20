@@ -84,6 +84,8 @@ AX 读取优先使用文本标记范围获取跨节点选区，再读取普通�
 
 ## 翻译历史实现
 
+生词本 `VocabularyStore` 与翻译历史共用主引擎同一个 SQLite（`vocabulary` 表，单词不区分大小写唯一）。翻译模式下原文满足 `SelectionSession.isDictionaryTerm` 时，会话在翻译的同时经 `lookupDefinition` 调用 Swift `DCSCopyTextDefinition` 离线查询，释义到达后卡片右栏改为词典。历史窗口的生词本分段经 `vocabularyList`、`deleteVocabulary`、`vocabularyCsv` 请求主引擎，导出经 Swift `saveTextFile` 的系统保存面板写入；增删后与历史共用 `historyChanged` 通知刷新。
+
 主 Dart 引擎持有 `TranslationHistoryStore`，SQLite 位于 Application Support。独立 Flutter `historyMain` 窗口通过原生通道请求数据，Swift 不存储历史。卡片标题为来源应用名称或「截图」和本地完成日期，内容按译文、原文排列。分页按 `(completed_at, id)` 倒序，每批 10 条；游标避免新记录插入导致重复分页，刷新从最新记录开始。
 
 选区来源显示名在 Swift 捕获选区时随事件传入 Dart；成功记录使用激活时的服务和语言方向。截图由 `translateScreenshotText` 编排本地语言识别、分段翻译和写入；请求携带 captureId，网络请求前及完成后都核对原生截图身份。只有完整成功且未被取消的结果写入，每次独立保存，不去重。记录开关持久化于同一 SQLite，默认开启，关闭只阻止新写入。历史不存储图片、窗口坐标或密钥。

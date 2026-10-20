@@ -275,6 +275,16 @@ enum AppConstants {
     static let staleCaptureError = "stale_capture"
     /// systemStatus 协议值；与Dart常量及持久化调用方同步。
     static let systemStatusMethod = "systemStatus"
+    /// lookupDefinition 协议值；查询 macOS 词典释义，与Dart常量同步。
+    static let lookupDefinitionMethod = "lookupDefinition"
+    /// vocabularyList 协议值；历史窗口读取生词本，转发主引擎，与Dart常量同步。
+    static let vocabularyListMethod = "vocabularyList"
+    /// deleteVocabulary 协议值；历史窗口删除生词，转发主引擎，与Dart常量同步。
+    static let deleteVocabularyMethod = "deleteVocabulary"
+    /// vocabularyCsv 协议值；历史窗口取得生词本 CSV，转发主引擎，与Dart常量同步。
+    static let vocabularyCsvMethod = "vocabularyCsv"
+    /// saveTextFile 协议值；经系统保存面板保存文本文件，与Dart常量同步。
+    static let saveTextFileMethod = "saveTextFile"
     /// toggleSpeech 协议值；朗读或停止朗读卡片一栏文字，与Dart常量同步。
     static let toggleSpeechMethod = "toggleSpeech"
     /// stopSpeech 协议值；停止当前朗读，与Dart常量同步。

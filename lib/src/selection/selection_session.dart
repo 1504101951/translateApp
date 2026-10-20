@@ -11,11 +11,32 @@ import '../translation/translation_types.dart';
 
 /// Dart 侧选区会话。激活前不请求翻译服务。
 class SelectionSession extends ChangeNotifier {
+  /// provider/detectLanguage/language 为默认服务、设备语言识别与方向；lookupDefinition 查询词典释义，省略时不查词典。
   SelectionSession({
     required this.provider,
     required this.detectLanguage,
     LanguageDirection? language,
-  }) : language = language ?? LanguageDirection.systemDefault();
+    Future<String?> Function(String text)? lookupDefinition,
+  }) : language = language ?? LanguageDirection.systemDefault(),
+       lookupDefinition = lookupDefinition ?? _noDefinition;
+
+  /// text 为待查文字；未接入词典时始终返回 null。
+  static Future<String?> _noDefinition(String text) async => null;
+
+  /// 1–3 个拉丁字母词（可含连字符与撇号），由单个空格分隔。
+  static final _latinTerm = RegExp(
+    r"^[A-Za-z][A-Za-z'’-]*(?: [A-Za-z][A-Za-z'’-]*){0,2}$",
+  );
+
+  /// 1–4 个汉字。
+  static final _cjkTerm = RegExp(r'^[\u4e00-\u9fff]{1,4}$');
+
+  /// text 为原文；去首尾空白后为 1–3 个拉丁字母词且不超过 40 个字符，或为 1–4 个汉字时返回 true（#102）。
+  static bool isDictionaryTerm(String text) {
+    final term = text.trim();
+    return term.length <= 40 &&
+        (_latinTerm.hasMatch(term) || _cjkTerm.hasMatch(term));
+  }
 
   static const selectionLimit = TextLimits.translationInput;
 
@@ -23,6 +44,15 @@ class SelectionSession extends ChangeNotifier {
   TranslationProvider provider;
   LanguageDirection language;
   final Future<String?> Function(String text) detectLanguage;
+
+  /// 查询 macOS 词典释义；查不到返回 null。
+  final Future<String?> Function(String text) lookupDefinition;
+
+  /// 翻译模式下查到的词典释义；为 null 时卡片按普通双语对照展示。
+  String? definition;
+
+  /// 本卡片的单词是否已加入生词本；新选区或重新处理时清除，由 markSavedToVocabulary 置位。
+  bool savedToVocabulary = false;
 
   TranslationSnapshot snapshot = TranslationSnapshot.idle;
   String? sessionId;
@@ -217,9 +247,27 @@ class SelectionSession extends ChangeNotifier {
       },
     );
 
+    // 翻译模式下的单词或短语同时查询词典，释义与译文各自到达，互不阻塞。
+    if (mode == TextMode.translate && isDictionaryTerm(source)) {
+      unawaited(_lookup(source.trim(), generation));
+    }
     _progress = TranslationProgress(request);
     // 共享运行路径让初次翻译、模式切换和失败恢复遵循同一个取消、配对和完成边界。
     await _runTranslation(provider, _progress!);
+  }
+
+  /// 无参数；标记本卡片单词已加入生词本并刷新卡片按钮，无返回值。
+  void markSavedToVocabulary() {
+    savedToVocabulary = true;
+    notifyListeners();
+  }
+
+  /// term 为去空白的原文，generation 为发起时代次；查到释义且会话未变时更新卡片，返回查询结束的 Future。
+  Future<void> _lookup(String term, int generation) async {
+    final found = await lookupDefinition(term);
+    if (generation != _generation || found == null) return;
+    definition = found;
+    notifyListeners();
   }
 
   /// 无参数；保留完整片并重新请求失败片，返回完成或取消的 Future。
@@ -310,6 +358,9 @@ class SelectionSession extends ChangeNotifier {
   /// 无参数；取消当前流并完成调用方等待，递增代次拒绝迟到事件，无返回值。
   void _cancelTranslation() {
     _generation += 1;
+    // 释义与生词状态属于被取消的这次处理；重新翻译时重新查询。
+    definition = null;
+    savedToVocabulary = false;
     _progress = null;
     _activeProvider = null;
     _activeLanguage = null;

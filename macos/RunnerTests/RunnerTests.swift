@@ -490,6 +490,21 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(pasteboard.string(forType: .string), "用户新复制")
     }
 
+    /// 无参数；词典查询与保存文本文件缺少参数时直接返回参数错误，不打开保存面板，无返回值。
+    @MainActor
+    func testDictionaryAndSaveFileRejectMissingArguments() {
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        var codes: [String?] = []
+        // 边界：查词缺 text；保存缺 suggestedName。
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.lookupDefinitionMethod, arguments: [:])) {
+            codes.append(($0 as? FlutterError)?.code)
+        }
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.saveTextFileMethod, arguments: ["text": "a"])) {
+            codes.append(($0 as? FlutterError)?.code)
+        }
+        XCTAssertEqual(codes, [AppConstants.badArgsError, AppConstants.badArgsError])
+    }
+
     /// 无参数；朗读声音按语言的默认地区补全，系统没有该地区声音时退回语言本身，无返回值。
     func testSpeechVoiceUsesDefaultRegion() {
         // 边界：只给语言码（en）应补全为美式发音；带地区的繁体中文保持地区；阿拉伯语默认地区无声音时仍能取到声音。

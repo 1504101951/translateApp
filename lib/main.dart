@@ -10,6 +10,7 @@ import 'src/common/constants/method_names.dart';
 import 'src/history/history_app.dart';
 import 'src/history/history_requests.dart';
 import 'src/history/translation_history.dart';
+import 'src/history/vocabulary.dart';
 import 'src/platform/macos_platform_bridge.dart';
 import 'src/screenshot/screenshot_app.dart';
 import 'src/screenshot/screenshot_translation.dart';
@@ -30,8 +31,15 @@ Future<void> main() async {
   final initial = AppSettings.fromMap(await bridge.loadSettings());
   final support = await bridge.applicationSupportPath();
   Directory(support).createSync(recursive: true);
+  // 翻译历史与生词本共用同一个 SQLite 文件。
+  final database = sqlite3.open('$support/translation_history.sqlite');
   final history = TranslationHistoryStore(
-    sqlite3.open('$support/translation_history.sqlite'),
+    database,
+    onChanged: () => unawaited(bridge.notifyHistoryChanged()),
+  );
+  // 生词本增删后与历史一样通知历史窗口刷新（#102）。
+  final vocabulary = VocabularyStore(
+    database,
     onChanged: () => unawaited(bridge.notifyHistoryChanged()),
   );
   // providerForSettings复用翻译模块的服务选择；SelectionSession拥有请求、重试和取消。
@@ -39,6 +47,7 @@ Future<void> main() async {
     provider: providerForSettings(initial, bridge),
     detectLanguage: bridge.detectLanguage,
     language: initial.direction,
+    lookupDefinition: bridge.lookupDefinition,
   );
   // 实时翻译会话只留在主引擎。原生盖层按快照绘制，不持有服务或密钥。
   final live = LiveRegionSession(
@@ -81,6 +90,11 @@ Future<void> main() async {
       case MethodNames.setHistoryRecording:
         // handleHistoryRequest访问同一个历史库，不等待设置提交或服务测试。
         return handleHistoryRequest(history, call);
+      case MethodNames.vocabularyList:
+      case MethodNames.deleteVocabulary:
+      case MethodNames.vocabularyCsv:
+        // handleVocabularyRequest 访问同一个数据库中的生词本。
+        return handleVocabularyRequest(vocabulary, call);
       case MethodNames.liveRegionCommand:
         final command = Map<Object?, Object?>.from(call.arguments as Map);
         final generation = command['generation'] as int;
@@ -147,7 +161,14 @@ Future<void> main() async {
   } on PlatformException catch (error) {
     settings.error = error.message;
   }
-  runApp(TranslateApp(bridge: bridge, session: session, history: history));
+  runApp(
+    TranslateApp(
+      bridge: bridge,
+      session: session,
+      history: history,
+      vocabulary: vocabulary,
+    ),
+  );
   // appReady通知原生主界面已能接收请求与首次启动窗口调度。
   await bridge.appReady();
 }

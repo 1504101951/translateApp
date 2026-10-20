@@ -163,6 +163,10 @@ class MacosPlatformBridge implements SettingsPlatform {
   Future<String?> detectLanguage(String text) =>
       _methods.invokeMethod<String>(MethodNames.detectLanguage, {'text': text});
 
+  /// text 为单词或短语；返回 macOS 词典释义全文，查不到为 null，不联网。
+  Future<String?> lookupDefinition(String text) => _methods
+      .invokeMethod<String>(MethodNames.lookupDefinition, {'text': text});
+
   /// 无参数；通知原生首次启动界面可用，Future 在窗口调度后完成。
   Future<void> appReady() => _methods.invokeMethod<void>(MethodNames.appReady);
 }

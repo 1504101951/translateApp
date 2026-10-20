@@ -8,6 +8,10 @@ import 'package:flutter/services.dart';
 import '../common/widgets/native_glass.dart';
 
 import 'translation_history.dart';
+import 'vocabulary_page.dart';
+
+/// 历史窗口的两个分段；翻译历史与生词本共用同一窗口（#102）。
+enum _HistorySection { history, vocabulary }
 
 /// 独立历史窗口；只展示主引擎持久化结果，不持有第二份数据库。
 class HistoryApp extends StatefulWidget {
@@ -39,12 +43,21 @@ class _HistoryAppState extends State<HistoryApp> {
   String? _pageError;
   String? _recordingError;
 
+  /// 当前分段；生词本分段不显示历史刷新与记录开关。
+  _HistorySection _section = _HistorySection.history;
+
+  /// 主引擎通知历史或生词本变化的次数；递增后生词本分段重新读取。
+  int _vocabularyVersion = 0;
+
   /// 无参数；读取首批记录及开关，无返回值。
   @override
   void initState() {
     super.initState();
     widget.channel.setMethodCallHandler((call) async {
-      if (call.method == MethodNames.historyChanged) await _refresh();
+      if (call.method != MethodNames.historyChanged) return;
+      // 同一变更通知覆盖翻译历史与生词本，两者都按最新数据重载。
+      setState(() => _vocabularyVersion += 1);
+      await _refresh();
     });
     // 首屏与开关独立读取，开关失败不阻止历史浏览。
     _loadMore();
@@ -168,135 +181,167 @@ class _HistoryAppState extends State<HistoryApp> {
     return NativeGlassWindowPage(
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('翻译历史'),
-          actions: [
-            NativeGlassSurface(
-              material: true,
-              child: IconButton(
-                tooltip: '刷新历史',
-                onPressed: _loading ? null : _refresh,
-                icon: const Icon(Icons.refresh),
+          title: Text(_section == _HistorySection.history ? '翻译历史' : '生词本'),
+          // 分段放在标题栏下方单独一行，窄窗口下不与刷新、记录开关争宽度。
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(GlassMetrics.hitSize + 8),
+            child: Padding(
+              padding: const EdgeInsets.only(
+                left: GlassMetrics.pagePadding,
+                bottom: 8,
               ),
-            ),
-            const SizedBox(width: 12),
-            const Text('记录历史'),
-            const SizedBox(width: 8),
-            NativeGlassSwitch(
-              label: '记录翻译历史',
-              value: _recording ?? false,
-              onChanged: _recording == null || _savingRecording
-                  ? null
-                  : _setRecording,
-            ),
-            const SizedBox(width: 16),
-          ],
-        ),
-        body: Column(
-          children: [
-            if (_recordingError != null)
-              ListTile(
-                title: Text(_recordingError!),
-                trailing: NativeGlassSurface(
-                  material: true,
-                  child: TextButton(
-                    onPressed: _loadRecording,
-                    child: const Text('重新读取设置'),
-                  ),
-                ),
-              ),
-            if (_recording == false)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('已暂停记录；已有历史仍保留。'),
-              ),
-            Expanded(
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (notification) {
-                  // 只响应外层列表；错误后由用户显式重试，避免无限失败重试。
-                  if (notification.depth == 0 &&
-                      notification.metrics.extentAfter < 160 &&
-                      _pageError == null) {
-                    _loadMore();
-                  }
-                  return false;
-                },
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(GlassMetrics.pagePadding),
-                  itemCount: _items.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == _items.length) {
-                      // 列表末项承载分页反馈，不遮挡已有结果。
-                      return Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Center(child: _buildFooter()),
-                      );
-                    }
-                    final item = _items[index];
-                    final date = DateTime.fromMillisecondsSinceEpoch(
-                      item.completedAt,
-                    );
-                    final timestamp =
-                        '${date.year}-'
-                        '${date.month.toString().padLeft(2, '0')}-'
-                        '${date.day.toString().padLeft(2, '0')} '
-                        '${date.hour.toString().padLeft(2, '0')}:'
-                        '${date.minute.toString().padLeft(2, '0')}';
-                    return Card(
-                      key: ValueKey('history-${item.id}'),
-                      margin: const EdgeInsets.only(
-                        bottom: GlassMetrics.groupGap,
-                      ),
-                      elevation: 0,
-                      child: Padding(
-                        padding: const EdgeInsets.all(
-                          GlassMetrics.panelPadding,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Wrap(
-                              alignment: WrapAlignment.spaceBetween,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 16,
-                              runSpacing: 8,
-                              children: [
-                                Text(
-                                  item.sourceLabel ?? '未记录来源',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium,
-                                ),
-                                Text(
-                                  timestamp,
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                            const Divider(height: 28),
-                            Text('译文', style: theme.textTheme.labelLarge),
-                            const SizedBox(height: 8),
-                            SelectableText(
-                              item.translatedText,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                            // 译文与原文独立阅读，分隔线不进入可复制正文。
-                            const Divider(height: 21, thickness: 1),
-                            Text('原文', style: theme.textTheme.labelLarge),
-                            const SizedBox(height: 8),
-                            SelectableText(
-                              item.sourceText,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: NativeGlassSegments<_HistorySection>(
+                  value: _section,
+                  options: const {
+                    _HistorySection.history: '翻译历史',
+                    _HistorySection.vocabulary: '生词本',
                   },
+                  navigation: true,
+                  onChanged: (section) => setState(() => _section = section),
                 ),
               ),
             ),
+          ),
+          actions: [
+            if (_section == _HistorySection.history) ...[
+              NativeGlassSurface(
+                material: true,
+                child: IconButton(
+                  tooltip: '刷新历史',
+                  onPressed: _loading ? null : _refresh,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text('记录历史'),
+              const SizedBox(width: 8),
+              NativeGlassSwitch(
+                label: '记录翻译历史',
+                value: _recording ?? false,
+                onChanged: _recording == null || _savingRecording
+                    ? null
+                    : _setRecording,
+              ),
+              const SizedBox(width: 16),
+            ],
           ],
         ),
+        body: _section == _HistorySection.vocabulary
+            ? VocabularyPage(
+                channel: widget.channel,
+                version: _vocabularyVersion,
+              )
+            : Column(
+                children: [
+                  if (_recordingError != null)
+                    ListTile(
+                      title: Text(_recordingError!),
+                      trailing: NativeGlassSurface(
+                        material: true,
+                        child: TextButton(
+                          onPressed: _loadRecording,
+                          child: const Text('重新读取设置'),
+                        ),
+                      ),
+                    ),
+                  if (_recording == false)
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text('已暂停记录；已有历史仍保留。'),
+                    ),
+                  Expanded(
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (notification) {
+                        // 只响应外层列表；错误后由用户显式重试，避免无限失败重试。
+                        if (notification.depth == 0 &&
+                            notification.metrics.extentAfter < 160 &&
+                            _pageError == null) {
+                          _loadMore();
+                        }
+                        return false;
+                      },
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(GlassMetrics.pagePadding),
+                        itemCount: _items.length + 1,
+                        itemBuilder: (context, index) {
+                          if (index == _items.length) {
+                            // 列表末项承载分页反馈，不遮挡已有结果。
+                            return Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Center(child: _buildFooter()),
+                            );
+                          }
+                          final item = _items[index];
+                          final date = DateTime.fromMillisecondsSinceEpoch(
+                            item.completedAt,
+                          );
+                          final timestamp =
+                              '${date.year}-'
+                              '${date.month.toString().padLeft(2, '0')}-'
+                              '${date.day.toString().padLeft(2, '0')} '
+                              '${date.hour.toString().padLeft(2, '0')}:'
+                              '${date.minute.toString().padLeft(2, '0')}';
+                          return Card(
+                            key: ValueKey('history-${item.id}'),
+                            margin: const EdgeInsets.only(
+                              bottom: GlassMetrics.groupGap,
+                            ),
+                            elevation: 0,
+                            child: Padding(
+                              padding: const EdgeInsets.all(
+                                GlassMetrics.panelPadding,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    spacing: 16,
+                                    runSpacing: 8,
+                                    children: [
+                                      Text(
+                                        item.sourceLabel ?? '未记录来源',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium,
+                                      ),
+                                      Text(
+                                        timestamp,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                  const Divider(height: 28),
+                                  Text('译文', style: theme.textTheme.labelLarge),
+                                  const SizedBox(height: 8),
+                                  SelectableText(
+                                    item.translatedText,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                  // 译文与原文独立阅读，分隔线不进入可复制正文。
+                                  const Divider(height: 21, thickness: 1),
+                                  Text('原文', style: theme.textTheme.labelLarge),
+                                  const SizedBox(height: 8),
+                                  SelectableText(
+                                    item.sourceText,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }

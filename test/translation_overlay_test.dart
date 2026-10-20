@@ -12,6 +12,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:translate_app/src/selection/selection_translation_app.dart'
     show TranslateApp;
 import 'package:translate_app/src/history/translation_history.dart';
+import 'package:translate_app/src/history/vocabulary.dart';
 import 'package:translate_app/src/platform/macos_platform_bridge.dart';
 import 'package:translate_app/src/translation/language_direction.dart';
 import 'package:translate_app/src/overlay/translation_overlay.dart';
@@ -66,6 +67,7 @@ void main() {
         bridge: MacosPlatformBridge(methods: methods, events: events),
         session: session,
         history: TranslationHistoryStore(sqlite3.openInMemory()),
+        vocabulary: VocabularyStore(sqlite3.openInMemory()),
       ),
     );
     await tester.pump();
@@ -185,6 +187,7 @@ void main() {
             onDrag: () => drags += 1,
             onMode: session.switchMode,
             onSpeak: (_) {},
+            onAddVocabulary: () {},
           ),
         ),
       );
@@ -256,6 +259,7 @@ void main() {
           onDrag: () {},
           onMode: (_) {},
           onSpeak: spoken.add,
+          onAddVocabulary: () {},
         ),
       ),
     );
@@ -303,6 +307,7 @@ void main() {
           onDrag: () {},
           onMode: (_) {},
           onSpeak: (_) {},
+          onAddVocabulary: () {},
         ),
       ),
     );
