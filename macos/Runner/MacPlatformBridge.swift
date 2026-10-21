@@ -293,6 +293,28 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             recognizer.processString(text)
             let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first
             result(hypothesis.flatMap { $0.value >= 0.5 ? $0.key.rawValue : nil })
+        case AppConstants.openFileMethod, AppConstants.revealFileMethod, AppConstants.copyImageFileMethod:
+            guard let path = args["path"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "缺少文件路径。", details: nil)); return
+            }
+            let url = URL(fileURLWithPath: path)
+            switch call.method {
+            case AppConstants.openFileMethod:
+                // 系统默认应用打开，不激活或修改文件。
+                result(NSWorkspace.shared.open(url))
+            case AppConstants.revealFileMethod:
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                result(nil)
+            default:
+                // 复制 PNG 原始数据；文件不可读时返回错误，不改动剪贴板。
+                guard let png = try? Data(contentsOf: url) else {
+                    result(FlutterError(code: AppConstants.copyFailedError, message: "图片文件不可读。", details: nil)); return
+                }
+                let item = NSPasteboardItem()
+                item.setData(png, forType: .png)
+                NSPasteboard.general.clearContents()
+                result(NSPasteboard.general.writeObjects([item]))
+            }
         case AppConstants.lookupDefinitionMethod:
             guard let text = args["text"] as? String else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "lookupDefinition 需要 text", details: nil)); return
@@ -573,7 +595,10 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
              AppConstants.saveDrawingPreferencesMethod, AppConstants.toggleAutomaticMethod,
              AppConstants.historyPageMethod, AppConstants.historyRecordingMethod,
              AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod,
-             AppConstants.vocabularyListMethod, AppConstants.deleteVocabularyMethod, AppConstants.vocabularyCsvMethod:
+             AppConstants.vocabularyListMethod, AppConstants.deleteVocabularyMethod, AppConstants.vocabularyCsvMethod,
+             AppConstants.screenshotHistoryListMethod, AppConstants.deleteScreenshotHistoryMethod,
+             AppConstants.clearScreenshotHistoryMethod, AppConstants.screenshotHistoryRecordingMethod,
+             AppConstants.setScreenshotHistoryRecordingMethod:
             // requestApplication只跨越引擎边界；业务状态由主引擎所属模块管理。
             requestApplication(call.method, arguments: call.arguments, result: result)
         default:

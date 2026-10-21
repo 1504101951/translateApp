@@ -813,6 +813,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           _savedPath = saved;
           _message = '已保存截图';
         });
+        _recordHistory(id, bytes);
         return;
       }
       if (action == 'pin') {
@@ -838,6 +839,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           });
           return;
         }
+        // 先发出截图历史记录再结束编辑层；原生按到达顺序先核对截图身份，关闭后身份失效。
+        _recordHistory(id, bytes);
         // 贴图成功即结束编辑层，只留下独立置顶图。
         await widget.channel.invokeMethod<void>(MethodNames.closeScreenshot);
         return;
@@ -847,6 +850,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         'bytes': bytes,
       });
       if (!mounted || _capture['id'] != id) return;
+      _recordHistory(id, bytes);
       // 只在系统剪贴板写入成功后展示反馈；新的成功操作重新计时。
       _showCopyFeedback('已复制图片');
       if (closeAfterCopy) {
@@ -864,6 +868,16 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       if (mounted && _capture['id'] == id) setState(() => _busy = false);
     }
   }
+
+  /// id 为本次截图身份，bytes 为刚导出成功的图片；请求主引擎按「记录截图历史」开关写入，无返回值（#29）。
+  /// 截图历史是导出成功后的附带记录：不等待主引擎回复，复制、保存、贴图的反馈与关闭不受其影响。
+  void _recordHistory(Object id, Uint8List bytes) => unawaited(
+    widget.channel.invokeMethod<void>(MethodNames.recordScreenshotHistory, {
+      'id': id,
+      'bytes': bytes,
+      'capturedAt': _capture['capturedAt'],
+    }),
+  );
 
   /// method 为非导出系统操作；关闭/重截/授权不改剪贴板，无返回值。
   Future<void> _command(String method) async {

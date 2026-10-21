@@ -505,6 +505,26 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(codes, [AppConstants.badArgsError, AppConstants.badArgsError])
     }
 
+    /// 无参数；截图历史的文件操作缺路径时返回参数错误，图片不可读时返回复制失败且不改剪贴板，无返回值（#29）。
+    @MainActor
+    func testScreenshotHistoryFileActionsRejectMissingOrUnreadableFiles() {
+        let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
+        var codes: [String?] = []
+        // 边界：三种文件操作都缺 path；复制指向已不存在的文件（图片被用户移走后的状态）。
+        for method in [AppConstants.openFileMethod, AppConstants.revealFileMethod, AppConstants.copyImageFileMethod] {
+            bridge.handle(FlutterMethodCall(methodName: method, arguments: [:])) {
+                codes.append(($0 as? FlutterError)?.code)
+            }
+        }
+        let changeCount = NSPasteboard.general.changeCount
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png").path
+        bridge.handle(FlutterMethodCall(methodName: AppConstants.copyImageFileMethod, arguments: ["path": missing])) {
+            codes.append(($0 as? FlutterError)?.code)
+        }
+        XCTAssertEqual(codes, Array(repeating: AppConstants.badArgsError, count: 3) + [AppConstants.copyFailedError])
+        XCTAssertEqual(NSPasteboard.general.changeCount, changeCount)
+    }
+
     /// 无参数；朗读声音按语言的默认地区补全，系统没有该地区声音时退回语言本身，无返回值。
     func testSpeechVoiceUsesDefaultRegion() {
         // 边界：只给语言码（en）应补全为美式发音；带地区的繁体中文保持地区；阿拉伯语默认地区无声音时仍能取到声音。

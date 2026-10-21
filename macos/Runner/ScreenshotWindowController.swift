@@ -426,6 +426,14 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
             result(nil)
+        case AppConstants.recordScreenshotHistoryMethod:
+            guard let id = args["id"] as? String, id == captureId else {
+                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
+            }
+            // 主 Dart 引擎持有历史数据库，按开关决定是否写入。
+            MacPlatformBridge.Shared.instance?.requestApplication(
+                AppConstants.recordScreenshotHistoryMethod, arguments: args, result: result
+            )
         case AppConstants.translatePlainTextMethod:
             guard let id = args["id"] as? String, id == captureId else {
                 result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return

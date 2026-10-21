@@ -86,9 +86,11 @@ AX 读取优先使用文本标记范围获取跨节点选区，再读取普通�
 
 生词本 `VocabularyStore` 与翻译历史共用主引擎同一个 SQLite（`vocabulary` 表，单词不区分大小写唯一）。翻译模式下原文满足 `SelectionSession.isDictionaryTerm` 时，会话在翻译的同时经 `lookupDefinition` 调用 Swift `DCSCopyTextDefinition` 离线查询，释义到达后卡片右栏改为词典。历史窗口的生词本分段经 `vocabularyList`、`deleteVocabulary`、`vocabularyCsv` 请求主引擎，导出经 Swift `saveTextFile` 的系统保存面板写入；增删后与历史共用 `historyChanged` 通知刷新。
 
+截图历史 `ScreenshotHistoryStore` 同样由主引擎持有：元数据写入同一 SQLite 的 `screenshot_history` 表（`capture_id` 唯一，同一截图再次导出覆盖为最后一次），图片写入 Application Support 的 `ScreenshotHistory` 目录，先写临时文件再改名；「记录截图历史」开关保存在 `history_meta`，默认关闭。截图窗口在复制、保存、贴图成功后发送 `recordScreenshotHistory`，Swift 核对 captureId 后经 `requestApplication` 转交主引擎；截图窗口不等待主引擎回复，导出反馈与关闭不受记录结果影响，通道按发送顺序先核对身份再关闭编辑层。每次写入后按 100 条、30 天清理，只删除历史目录内的文件。历史窗口的截图历史分段经 `screenshotHistoryList`、`deleteScreenshotHistory`、`clearScreenshotHistory` 与开关请求主引擎；打开、复制图片、在 Finder 中显示由 Swift `openFile`、`copyImageFile`、`revealFile` 直接处理，文件不可读时复制返回 `copy_failed` 且不改剪贴板。变更同样经 `historyChanged` 通知刷新。
+
 主 Dart 引擎持有 `TranslationHistoryStore`，SQLite 位于 Application Support。独立 Flutter `historyMain` 窗口通过原生通道请求数据，Swift 不存储历史。卡片标题为来源应用名称或「截图」和本地完成日期，内容按译文、原文排列。分页按 `(completed_at, id)` 倒序，每批 10 条；游标避免新记录插入导致重复分页，刷新从最新记录开始。
 
-选区来源显示名在 Swift 捕获选区时随事件传入 Dart；成功记录使用激活时的服务和语言方向。截图由 `translateScreenshotText` 编排本地语言识别、分段翻译和写入；请求携带 captureId，网络请求前及完成后都核对原生截图身份。只有完整成功且未被取消的结果写入，每次独立保存，不去重。记录开关持久化于同一 SQLite，默认开启，关闭只阻止新写入。历史不存储图片、窗口坐标或密钥。
+选区来源显示名在 Swift 捕获选区时随事件传入 Dart；成功记录使用激活时的服务和语言方向。截图由 `translateScreenshotText` 编排本地语言识别、分段翻译和写入；请求携带 captureId，网络请求前及完成后都核对原生截图身份。只有完整成功且未被取消的结果写入，每次独立保存，不去重。记录开关持久化于同一 SQLite，默认开启，关闭只阻止新写入。翻译历史不存储图片、窗口坐标或密钥。
 
 ## 连续采集与本地媒体
 

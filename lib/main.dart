@@ -9,6 +9,7 @@ import 'src/capture/capture_app.dart';
 import 'src/common/constants/method_names.dart';
 import 'src/history/history_app.dart';
 import 'src/history/history_requests.dart';
+import 'src/history/screenshot_history.dart';
 import 'src/history/translation_history.dart';
 import 'src/history/vocabulary.dart';
 import 'src/platform/macos_platform_bridge.dart';
@@ -35,6 +36,12 @@ Future<void> main() async {
   final database = sqlite3.open('$support/translation_history.sqlite');
   final history = TranslationHistoryStore(
     database,
+    onChanged: () => unawaited(bridge.notifyHistoryChanged()),
+  );
+  // 截图历史图片与截图保存目录分开，清理只作用于此目录（#29）。
+  final screenshots = ScreenshotHistoryStore(
+    database,
+    Directory('$support/ScreenshotHistory'),
     onChanged: () => unawaited(bridge.notifyHistoryChanged()),
   );
   // 生词本增删后与历史一样通知历史窗口刷新（#102）。
@@ -95,6 +102,18 @@ Future<void> main() async {
       case MethodNames.vocabularyCsv:
         // handleVocabularyRequest 访问同一个数据库中的生词本。
         return handleVocabularyRequest(vocabulary, call);
+      case MethodNames.recordScreenshotHistory:
+      case MethodNames.screenshotHistoryList:
+      case MethodNames.deleteScreenshotHistory:
+      case MethodNames.clearScreenshotHistory:
+      case MethodNames.screenshotHistoryRecording:
+      case MethodNames.setScreenshotHistoryRecording:
+        // handleScreenshotHistoryRequest 按开关写入并按条数与时长清理。
+        return handleScreenshotHistoryRequest(
+          screenshots,
+          call,
+          DateTime.now().millisecondsSinceEpoch,
+        );
       case MethodNames.liveRegionCommand:
         final command = Map<Object?, Object?>.from(call.arguments as Map);
         final generation = command['generation'] as int;

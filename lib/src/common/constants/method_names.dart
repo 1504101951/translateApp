@@ -195,6 +195,30 @@ abstract final class MethodNames {
   /// systemStatus 的稳定协议值，变更须同步两端及持久化调用方。
   static const systemStatus = 'systemStatus';
 
+  /// 截图窗口在导出成功后请求主引擎记录截图历史；参数 id、bytes、capturedAt（#29）。
+  static const recordScreenshotHistory = 'recordScreenshotHistory';
+
+  /// 历史窗口读取截图历史；返回按截图时间倒序的条目列表。
+  static const screenshotHistoryList = 'screenshotHistoryList';
+
+  /// 历史窗口删除一条截图历史及其图片；参数 id。
+  static const deleteScreenshotHistory = 'deleteScreenshotHistory';
+
+  /// 历史窗口清空截图历史及其图片。
+  static const clearScreenshotHistory = 'clearScreenshotHistory';
+
+  /// 读取「记录截图历史」开关。
+  static const screenshotHistoryRecording = 'screenshotHistoryRecording';
+
+  /// 设置「记录截图历史」开关；参数 enabled。
+  static const setScreenshotHistoryRecording = 'setScreenshotHistoryRecording';
+
+  /// 用系统默认应用打开文件；参数 path。
+  static const openFile = 'openFile';
+
+  /// 把 PNG 文件复制到剪贴板；参数 path。
+  static const copyImageFile = 'copyImageFile';
+
   /// 查询 macOS 词典释义；参数 text 为单词或短语，返回释义全文或 null（#102）。
   static const lookupDefinition = 'lookupDefinition';
 

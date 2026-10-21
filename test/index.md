@@ -42,3 +42,5 @@ Dart业务逻辑和Flutter界面行为回归测试。
 37. [vocabulary_test.dart](vocabulary_test.dart)：验证生词本的增改删、排序、CSV 转义与查词判定边界。
 38. [vocabulary_page_test.dart](vocabulary_page_test.dart)：验证生词本分段的展示、删除、导出反馈与空列表状态。
 39. [beautify_test.dart](beautify_test.dart)：按像素验证截图美化的导出尺寸、背景、圆角与阴影，以及不美化时与原图一致。
+40. [screenshot_history_test.dart](screenshot_history_test.dart)：用内存SQLite与临时目录验证截图历史的默认关闭、同截图覆盖、100条与30天清理及缺失文件。
+41. [screenshot_history_page_test.dart](screenshot_history_page_test.dart)：验证截图历史分段的缺失文件只能删除、清空后的空状态与关闭记录提示。

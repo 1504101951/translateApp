@@ -275,6 +275,22 @@ enum AppConstants {
     static let staleCaptureError = "stale_capture"
     /// systemStatus 协议值；与Dart常量及持久化调用方同步。
     static let systemStatusMethod = "systemStatus"
+    /// recordScreenshotHistory 协议值；截图导出成功后转发主引擎记录，与Dart常量同步。
+    static let recordScreenshotHistoryMethod = "recordScreenshotHistory"
+    /// screenshotHistoryList 协议值；历史窗口读取截图历史，转发主引擎，与Dart常量同步。
+    static let screenshotHistoryListMethod = "screenshotHistoryList"
+    /// deleteScreenshotHistory 协议值；历史窗口删除截图历史，转发主引擎，与Dart常量同步。
+    static let deleteScreenshotHistoryMethod = "deleteScreenshotHistory"
+    /// clearScreenshotHistory 协议值；历史窗口清空截图历史，转发主引擎，与Dart常量同步。
+    static let clearScreenshotHistoryMethod = "clearScreenshotHistory"
+    /// screenshotHistoryRecording 协议值；读取截图历史开关，转发主引擎，与Dart常量同步。
+    static let screenshotHistoryRecordingMethod = "screenshotHistoryRecording"
+    /// setScreenshotHistoryRecording 协议值；设置截图历史开关，转发主引擎，与Dart常量同步。
+    static let setScreenshotHistoryRecordingMethod = "setScreenshotHistoryRecording"
+    /// openFile 协议值；用系统默认应用打开文件，与Dart常量同步。
+    static let openFileMethod = "openFile"
+    /// copyImageFile 协议值；把 PNG 文件复制到剪贴板，与Dart常量同步。
+    static let copyImageFileMethod = "copyImageFile"
     /// lookupDefinition 协议值；查询 macOS 词典释义，与Dart常量同步。
     static let lookupDefinitionMethod = "lookupDefinition"
     /// vocabularyList 协议值；历史窗口读取生词本，转发主引擎，与Dart常量同步。
