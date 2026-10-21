@@ -8,10 +8,10 @@ struct ScreenshotStorageCheck {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
-        // 同一本地日期的三种输出必须进入不同分类；日期不受用户的日历区域设置影响。
+        // 同一本地日期的四种输出必须进入不同分类；APNG 文件扩展名为 png 但不进截图分类；日期不受用户的日历区域设置影响。
         let date = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 12))!
-        for (ext, category) in [("png", "截图"), ("mp4", "视频"), ("gif", "gif")] {
-            let folder = try ScreenshotStorage.datedDirectory(basePath: directory.path, extension: ext, date: date)
+        for (kind, category, ext) in [("png", "截图", "png"), ("mp4", "视频", "mp4"), ("gif", "gif", "gif"), ("apng", "apng", "png")] {
+            let folder = try ScreenshotStorage.datedDirectory(basePath: directory.path, extension: kind, date: date)
             assert(folder.path == directory.appendingPathComponent("\(category)/2026-10-01").path)
             let target = folder.appendingPathComponent("采集.\(ext)")
             let source = directory.appendingPathComponent("source.\(ext)")

@@ -856,6 +856,13 @@ class _SettingsPageState extends State<_SettingsPage>
                         onChanged: (v) =>
                             _edit(() => settings.screenshotIncludesCursor = v),
                       ),
+                      // 区域与显示器录制由系统在点击处绘制高亮（#110）。
+                      NativeGlassSwitchTile(
+                        title: '录制时显示鼠标点击',
+                        value: settings.recordingShowsClicks,
+                        onChanged: (v) =>
+                            _edit(() => settings.recordingShowsClicks = v),
+                      ),
                     ],
                   ),
                   NativeGlassGroup(

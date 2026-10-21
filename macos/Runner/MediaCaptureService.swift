@@ -38,6 +38,8 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     private var recordingRequestedAt: ContinuousClock.Instant?
     private(set) var phase = CapturePhase.idle
     private(set) var id = UUID().uuidString
+    /// 结果页确认的裁剪区间；nil为完整视频。只在视频结果中设置，关闭结果后随会话丢弃（#110）。
+    private(set) var trim: CMTimeRange?
     private(set) var region: Region?
     /// 实际录制配置在AppKit屏幕点坐标中的范围，仅供可见选区遮罩使用。
     private(set) var captureFrame: NSRect?
@@ -175,6 +177,10 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         config.height = height
         config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         config.showsCursor = video
+        // 「录制时显示鼠标点击」由设置页写入偏好字典，默认关闭；静帧截图不绘制点击（#110）。
+        config.showMouseClicks = video && UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)?[
+            AppConstants.recordingShowsClicksKey
+        ] as? Bool == true
         config.capturesAudio = false
         config.captureMicrophone = false
         config.scalesToFit = false
@@ -503,6 +509,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
         temporaryDirectory = nil
         details = [:]
+        trim = nil
         id = UUID().uuidString
         onActiveChanged?(false)
         update(.idle)
@@ -779,7 +786,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         return video
     }
 
-    /// 无参数；返回完整录制供系统播放器只读使用，GIF转换期间不改变源文件。
+    /// 无参数；返回完整录制供系统播放器只读使用，转换期间不改变源文件。
     func previewURL() throws -> URL {
         guard [.videoReady, .converting].contains(phase), let video else {
             throw GIFExporter.ExportError(message: "当前没有可预览的录制。")
@@ -787,47 +794,92 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         return video
     }
 
-    /// target为分类日期目录内的默认路径；发布时防覆盖，公开实际保存路径并保留预览。
-    func saveVideo(to target: URL) throws {
-        let source = try recordingURL()
-        let saved = try ScreenshotStorage.publish(source: source, target: target)
-        update(.videoReady, ["savedPath": saved.path])
+    /// range为结果页确认的区间，nil恢复完整视频；只在视频结果空闲时更新，不改写源文件（#110）。
+    func setTrim(_ range: CMTimeRange?) throws {
+        _ = try recordingURL()
+        trim = range
     }
 
-    /// options为完整视频的导出设置，target为分类日期路径；后台逐帧编码，源MP4保持只读。
-    func exportGIF(options: GIFExporter.Options, to target: URL) throws {
+    /// target为分类日期目录内的默认路径；未裁剪时直接发布源MP4，裁剪后在后台重新编码所选区间。
+    /// 发布时防覆盖，公开实际保存路径并保留预览。
+    func saveVideo(to target: URL) throws {
         let source = try recordingURL()
+        guard let trim else {
+            let saved = try ScreenshotStorage.publish(source: source, target: target)
+            update(.videoReady, ["savedPath": saved.path])
+            return
+        }
+        // trimVideo按区间重新编码到临时路径，转换流程负责进度、取消与发布。
+        try convert(.mp4, to: target, pathKey: "savedPath") { destination, progress in
+            try await Self.trimVideo(source: source, range: trim, destination: destination, progress: progress)
+        }
+    }
+
+    /// source为只读录制，range为裁剪区间，destination为新临时MP4路径，progress回报0–1进度；
+    /// 按区间重新编码，无返回值。直通复制只能从关键帧起切，时长会与所选区间不一致，因此不用直通。
+    static func trimVideo(source: URL, range: CMTimeRange, destination: URL,
+                          progress: @escaping @Sendable (Double) -> Void) async throws {
+        guard let session = AVAssetExportSession(asset: AVURLAsset(url: source),
+                                                 presetName: AVAssetExportPresetHighestQuality) else {
+            throw GIFExporter.ExportError(message: "无法创建视频导出，请重试。")
+        }
+        session.timeRange = range
+        // states按间隔报告编码进度；导出结束后取消观察。
+        let observer = Task {
+            for await state in session.states(updateInterval: 0.1) {
+                if case .exporting(let value) = state { progress(value.fractionCompleted) }
+            }
+        }
+        defer { observer.cancel() }
+        // 任务取消时系统同步取消导出并抛出CancellationError。
+        try await session.export(to: destination, as: .mp4)
+    }
+
+    /// format为GIF或APNG，options为截图设置中的导出设置，target为分类日期路径；
+    /// 后台按裁剪区间（未裁剪为完整视频）逐帧编码，源MP4保持只读。
+    func exportAnimation(_ format: GIFExporter.Format, options: GIFExporter.Options, to target: URL) throws {
+        let source = try recordingURL()
+        let range = trim
+        try convert(format.kind, to: target, pathKey: format.pathKey) { destination, progress in
+            _ = try await GIFExporter.export(source: source, destination: destination, options: options,
+                                             format: format, range: range, progress: progress)
+        }
+    }
+
+    /// kind为导出类型，target为分类日期路径，pathKey为成功后公开保存路径的详情键；
+    /// work在后台把结果写入给定临时路径并回报0–1进度。转换期间公开exporting与progress，结束后回到视频结果。
+    private func convert(_ kind: RecordingExport, to target: URL, pathKey: String,
+                         work: @escaping @Sendable (URL, @escaping @Sendable (Double) -> Void) async throws -> Void) throws {
         let token = id
         guard let temporaryDirectory else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
-        let destination = temporaryDirectory.appendingPathComponent("\(UUID().uuidString).gif")
+        let destination = temporaryDirectory.appendingPathComponent("\(UUID().uuidString).\(kind.fileExtension)")
         details.removeValue(forKey: "error")
-        update(.converting, ["progress": 0.0])
+        update(.converting, ["progress": 0.0, "exporting": kind.rawValue])
         exportTask = Task.detached { [weak self] in
-                guard let self else { return }
+            guard let self else { return }
             defer { try? FileManager.default.removeItem(at: destination) }
+            let outcome: (key: String, value: String)
             do {
-                _ = try await GIFExporter.export(source: source, destination: destination, options: options) { progress in
+                try await work(destination) { progress in
                     DispatchQueue.main.async {
                         guard self.id == token, self.phase == .converting else { return }
                         self.update(.converting, ["progress": progress])
                     }
                 }
                 try Task.checkCancellation()
-                let saved = try ScreenshotStorage.publish(source: destination, target: target)
-                await MainActor.run {
-                    guard self.id == token else { return }
-                    self.update(.videoReady, ["gifPath": saved.path])
-                }
+                outcome = (pathKey, try ScreenshotStorage.publish(source: destination, target: target).path)
             } catch {
-                let message = error is CancellationError ? "GIF转换已取消，源视频保持不变。" : error.localizedDescription
-                await MainActor.run {
-                    guard self.id == token else { return }
-                    self.update(.videoReady, ["error": message])
-                }
+                outcome = ("error", error is CancellationError ? "转换已取消，源视频保持不变。" : error.localizedDescription)
+            }
+            // 成功与失败都结束转换：撤下exporting，再公开保存路径或原因。
+            await MainActor.run {
+                guard self.id == token else { return }
+                self.details.removeValue(forKey: "exporting")
+                self.update(.videoReady, [outcome.key: outcome.value])
             }
         }
     }
 
-    /// 无参数；取消正在转换的GIF，保持当前MP4和已保存文件。
-    func cancelGIF() { exportTask?.cancel() }
+    /// 无参数；取消正在进行的MP4/GIF/APNG转换，保持当前MP4和已保存文件。
+    func cancelExport() { exportTask?.cancel() }
 }

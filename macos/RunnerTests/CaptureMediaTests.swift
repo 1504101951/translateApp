@@ -236,7 +236,8 @@ final class CaptureMediaTests: XCTestCase {
             let frame = CaptureWindowController.resultFrame(pixels: pixels, scale: 2, visible: visible)
             XCTAssertTrue(visible.contains(frame))
             XCTAssertGreaterThanOrEqual(frame.width, 73)
-            XCTAssertGreaterThan(frame.height, 196)
+            // 内容至少容纳六个操作的268pt工具栏与上下8pt外边距，再加系统标题栏（#110）。
+            XCTAssertGreaterThan(frame.height, 284)
         }
     }
 
@@ -705,6 +706,69 @@ final class CaptureMediaTests: XCTestCase {
             XCTAssertEqual(image.width, 64)
             XCTAssertEqual(image.height, 48)
         }
+    }
+
+    /// 无参数；APNG 按裁剪区间导出：0.5–1.0 秒在 10fps 下恰好 5 帧，首帧来自区间起点（绿段）而非视频开头（红段），
+    /// 延时合计等于区间时长，文件无限循环且源视频不变（#110）。
+    func testAPNGExportUsesTrimRangeAndLoopsForever() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureAPNGTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let video = directory.appendingPathComponent("source.mp4")
+        try await writeMovie(video)
+        let original = try Data(contentsOf: video)
+        let apng = directory.appendingPathComponent("result.png")
+        let range = CMTimeRange(start: CMTime(value: 1, timescale: 2), duration: CMTime(value: 1, timescale: 2))
+        let count = try await GIFExporter.export(source: video, destination: apng,
+            options: .init(framesPerSecond: 10, maximumWidth: 32), format: .apng, range: range) { _ in }
+        XCTAssertEqual(count, 5)
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(apng as CFURL, nil))
+        XCTAssertEqual(CGImageSourceGetCount(source), 5)
+        let file = try XCTUnwrap(CGImageSourceCopyProperties(source, nil) as? [CFString: Any])
+        let png = try XCTUnwrap(file[kCGImagePropertyPNGDictionary] as? [CFString: Any])
+        XCTAssertEqual(png[kCGImagePropertyAPNGLoopCount] as? Int, 0)
+        var delays = 0.0
+        var colors: [Int] = []
+        for index in 0..<count {
+            let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
+            XCTAssertEqual(image.width, 32)
+            let rgb = Array(try pixels(image).prefix(3))
+            colors.append(try XCTUnwrap(rgb.indices.max(by: { rgb[$0] < rgb[$1] })))
+            let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any])
+            let frame = try XCTUnwrap(properties[kCGImagePropertyPNGDictionary] as? [CFString: Any])
+            delays += try XCTUnwrap(frame[kCGImagePropertyAPNGUnclampedDelayTime] as? Double)
+        }
+        // 0.5、0.6 秒落在绿段（第 10–19 帧），0.7–0.9 秒落在蓝段（第 20–29 帧）。
+        XCTAssertEqual(colors, [1, 1, 2, 2, 2])
+        XCTAssertEqual(delays, 0.5, accuracy: 0.011)
+        XCTAssertEqual(try Data(contentsOf: video), original)
+    }
+
+    /// 无参数；裁剪 0.4–0.9 秒重新编码后时长为 0.5 秒（容差一帧），开头取自绿段、结尾取自蓝段，源视频不变（#110）。
+    func testTrimmedVideoMatchesSelectedRange() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureTrimTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let video = directory.appendingPathComponent("source.mp4")
+        try await writeMovie(video)
+        let original = try Data(contentsOf: video)
+        let output = directory.appendingPathComponent("trimmed.mp4")
+        let range = CMTimeRange(start: CMTime(value: 2, timescale: 5), end: CMTime(value: 9, timescale: 10))
+        try await MediaCaptureService.trimVideo(source: video, range: range, destination: output) { _ in }
+        let info = try await GIFExporter.metadata(output)
+        XCTAssertEqual(info.duration, 0.5, accuracy: 1.0 / 30)
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: output))
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        var colors: [Int] = []
+        // 输出 0.05 秒对应源 0.45 秒（第 13 帧，绿），0.45 秒对应源 0.85 秒（第 25 帧，蓝）。
+        for seconds in [0.05, 0.45] {
+            let image = try await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600)).image
+            let rgb = Array(try pixels(image).prefix(3))
+            colors.append(try XCTUnwrap(rgb.indices.max(by: { rgb[$0] < rgb[$1] })))
+        }
+        XCTAssertEqual(colors, [1, 2])
+        XCTAssertEqual(try Data(contentsOf: video), original)
     }
 
     /// 无参数；预先取消不留下输出；无效元数据/设置与1801帧拒绝，1800帧边界允许。

@@ -11,13 +11,15 @@ enum ScreenshotStorage {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
-    /// basePath为根目录偏好，extension为png/mp4/gif，date为发起保存的本地日期；创建并返回分类日期目录。
+    /// basePath为根目录偏好，extension为保存类型png/mp4/gif/apng（apng文件扩展名仍为png），date为发起保存的本地日期；创建并返回分类日期目录。
     static func datedDirectory(basePath: String?, extension fileExtension: String, date: Date = Date()) throws -> URL {
         let category: String
         switch fileExtension {
         case "png": category = "截图"
         case "mp4": category = "视频"
         case "gif": category = "gif"
+        // APNG 按单独分类保存，不与截图混放（#110）。
+        case "apng": category = "apng"
         default: throw NSError(domain: "TranslateApp", code: 1,
             userInfo: [NSLocalizedDescriptionKey: "不支持此采集文件类型。"])
         }

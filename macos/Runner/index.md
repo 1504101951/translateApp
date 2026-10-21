@@ -18,7 +18,7 @@ macOS应用生命周期、系统能力与窗口控制器。
 14. [PinOverlayController.swift](PinOverlayController.swift)：管理独立置顶贴图的选择、拖动和关闭。
 15. [Release.entitlements](Release.entitlements)：声明发布构建所需的系统授权能力。
 16. [ScreenCaptureService.swift](ScreenCaptureService.swift)：通过系统屏幕捕获能力获取图像并执行设备OCR。
-17. [ScreenshotStorage.swift](ScreenshotStorage.swift)：统一采集根目录、分类日期路径与PNG/MP4/GIF防覆盖写入。
+17. [ScreenshotStorage.swift](ScreenshotStorage.swift)：统一采集根目录、分类日期路径与PNG/MP4/GIF/APNG防覆盖写入。
 18. [ScreenshotWindowController.swift](ScreenshotWindowController.swift)：管理截图窗口、捕获会话、键盘路由及原生导出操作。
 19. [SelectionGestureDetector.swift](SelectionGestureDetector.swift)：识别鼠标和键盘产生的文本选区手势。
 20. [SelectionMonitor.swift](SelectionMonitor.swift)：监听全局选区变化并协调采集、热键和会话失效。
@@ -27,8 +27,8 @@ macOS应用生命周期、系统能力与窗口控制器。
 23. [TextSelectionContext.swift](TextSelectionContext.swift)：判断辅助功能对象是否属于允许翻译的文本上下文。
 24. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
 25. [CaptureWindowController.swift](CaptureWindowController.swift)：协调采集选区、实时阴影、统一采集悬浮条、媒体结果和系统保存面板。
-26. [MediaCaptureService.swift](MediaCaptureService.swift)：管理屏幕流、录制会话、手动滚动采集及临时资源生命周期。
-27. [GIFExporter.swift](GIFExporter.swift)：按设置逐帧解码完整MP4并生成有界、等比缩小的GIF。
+26. [MediaCaptureService.swift](MediaCaptureService.swift)：管理屏幕流、录制会话、裁剪区间、手动滚动采集、导出转换及临时资源生命周期。
+27. [GIFExporter.swift](GIFExporter.swift)：按设置在裁剪区间内逐帧解码MP4并生成有界、等比缩小的GIF或APNG。
 28. [ScrollStitcher.swift](ScrollStitcher.swift)：识别垂直位移和上下固定带并生成保持原始像素的长图。
 29. [ScreenshotComposer.swift](ScreenshotComposer.swift)：按原始像素拼接、拆分截图历史图片，并逐像素比较两张图生成差异蒙版。
 30. [ApplicationRecorder.swift](ApplicationRecorder.swift)：将所选应用在全部显示器上的可见窗口合成为固定黑底画布并编码视频。

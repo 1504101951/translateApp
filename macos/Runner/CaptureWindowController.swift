@@ -194,7 +194,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             window = NSWindow(contentRect: frame, styleMask: AppConstants.captureResultWindowStyle,
                 backing: .buffered, defer: false)
             window.title = "录制结果"
-            // 最小内容保留右侧四个操作、内外间距和至少1pt视频，缩放不裁掉工具栏。
+            // 最小内容保留右侧六个操作、内外间距和至少1pt视频，缩放不裁掉工具栏。
             window.contentMinSize = NSSize(width: AppConstants.captureResultToolbarWidth + AppConstants.captureControlGap * 3 + 1,
                 height: AppConstants.captureResultToolbarHeight + AppConstants.captureControlGap * 2)
         }
@@ -214,7 +214,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         let inset = AppConstants.captureControlGap
         // 系统标题栏和边框占用真实窗口空间，Flutter只布局标题栏下方的可用内容。
         let available = NSWindow.contentRect(forFrameRect: visible, styleMask: AppConstants.captureResultWindowStyle).size
-        // 右侧48pt工具栏、8pt间隔和左右各8pt外边距；纵向四气泡含padding共180pt。
+        // 右侧48pt工具栏、8pt间隔和左右各8pt外边距；纵向六个按钮含padding共268pt。
         let reservedWidth = AppConstants.captureResultToolbarWidth + inset * 3
         let fit = min(1, min((available.width - reservedWidth) / logical.width,
                              (available.height - inset * 2) / logical.height))
@@ -614,25 +614,29 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                 case AppConstants.cancelCaptureMethod:
                     await discard()
                 case AppConstants.saveRecordingMethod:
-                    let target = try outputURL(extension: "mp4", date: Date())
+                    let target = try outputURL(.mp4, date: Date())
                     try service.saveVideo(to: target)
                 case AppConstants.previewRecordingMethod:
                     try await preview()
-                case AppConstants.exportRecordingGIFMethod:
+                case AppConstants.trimRecordingMethod:
+                    try await trim()
+                case AppConstants.exportRecordingGIFMethod, AppConstants.exportRecordingAPNGMethod:
+                    let format: GIFExporter.Format = call.method == AppConstants.exportRecordingGIFMethod ? .gif : .apng
                     let requestedAt = Date()
                     let source = try service.recordingURL()
                     let info = try await GIFExporter.metadata(source)
                     guard token == service.id else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
-                    // 每次导出读取已提交设置；结果窗口不缓存另一份可编辑GIF参数。
+                    // 每次导出读取已提交设置；GIF与APNG共用截图设置中的GIF参数，结果窗口不缓存另一份。
                     let settings = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
                     let options = GIFExporter.Options(
                         framesPerSecond: settings[AppConstants.gifFramesPerSecondKey] as? Int ?? 10,
                         maximumWidth: settings[AppConstants.gifMaximumWidthKey] as? Int)
-                    _ = try options.validate(duration: info.duration, sourceWidth: info.width)
-                    let target = try outputURL(extension: "gif", date: requestedAt)
-                    try service.exportGIF(options: options, to: target)
-                case AppConstants.cancelGIFExportMethod:
-                    service.cancelGIF()
+                    // 帧数上限按裁剪后的时长校验，超限在进入转换前直接失败。
+                    _ = try options.validate(duration: service.trim?.duration.seconds ?? info.duration, sourceWidth: info.width)
+                    let target = try outputURL(format.kind, date: requestedAt)
+                    try service.exportAnimation(format, options: options, to: target)
+                case AppConstants.cancelRecordingExportMethod:
+                    service.cancelExport()
                 case AppConstants.copyScreenshotMethod:
                     guard let png = scrollPNG() else {
                         throw GIFExporter.ExportError(message: "当前没有可复制的长图。")
@@ -664,17 +668,17 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// fileExtension为mp4或gif，date为点击操作时刻；返回分类日期路径，文件名与目录共用同一日期。
-    private func outputURL(extension fileExtension: String, date: Date) throws -> URL {
+    /// kind为导出类型，date为点击操作时刻；返回分类日期路径，文件名与目录共用同一日期，扩展名按类型（APNG为png）。
+    private func outputURL(_ kind: RecordingExport, date: Date) throws -> URL {
         // datedDirectory统一创建媒体分类和日期目录，最终发布再处理同名冲突。
         let directory = try ScreenshotStorage.datedDirectory(
             basePath: UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
-            extension: fileExtension, date: date)
+            extension: kind.rawValue, date: date)
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return directory.appendingPathComponent("录屏-\(formatter.string(from: date)).\(fileExtension)")
+        return directory.appendingPathComponent("录屏-\(formatter.string(from: date)).\(kind.fileExtension)")
     }
 
     /// id为Flutter结果身份；返回绑定当前完整视频的系统播放器，迟到视图不读取新会话。
@@ -695,20 +699,40 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         return view
     }
 
-    /// 无参数；在结果页播放器中从头播放完整视频，不另开窗口。
+    /// 无参数；在结果页播放器中从裁剪起点播放到终点（未裁剪为完整视频），不另开窗口。
     private func preview() async throws {
         let token = service.id
         let url = try service.recordingURL()
         let info = try await GIFExporter.metadata(url)
         guard token == service.id else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
+        let range = service.trim ?? CMTimeRange(start: .zero, duration: CMTime(seconds: info.duration, preferredTimescale: 60000))
         let item = AVPlayerItem(url: url)
-        item.forwardPlaybackEndTime = CMTime(seconds: info.duration, preferredTimescale: 60000)
+        // 新播放项沿用裁剪端点，再次进入裁剪时手柄停在上次确认的位置。
+        item.reversePlaybackEndTime = range.start
+        item.forwardPlaybackEndTime = range.end
         if player == nil { player = AVPlayer(); playerSession = token }
         player?.replaceCurrentItem(with: item)
         playerView?.player = player
-        await player?.seek(to: CMTime.zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        await player?.seek(to: range.start, toleranceBefore: .zero, toleranceAfter: .zero)
         guard token == service.id else { return }
         player?.play()
+    }
+
+    /// 无参数；让结果页播放器进入系统裁剪模式并等待用户操作。点「裁剪」把区间交给资源层，
+    /// 首尾都未移动时恢复完整视频；点「取消」保持原裁剪（#110）。
+    private func trim() async throws {
+        let token = service.id
+        _ = try service.recordingURL()
+        guard let playerView, let item = player?.currentItem, playerView.canBeginTrimming else {
+            throw GIFExporter.ExportError(message: "播放器尚未就绪，请稍后再试。")
+        }
+        player?.pause()
+        let result = await playerView.beginTrimming()
+        guard token == service.id, result == .okButton else { return }
+        // 未设置的端点为无效时间，按视频起点或终点处理。
+        let start = item.reversePlaybackEndTime.isValid ? item.reversePlaybackEndTime : .zero
+        let end = item.forwardPlaybackEndTime.isValid ? item.forwardPlaybackEndTime : item.duration
+        try service.setTrim(start <= .zero && end >= item.duration ? nil : CMTimeRange(start: start, end: end))
     }
 }
 

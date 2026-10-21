@@ -128,7 +128,7 @@ void main() {
     }
   });
 
-  testWidgets('视频结果等比显示源逻辑尺寸且四个操作在右侧纵向排列', (tester) async {
+  testWidgets('视频结果等比显示源逻辑尺寸且六个操作在右侧纵向排列', (tester) async {
     // 1706×868源像素来自2倍屏，1200×900视口足以按853×434逻辑尺寸完整显示。
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
@@ -150,12 +150,19 @@ void main() {
           widget.viewType == ChannelNames.captureVideoPreview,
     );
     expect(tester.getSize(video), const Size(853, 434));
-    expect(find.byType(IconButton), findsNWidgets(4));
-    // 右侧四操作的32pt命中区保持12pt间距，且完整位于视口、不覆盖媒体。
+    expect(find.byType(IconButton), findsNWidgets(6));
+    // 右侧六个操作的32pt命中区保持12pt间距，且完整位于视口、不覆盖媒体。
     final viewport = Offset.zero & const Size(1200, 900);
     final media = tester.getRect(video);
     Rect? previous;
-    for (final action in ['播放视频', '保存 MP4', '导出 GIF', '关闭当前采集']) {
+    for (final action in [
+      '播放视频',
+      '裁剪',
+      '保存 MP4',
+      '导出 GIF',
+      '导出 APNG',
+      '关闭当前采集',
+    ]) {
       expect(find.byTooltip(action).hitTestable(), findsOneWidget);
       final button = tester.getRect(find.byTooltip(action));
       expect(viewport.contains(button.topLeft), isTrue);
@@ -203,7 +210,14 @@ void main() {
     );
     expect(media.width / media.height, closeTo(16 / 9, 0.001));
     expect(media.top, greaterThanOrEqualTo(8));
-    for (final action in ['播放视频', '保存 MP4', '导出 GIF', '关闭当前采集']) {
+    for (final action in [
+      '播放视频',
+      '裁剪',
+      '保存 MP4',
+      '导出 GIF',
+      '导出 APNG',
+      '关闭当前采集',
+    ]) {
       final rect = tester.getRect(find.byTooltip(action));
       expect(rect.left, greaterThan(media.right));
       expect(rect.right, lessThanOrEqualTo(892));
@@ -215,8 +229,8 @@ void main() {
   });
 
   testWidgets('关闭与Escape单击放弃，转换中仍能关闭', (tester) async {
-    // 关闭即丢弃会话；覆盖转换中关闭以及默认窗口最小尺寸73×196pt。
-    tester.view.physicalSize = const Size(73, 196);
+    // 关闭即丢弃会话；覆盖转换中关闭以及默认窗口最小尺寸73×284pt（六个操作的268pt工具栏加上下8pt）。
+    tester.view.physicalSize = const Size(73, 284);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -246,6 +260,7 @@ void main() {
       ...resultState,
       'id': 'closing-conversion',
       'phase': 'converting',
+      'exporting': 'gif',
       'progress': 0.5,
     });
     await tester.pumpAndSettle();
@@ -267,10 +282,15 @@ void main() {
     };
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == MethodNames.exportRecordingGIF) {
-        state = {...state, 'phase': 'converting', 'progress': 0.5};
+        state = {
+          ...state,
+          'phase': 'converting',
+          'exporting': 'gif',
+          'progress': 0.5,
+        };
       }
-      if (call.method == MethodNames.cancelGIFExport) {
-        state = {...state, 'phase': 'videoReady', 'error': 'GIF转换已取消，源视频保持不变。'};
+      if (call.method == MethodNames.cancelRecordingExport) {
+        state = {...state, 'phase': 'videoReady', 'error': '转换已取消，源视频保持不变。'};
       }
       if (call.method == MethodNames.saveRecording) {
         state = {
@@ -313,6 +333,74 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(bubble, findsNothing);
     expect(find.byTooltip('播放视频').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('裁剪期间全部操作等待；APNG 转换只把 APNG 位置换成取消，完成后提示已保存 APNG', (tester) async {
+    // 边界：裁剪调用在用户点系统「裁剪」或「取消」前不返回，期间六个操作都不可用（#110）；
+    // exporting 为 apng 时只有第五个位置变为取消，其余导出禁用，关闭仍可用；新 apngPath 才显示保存反馈。
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    state = {
+      'id': 'trim-video',
+      'phase': 'videoReady',
+      'previewScale': 1.0,
+      'duration': 2.0,
+      'width': 640,
+      'height': 480,
+    };
+    final trimming = Completer<void>();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.trimRecording) await trimming.future;
+      if (call.method == MethodNames.exportRecordingAPNG) {
+        state = {
+          ...state,
+          'phase': 'converting',
+          'exporting': 'apng',
+          'progress': 0.25,
+        };
+      }
+      return state;
+    });
+    await tester.pumpWidget(const CaptureApp(channel: channel));
+    await tester.pumpAndSettle();
+
+    /// 无参数；返回自上而下每个操作的提示文字及是否可点。
+    List<(String, bool)> actions() => [
+      for (final button in tester.widgetList<IconButton>(
+        find.byType(IconButton),
+      ))
+        (button.tooltip!, button.onPressed != null),
+    ];
+    await tester.tap(find.byTooltip('裁剪'));
+    await tester.pump();
+    expect(actions().every((action) => !action.$2), isTrue);
+    trimming.complete();
+    await tester.pumpAndSettle();
+    expect(actions().every((action) => action.$2), isTrue);
+
+    await tester.tap(find.byTooltip('导出 APNG'));
+    await tester.pumpAndSettle();
+    expect(find.text('正在转换 25%'), findsOneWidget);
+    expect(actions(), [
+      ('播放视频', false),
+      ('裁剪', false),
+      ('保存 MP4', false),
+      ('导出 GIF', false),
+      ('取消转换', true),
+      ('关闭当前采集', true),
+    ]);
+    await notify(tester, {
+      ...state,
+      'phase': 'videoReady',
+      'exporting': null,
+      'apngPath': '/截图/apng/2026-10-21/录屏-20261021-120000.png',
+    });
+    expect(find.text('已保存 APNG'), findsOneWidget);
+    expect(actions().every((action) => action.$2), isTrue);
+    await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
   });
 

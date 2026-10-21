@@ -18,10 +18,18 @@ abstract final class MethodNames {
   static const cancelCapture = 'cancelCapture';
   static const saveRecording = 'saveRecording';
 
-  /// 播放当前完整视频。
+  /// 从裁剪起点播放到终点；未裁剪时播放完整视频。
   static const previewRecording = 'previewRecording';
   static const exportRecordingGIF = 'exportRecordingGIF';
-  static const cancelGIFExport = 'cancelGIFExport';
+
+  /// 按 GIF 设置导出 APNG（#110）。
+  static const exportRecordingAPNG = 'exportRecordingAPNG';
+
+  /// 结果页播放器进入系统裁剪模式；用户点「裁剪」或「取消」后返回（#110）。
+  static const trimRecording = 'trimRecording';
+
+  /// 取消正在进行的 MP4/GIF/APNG 转换。
+  static const cancelRecordingExport = 'cancelRecordingExport';
 
   /// 历史写入完成及窗口重开时通知历史引擎刷新。
   static const historyChanged = 'historyChanged';

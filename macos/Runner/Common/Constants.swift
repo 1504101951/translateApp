@@ -9,6 +9,14 @@ enum CapturePhase: String {
     case idle, preparing, recording, pausing, paused, finalizing, videoReady, scrolling, imageReady, converting, failed
 }
 
+/// 录制结果的导出类型；rawValue 是 converting 阶段 exporting 详情值与保存分类，与Dart RecordingExport.name逐项对应（#110）。
+enum RecordingExport: String {
+    case mp4, gif, apng
+
+    /// 无参数；返回保存文件的扩展名，APNG 的标准扩展名为 png。
+    var fileExtension: String { self == .apng ? "png" : rawValue }
+}
+
 /// 原生侧通道名、方法名与偏好键；与 Dart `ChannelNames` / `MethodNames` 对齐。
 enum AppConstants {
     /// 连续采集独立通道与多引擎入口，和Dart常量一致。
@@ -42,9 +50,9 @@ enum AppConstants {
     static let scrollPreviewMaxImageHeight: CGFloat = 240
     static let scrollPreviewImageRadius: CGFloat = 4
     static let scrollPreviewTargetLine: CGFloat = 2
-    /// 右侧四个32pt按钮、12pt间距和8pt内边距；与Dart工具栏尺寸一致。
+    /// 右侧六个32pt按钮、12pt间距和8pt内边距（6×32+5×12+16）；与Dart工具栏尺寸一致。
     static let captureResultToolbarWidth: CGFloat = 48
-    static let captureResultToolbarHeight: CGFloat = 180
+    static let captureResultToolbarHeight: CGFloat = 268
     /// 录制结果使用系统窗口控制；标题栏尺寸由AppKit按此样式实际计算。
     static let captureResultWindowStyle: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
     static let getCaptureStateMethod = "getCaptureState"
@@ -59,7 +67,12 @@ enum AppConstants {
     static let saveRecordingMethod = "saveRecording"
     static let previewRecordingMethod = "previewRecording"
     static let exportRecordingGIFMethod = "exportRecordingGIF"
-    static let cancelGIFExportMethod = "cancelGIFExport"
+    /// exportRecordingAPNG 协议值；按 GIF 设置导出 APNG（#110），与Dart常量同步。
+    static let exportRecordingAPNGMethod = "exportRecordingAPNG"
+    /// trimRecording 协议值；结果页播放器进入系统裁剪模式，确认后记录区间（#110），与Dart常量同步。
+    static let trimRecordingMethod = "trimRecording"
+    /// cancelRecordingExport 协议值；取消正在进行的 MP4/GIF/APNG 转换，与Dart常量同步。
+    static let cancelRecordingExportMethod = "cancelRecordingExport"
     static let captureFailedError = "capture_failed"
     static let saveDrawingPreferencesMethod = "saveDrawingPreferences"
     static let screenshotDrawingKey = "screenshotDrawing"
@@ -102,6 +115,8 @@ enum AppConstants {
     static let liveRecordingKey = "liveRecording"
     /// screenshotIncludesCursor 协议值；区域截图冻结帧是否包含鼠标指针，Dart 设置写入、冻结时读取（#105）。与Dart常量同步。
     static let screenshotIncludesCursorKey = "screenshotIncludesCursor"
+    /// recordingShowsClicks 协议值；区域与显示器录制是否由系统绘制鼠标点击高亮，Dart 设置写入、开始录制时读取（#110）。与Dart常量同步。
+    static let recordingShowsClicksKey = "recordingShowsClicks"
     /// 上次导出的截图选区（显示器 ID、显示器像素尺寸与选区像素矩形），只由原生读写（#105）。
     static let lastScreenshotRegionKey = "lastScreenshotRegion"
     /// 菜单栏「延时截图」子菜单的可选秒数（#105）。

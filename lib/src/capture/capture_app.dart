@@ -78,6 +78,9 @@ class _CaptureAppState extends State<CaptureApp> {
     } else if (state['gifPath'] != null &&
         state['gifPath'] != previous['gifPath']) {
       _showFeedback('已保存 GIF');
+    } else if (state['apngPath'] != null &&
+        state['apngPath'] != previous['apngPath']) {
+      _showFeedback('已保存 APNG');
     } else if (state['savedPath'] != null &&
         state['savedPath'] != previous['savedPath']) {
       final path = state['savedPath'] as String;
@@ -254,7 +257,32 @@ class _CaptureAppState extends State<CaptureApp> {
     final logical = pixels / (_state['previewScale'] as num).toDouble();
     final converting = _phase == CapturePhase.converting;
     final enabled = !_pending && !converting;
-    // 四个操作保持固定位置；转换时GIF按钮直接提供取消，不展开参数表单。
+    // 转换中的导出类型；只有该类型的按钮变为取消，其余导出按钮禁用。
+    final exporting = converting
+        ? RecordingExport.parse(_state['exporting'] as String)
+        : null;
+    // 三种导出共用同一位置规则：类型、文字、图标与发起方法。
+    const exports = [
+      (
+        RecordingExport.mp4,
+        '保存 MP4',
+        Icons.save_outlined,
+        MethodNames.saveRecording,
+      ),
+      (
+        RecordingExport.gif,
+        '导出 GIF',
+        Icons.gif_box_outlined,
+        MethodNames.exportRecordingGIF,
+      ),
+      (
+        RecordingExport.apng,
+        '导出 APNG',
+        Icons.animation,
+        MethodNames.exportRecordingAPNG,
+      ),
+    ];
+    // 六个操作保持固定位置；转换时对应导出按钮直接提供取消，不展开参数表单。
     final actions = <(String, IconData, VoidCallback?)>[
       (
         '播放视频',
@@ -262,21 +290,20 @@ class _CaptureAppState extends State<CaptureApp> {
         enabled ? () => _invoke(MethodNames.previewRecording) : null,
       ),
       (
-        '保存 MP4',
-        Icons.save_outlined,
-        enabled ? () => _invoke(MethodNames.saveRecording) : null,
+        '裁剪',
+        Icons.content_cut,
+        enabled ? () => _invoke(MethodNames.trimRecording) : null,
       ),
-      (
-        converting ? '取消转换' : '导出 GIF',
-        converting ? Icons.cancel_outlined : Icons.gif_box_outlined,
-        _pending
-            ? null
-            : () => _invoke(
-                converting
-                    ? MethodNames.cancelGIFExport
-                    : MethodNames.exportRecordingGIF,
-              ),
-      ),
+      for (final (kind, label, icon, method) in exports)
+        kind == exporting
+            ? (
+                '取消转换',
+                Icons.cancel_outlined,
+                _pending
+                    ? null
+                    : () => _invoke(MethodNames.cancelRecordingExport),
+              )
+            : (label, icon, enabled ? () => _invoke(method) : null),
       ('关闭当前采集', Icons.close, _pending ? null : _discard),
     ];
     return LayoutBuilder(

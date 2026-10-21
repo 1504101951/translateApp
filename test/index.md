@@ -30,7 +30,7 @@ Dart业务逻辑和Flutter界面行为回归测试。
 26. [unofficial_google_provider_test.dart](unofficial_google_provider_test.dart)：验证零配置Google翻译的解析与失败处理。
 
 27. [drawing_style_test.dart](drawing_style_test.dart)：验证马赛克像素、样式隔离、撤销及调色盘与粗细的提交边界。
-28. [capture_app_test.dart](capture_app_test.dart)：验证录制目标与应用图标动态行、安全区域布局和选择状态、长截图直启选区、四气泡暂停恢复与立即放弃、长图等比预览和原尺寸导出、视频内容区工具布局、直接GIF导出及工具栏外的一秒响应。
+28. [capture_app_test.dart](capture_app_test.dart)：验证录制目标与应用图标动态行、安全区域布局和选择状态、长截图直启选区、四气泡暂停恢复与立即放弃、长图等比预览和原尺寸导出、视频内容区六个操作的布局、裁剪等待、GIF/APNG导出与按类型取消转换及工具栏外的一秒响应。
 29. [settings_controller_test.dart](settings_controller_test.dart)：验证配置快照隔离、设置提交顺序、真实文件存储失败恢复、过期修订拒绝和Apple系统翻译测试连接的语言包提示。
 30. [live_region_session_test.dart](live_region_session_test.dart)：验证实时翻译的段落块缓存、批次调度、三类失败、暂停恢复和迟到事件。
 31. [live_block_cache_test.dart](live_block_cache_test.dart)：验证段落块缓存的预算淘汰、最近使用顺序和失败记录。
