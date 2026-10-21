@@ -77,8 +77,10 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     private var capturedAt: Int64 = 0
     private var pixels = NSSize.zero
     private var displayFrame = NSRect(x: 0, y: 0, width: 1280, height: 800)
-    /// 前台窗口在冻结帧上的像素裁剪；没有前台窗口则为 nil。
-    private var windowCrop: NSRect?
+    /// 冻结帧上的初始选区像素矩形：前台窗口建议、整屏或上次区域；没有时为 nil。
+    private var initialCrop: NSRect?
+    /// 初始选区是否直接处于选中状态（整屏与上次区域可直接调整控制点）；前台窗口建议为 false。
+    private var initialCropSelected = false
     private var message: String?
     /// 冻结帧垫在 Flutter 下面，避免首帧透明闪一下。
     private let freezeView = NSImageView()
@@ -119,8 +121,11 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// displayID指定显示器，空值使用指针所在屏；创建冻结编辑会话，无返回值。
-    func capture(displayID: CGDirectDisplayID? = nil) {
+    /// target 为冻结目标与初始选区（默认指针所在屏）；创建冻结编辑会话，无返回值。
+    func capture(_ target: ScreenshotTarget = .pointerDisplay) {
+        // 任何截图请求都结束未到时的延时截图，避免倒计时结束后重复截图（#105）。
+        // 截图入口都在主线程调用（菜单、热键与通道回调），不在主线程时直接中止。
+        MainActor.assumeIsolated { StatusBarController.shared.cancelDelayedCapture() }
         guard !capturing, window?.attachedSheet == nil else { return }
         displaysFrozenScreen = true
         capturing = true
@@ -144,16 +149,28 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             guard granted else {
                 self.png = nil
                 self.captureId = nil
-                self.windowCrop = nil
+                self.initialCrop = nil
                 self.message = "截图需要屏幕录制权限。请在设置中允许 TranslateApp。"
                 ScreenCaptureService.openScreenRecordingSettings()
                 self.show(compact: true)
                 return
             }
             do {
-                let frame = try await ScreenCaptureService.captureActiveDisplay(displayID: displayID)
+                // 上次区域所在显示器已断开时提示失效，不改截其他屏幕。
+                if case .lastRegion(let region) = target, !NSScreen.screens.contains(where: {
+                    ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == region.displayID
+                }) {
+                    throw ScreenshotRegion.Invalid()
+                }
+                // 「截图包含鼠标指针」由设置页写入偏好字典，默认不含指针。
+                let showsCursor = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)?[
+                    AppConstants.screenshotIncludesCursorKey
+                ] as? Bool == true
+                let frame = try await ScreenCaptureService.captureActiveDisplay(displayID: target.displayID, showsCursor: showsCursor)
                 // 系统截图可能不响应任务取消；写入画面与创建窗口前再次验证。
                 try Task.checkCancellation()
+                // selection 按目标给出初始选区；上次区域的显示器像素尺寸变化时抛出失效。
+                let selection = try target.selection(in: frame)
                 self.selectedDisplayID = frame.displayID
                 self.selectedScale = frame.scale
                 self.png = frame.png
@@ -161,7 +178,8 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 self.capturedAt = Int64(Date().timeIntervalSince1970 * 1000)
                 self.pixels = NSSize(width: frame.pixelWidth, height: frame.pixelHeight)
                 self.displayFrame = frame.displayFrame
-                self.windowCrop = frame.windowCrop
+                self.initialCrop = selection.crop
+                self.initialCropSelected = selection.selected
                 self.message = nil
                 self.show(compact: false)
             } catch is CancellationError {
@@ -170,7 +188,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 guard !Task.isCancelled else { return }
                 self.png = nil
                 self.captureId = nil
-                self.windowCrop = nil
+                self.initialCrop = nil
                 self.message = error.localizedDescription
                 self.show(compact: true)
             }
@@ -238,11 +256,12 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             value["id"] = captureId
             value["bytes"] = FlutterStandardTypedData(bytes: png)
         }
-        if let windowCrop {
-            value["cropX"] = windowCrop.origin.x
-            value["cropY"] = windowCrop.origin.y
-            value["cropWidth"] = windowCrop.width
-            value["cropHeight"] = windowCrop.height
+        if let initialCrop {
+            value["cropX"] = initialCrop.origin.x
+            value["cropY"] = initialCrop.origin.y
+            value["cropWidth"] = initialCrop.width
+            value["cropHeight"] = initialCrop.height
+            value["cropSelected"] = initialCropSelected
         }
         if let message { value["error"] = message }
         // 新会话携带当前工具偏好；已打开会话使用独立配置通知，不能重置草稿。
@@ -425,6 +444,21 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+            result(nil)
+        case AppConstants.rememberScreenshotRegionMethod:
+            guard let id = args["id"] as? String, id == captureId else {
+                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
+            }
+            guard let x = (args["x"] as? NSNumber)?.doubleValue, let y = (args["y"] as? NSNumber)?.doubleValue,
+                  let width = (args["width"] as? NSNumber)?.doubleValue,
+                  let height = (args["height"] as? NSNumber)?.doubleValue else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "缺少选区坐标。", details: nil)); return
+            }
+            // 连同冻结显示器与其像素尺寸记住，「截取上次区域」据此校验后复用（#105）。
+            ScreenshotRegion(
+                displayID: selectedDisplayID, displayPixels: pixels,
+                crop: NSRect(x: x, y: y, width: width, height: height)
+            ).save()
             result(nil)
         case AppConstants.recordScreenshotHistoryMethod:
             guard let id = args["id"] as? String, id == captureId else {
@@ -847,8 +881,86 @@ extension ScreenshotWindowController {
         png = nil
         captureId = nil
         message = nil
-        windowCrop = nil
+        initialCrop = nil
         freezeView.image = nil
         channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
+    }
+}
+
+/// 冻结画面的目标：指针所在屏（前台窗口为建议选区）、指定显示器（选中整屏）或上次导出的区域（#105）。
+enum ScreenshotTarget {
+    case pointerDisplay
+    case display(CGDirectDisplayID)
+    case lastRegion(ScreenshotRegion)
+
+    /// 无参数；返回要冻结的显示器，指针所在屏为 nil。
+    var displayID: CGDirectDisplayID? {
+        switch self {
+        case .pointerDisplay: nil
+        case .display(let id): id
+        case .lastRegion(let region): region.displayID
+        }
+    }
+
+    /// frame 为本次冻结帧；返回初始选区像素矩形与是否直接选中。上次区域的显示器像素尺寸变化时抛 `ScreenshotRegion.Invalid`。
+    func selection(in frame: ScreenCaptureService.FreezeFrame) throws -> (crop: NSRect?, selected: Bool) {
+        switch self {
+        case .pointerDisplay:
+            return (frame.windowCrop, false)
+        case .display:
+            return (NSRect(x: 0, y: 0, width: frame.pixelWidth, height: frame.pixelHeight), true)
+        case .lastRegion(let region):
+            return (try region.crop(matching: NSSize(width: frame.pixelWidth, height: frame.pixelHeight)), true)
+        }
+    }
+}
+
+/// 上次导出的截图选区：显示器 ID、该显示器冻结帧像素尺寸与选区像素矩形（左上角原点），保存在 UserDefaults（#105）。
+struct ScreenshotRegion: Equatable {
+    let displayID: CGDirectDisplayID
+    let displayPixels: NSSize
+    let crop: NSRect
+
+    /// 显示器断开或像素尺寸变化时的失效提示。
+    struct Invalid: LocalizedError {
+        var errorDescription: String? { "上次区域已失效：显示器已断开或分辨率已变化。" }
+    }
+
+    /// 无参数；返回 UserDefaults 中的上次区域，从未导出过时为 nil。
+    static var saved: ScreenshotRegion? {
+        UserDefaults.standard.dictionary(forKey: AppConstants.lastScreenshotRegionKey).flatMap(ScreenshotRegion.init(dictionary:))
+    }
+
+    /// displayID 为显示器，displayPixels 为该显示器冻结帧像素尺寸，crop 为选区像素矩形；创建选区记录。
+    init(displayID: CGDirectDisplayID, displayPixels: NSSize, crop: NSRect) {
+        self.displayID = displayID
+        self.displayPixels = displayPixels
+        self.crop = crop
+    }
+
+    /// dictionary 为 `save()` 写入的字典；任一字段缺失时返回 nil。
+    init?(dictionary: [String: Any]) {
+        let number = { (key: String) in (dictionary[key] as? NSNumber)?.doubleValue }
+        guard let id = (dictionary["displayID"] as? NSNumber)?.uint32Value,
+              let displayWidth = number("displayWidth"), let displayHeight = number("displayHeight"),
+              let x = number("x"), let y = number("y"), let width = number("width"), let height = number("height")
+        else { return nil }
+        self.init(displayID: id, displayPixels: NSSize(width: displayWidth, height: displayHeight),
+                  crop: NSRect(x: x, y: y, width: width, height: height))
+    }
+
+    /// 无参数；写入 UserDefaults 并覆盖上一次记录，无返回值。
+    func save() {
+        UserDefaults.standard.set([
+            "displayID": displayID,
+            "displayWidth": displayPixels.width, "displayHeight": displayPixels.height,
+            "x": crop.minX, "y": crop.minY, "width": crop.width, "height": crop.height,
+        ], forKey: AppConstants.lastScreenshotRegionKey)
+    }
+
+    /// pixels 为该显示器本次冻结帧的像素尺寸；尺寸一致时返回原选区，否则抛 `Invalid`。
+    func crop(matching pixels: NSSize) throws -> NSRect {
+        guard pixels == displayPixels else { throw Invalid() }
+        return crop
     }
 }

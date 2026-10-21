@@ -849,6 +849,13 @@ class _SettingsPageState extends State<_SettingsPage>
                         onChanged: (v) =>
                             _edit(() => settings.liveRecording = v),
                       ),
+                      // 只作用于区域截图的冻结帧（#105）。
+                      NativeGlassSwitchTile(
+                        title: '截图包含鼠标指针',
+                        value: settings.screenshotIncludesCursor,
+                        onChanged: (v) =>
+                            _edit(() => settings.screenshotIncludesCursor = v),
+                      ),
                     ],
                   ),
                   NativeGlassGroup(

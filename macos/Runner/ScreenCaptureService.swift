@@ -72,8 +72,9 @@ enum ScreenCaptureService {
         }
     }
 
-    /// displayID明确目标屏，空值使用指针所在屏；返回冻结帧，目标消失时抛错，不切换到其他屏幕。
-    static func captureActiveDisplay(displayID: CGDirectDisplayID? = nil) async throws -> FreezeFrame {
+    /// displayID明确目标屏，空值使用指针所在屏；showsCursor 为冻结帧是否包含鼠标指针。
+    /// 返回冻结帧，目标消失时抛错，不切换到其他屏幕。
+    static func captureActiveDisplay(displayID: CGDirectDisplayID?, showsCursor: Bool) async throws -> FreezeFrame {
         let mouse = NSEvent.mouseLocation
         let screen = displayID == nil
             ? (NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main)
@@ -94,7 +95,7 @@ enum ScreenCaptureService {
                 userInfo: [NSLocalizedDescriptionKey: "无法读取显示器内容，请检查屏幕录制权限。"]
             )
         }
-        let (image, scale) = try await captureDisplayImage(displayID: screenNumber)
+        let (image, scale) = try await captureDisplayImage(displayID: screenNumber, showsCursor: showsCursor)
         let png = try pngData(from: image, scale: scale)
         return FreezeFrame(
             displayID: screenNumber,
@@ -111,8 +112,9 @@ enum ScreenCaptureService {
         )
     }
 
-    /// displayID 为目标显示器。返回该显示器物理像素的图像与点到像素比例；显示器不在可捕获列表时抛错。
-    static func captureDisplayImage(displayID: CGDirectDisplayID) async throws -> (image: CGImage, scale: CGFloat) {
+    /// displayID 为目标显示器，showsCursor 为是否绘制鼠标指针（区域截图按设置，MCP 不绘制）。
+    /// 返回该显示器物理像素的图像与点到像素比例；显示器不在可捕获列表时抛错。
+    static func captureDisplayImage(displayID: CGDirectDisplayID, showsCursor: Bool) async throws -> (image: CGImage, scale: CGFloat) {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw NSError(
@@ -126,7 +128,8 @@ enum ScreenCaptureService {
         let scale = CGFloat(filter.pointPixelScale)
         let configuration = imageConfiguration(
             width: max(display.width, Int((filter.contentRect.width * scale).rounded())),
-            height: max(display.height, Int((filter.contentRect.height * scale).rounded()))
+            height: max(display.height, Int((filter.contentRect.height * scale).rounded())),
+            showsCursor: showsCursor
         )
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
         return (image, scale)
@@ -148,17 +151,18 @@ enum ScreenCaptureService {
         let scale = CGFloat(filter.pointPixelScale)
         let configuration = imageConfiguration(
             width: max(1, Int((filter.contentRect.width * scale).rounded())),
-            height: max(1, Int((filter.contentRect.height * scale).rounded()))
+            height: max(1, Int((filter.contentRect.height * scale).rounded())),
+            showsCursor: false
         )
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
     }
 
-    /// width、height 为输出物理像素。返回不含光标与音频、按 sRGB 原尺寸输出的静态截图配置。
-    private static func imageConfiguration(width: Int, height: Int) -> SCStreamConfiguration {
+    /// width、height 为输出物理像素，showsCursor 为是否绘制鼠标指针。返回不含音频、按 sRGB 原尺寸输出的静态截图配置。
+    private static func imageConfiguration(width: Int, height: Int, showsCursor: Bool) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         configuration.width = width
         configuration.height = height
-        configuration.showsCursor = false
+        configuration.showsCursor = showsCursor
         configuration.capturesAudio = false
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.colorSpaceName = CGColorSpace.sRGB

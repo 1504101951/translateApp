@@ -100,6 +100,12 @@ enum AppConstants {
     static let gifFramesPerSecondKey = "gifFramesPerSecond"
     /// liveRecording 协议值；实时翻译开始时读取，决定是否同步录制。与Dart常量同步。
     static let liveRecordingKey = "liveRecording"
+    /// screenshotIncludesCursor 协议值；区域截图冻结帧是否包含鼠标指针，Dart 设置写入、冻结时读取（#105）。与Dart常量同步。
+    static let screenshotIncludesCursorKey = "screenshotIncludesCursor"
+    /// 上次导出的截图选区（显示器 ID、显示器像素尺寸与选区像素矩形），只由原生读写（#105）。
+    static let lastScreenshotRegionKey = "lastScreenshotRegion"
+    /// 菜单栏「延时截图」子菜单的可选秒数（#105）。
+    static let screenshotDelays = [3, 5, 10]
     static let gifMaximumWidthKey = "gifMaximumWidth"
     /// escapeKeyCode 的平台约定；调用方共享同一协议或硬件定义。
     static let escapeKeyCode: UInt16 = 53
@@ -275,6 +281,8 @@ enum AppConstants {
     static let staleCaptureError = "stale_capture"
     /// systemStatus 协议值；与Dart常量及持久化调用方同步。
     static let systemStatusMethod = "systemStatus"
+    /// rememberScreenshotRegion 协议值；截图导出成功后 Dart 发送选区像素矩形，供「截取上次区域」复用（#105）。与Dart常量同步。
+    static let rememberScreenshotRegionMethod = "rememberScreenshotRegion"
     /// recordScreenshotHistory 协议值；截图导出成功后转发主引擎记录，与Dart常量同步。
     static let recordScreenshotHistoryMethod = "recordScreenshotHistory"
     /// screenshotHistoryList 协议值；历史窗口读取截图历史，转发主引擎，与Dart常量同步。

@@ -195,6 +195,9 @@ abstract final class MethodNames {
   /// systemStatus 的稳定协议值，变更须同步两端及持久化调用方。
   static const systemStatus = 'systemStatus';
 
+  /// 截图窗口在导出成功后记住选区，供「截取上次区域」复用；参数 id 与选区像素 x、y、width、height（#105）。
+  static const rememberScreenshotRegion = 'rememberScreenshotRegion';
+
   /// 截图窗口在导出成功后请求主引擎记录截图历史；参数 id、bytes、capturedAt（#29）。
   static const recordScreenshotHistory = 'recordScreenshotHistory';
 

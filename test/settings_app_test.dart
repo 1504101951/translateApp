@@ -493,4 +493,50 @@ void main() {
     expect(find.text('管理术语（1）'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('截图页「截图包含鼠标指针」默认关闭，打开后自动保存到偏好', (tester) async {
+    // 边界：偏好缺省为关闭；开关只在按钮上响应，打开后偏好值为 true（#105）。
+    const channel = MethodChannel(ChannelNames.settings);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var state = <String, Object?>{'revision': 0};
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.systemStatus) {
+        return {'accessibility': true};
+      }
+      if (call.method == MethodNames.getSettings) {
+        return {...state, MethodNames.credentialIds: <String>[]};
+      }
+      if (call.method == MethodNames.saveSettings) {
+        final draft = Map<String, Object?>.from(call.arguments as Map)
+          ..remove('credentials');
+        state = {...draft, 'revision': (state['revision'] as int) + 1};
+        return {...state, MethodNames.credentialIds: <String>[]};
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('截图'));
+    await tester.pumpAndSettle();
+    final tile = find.byWidgetPredicate(
+      (w) => w is NativeGlassSwitchTile && w.title == '截图包含鼠标指针',
+    );
+    await tester.scrollUntilVisible(
+      tile,
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(tester.widget<NativeGlassSwitchTile>(tile).value, isFalse);
+    await tester.tap(
+      find.descendant(of: tile, matching: find.byType(NativeGlassSwitch)),
+    );
+    await tester.pumpAndSettle();
+    expect(state[PreferenceKeys.screenshotIncludesCursor], isTrue);
+  });
 }

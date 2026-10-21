@@ -24,6 +24,7 @@ class AppSettings {
     this.screenshotSaveDirectory = '',
     this.gifFramesPerSecond = 10,
     this.liveRecording = false,
+    this.screenshotIncludesCursor = false,
     this.mcpEnabled = false,
     this.gifMaximumWidth,
     this.glassAppearance = AppearanceModes.system,
@@ -67,6 +68,9 @@ class AppSettings {
 
   /// 实时翻译时是否同步录制；对区域、窗口和全屏目标都生效。
   bool liveRecording;
+
+  /// 区域截图的冻结帧是否包含鼠标指针；默认不含，不影响 MCP 截图与录屏（#105）。
+  bool screenshotIncludesCursor;
 
   /// 是否允许本机 MCP 客户端截图；默认关闭，关闭时 App 对所有 MCP 工具返回「MCP 未开启」。
   bool mcpEnabled;
@@ -146,6 +150,8 @@ class AppSettings {
           map[PreferenceKeys.screenshotSaveDirectory] as String? ?? '',
       gifFramesPerSecond: map[PreferenceKeys.gifFramesPerSecond] as int? ?? 10,
       liveRecording: map[PreferenceKeys.liveRecording] as bool? ?? false,
+      screenshotIncludesCursor:
+          map[PreferenceKeys.screenshotIncludesCursor] as bool? ?? false,
       mcpEnabled: map[PreferenceKeys.mcpEnabled] as bool? ?? false,
       gifMaximumWidth: map[PreferenceKeys.gifMaximumWidth] as int?,
       glassAppearance:
@@ -251,6 +257,7 @@ class AppSettings {
     PreferenceKeys.screenshotSaveDirectory: screenshotSaveDirectory,
     PreferenceKeys.gifFramesPerSecond: gifFramesPerSecond,
     PreferenceKeys.liveRecording: liveRecording,
+    PreferenceKeys.screenshotIncludesCursor: screenshotIncludesCursor,
     PreferenceKeys.mcpEnabled: mcpEnabled,
     PreferenceKeys.gifMaximumWidth: ?gifMaximumWidth,
     PreferenceKeys.glassAppearance: glassAppearance,

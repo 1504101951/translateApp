@@ -18,6 +18,9 @@ abstract final class PreferenceKeys {
   /// excludedApps 的稳定协议值，变更须同步两端及持久化调用方。
   static const excludedApps = 'excludedApps';
 
+  /// 区域截图冻结帧是否包含鼠标指针；Swift 冻结画面时读取（#105）。
+  static const screenshotIncludesCursor = 'screenshotIncludesCursor';
+
   /// 术语表；值为 {term, translation, language} 字典列表，仅 Dart 读取（#104）。
   static const glossary = 'glossary';
 

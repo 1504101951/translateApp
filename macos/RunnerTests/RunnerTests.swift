@@ -525,6 +525,71 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(NSPasteboard.general.changeCount, changeCount)
     }
 
+    /// 无参数；导出后记住的上次区域只接受当前截图，往返 UserDefaults 后像素矩形不变，像素尺寸变化即失效；测试后恢复偏好，无返回值（#105）。
+    @MainActor
+    func testLastScreenshotRegionRemembersCurrentCaptureAndRejectsResizedDisplay() throws {
+        let previous = UserDefaults.standard.object(forKey: AppConstants.lastScreenshotRegionKey)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: AppConstants.lastScreenshotRegionKey) }
+            else { UserDefaults.standard.removeObject(forKey: AppConstants.lastScreenshotRegionKey) }
+        }
+        UserDefaults.standard.removeObject(forKey: AppConstants.lastScreenshotRegionKey)
+        let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        defer { controller.shutdown() }
+        controller.seedCaptureForTesting(png: try screenshotFixture(width: 80, height: 60, color: .red), id: "region", width: 80, height: 60)
+        var codes: [String?] = []
+        // 边界：过期截图身份不能覆盖记录；选区含半像素坐标，往返后必须逐值一致。
+        let arguments: [String: Any] = ["x": 10.5, "y": 4, "width": 32, "height": 16]
+        controller.handle(FlutterMethodCall(methodName: AppConstants.rememberScreenshotRegionMethod,
+                                            arguments: arguments.merging(["id": "stale"]) { $1 })) {
+            codes.append(($0 as? FlutterError)?.code)
+        }
+        XCTAssertNil(ScreenshotRegion.saved)
+        controller.handle(FlutterMethodCall(methodName: AppConstants.rememberScreenshotRegionMethod,
+                                            arguments: arguments.merging(["id": "region"]) { $1 })) {
+            codes.append(($0 as? FlutterError)?.code)
+        }
+        XCTAssertEqual(codes, [AppConstants.staleCaptureError, nil])
+        let saved = try XCTUnwrap(ScreenshotRegion.saved)
+        XCTAssertEqual(saved.displayPixels, NSSize(width: 80, height: 60))
+        XCTAssertEqual(try saved.crop(matching: NSSize(width: 80, height: 60)), NSRect(x: 10.5, y: 4, width: 32, height: 16))
+        // 边界：同一显示器换分辨率后像素尺寸差 1 也视为失效，提示原文与规格一致。
+        XCTAssertThrowsError(try saved.crop(matching: NSSize(width: 80, height: 59))) { error in
+            XCTAssertEqual(error.localizedDescription, "上次区域已失效：显示器已断开或分辨率已变化。")
+        }
+        XCTAssertNil(ScreenshotRegion(dictionary: ["displayID": 1, "x": 0]))
+    }
+
+    /// 无参数；三种冻结目标给出的初始选区：指针屏为前台窗口建议且不选中，指定显示器为整屏并选中，无返回值（#105）。
+    func testScreenshotTargetInitialSelection() throws {
+        let frame = ScreenCaptureService.FreezeFrame(
+            displayID: 7, scale: 2, png: Data(), pixelWidth: 200, pixelHeight: 100,
+            displayFrame: NSRect(x: 0, y: 0, width: 100, height: 50),
+            windowCrop: NSRect(x: 20, y: 10, width: 40, height: 30)
+        )
+        let pointer = try ScreenshotTarget.pointerDisplay.selection(in: frame)
+        XCTAssertEqual(pointer.crop, NSRect(x: 20, y: 10, width: 40, height: 30))
+        XCTAssertFalse(pointer.selected)
+        let display = try ScreenshotTarget.display(7).selection(in: frame)
+        XCTAssertEqual(display.crop, NSRect(x: 0, y: 0, width: 200, height: 100))
+        XCTAssertTrue(display.selected)
+        XCTAssertEqual(ScreenshotTarget.display(7).displayID, 7)
+        XCTAssertNil(ScreenshotTarget.pointerDisplay.displayID)
+    }
+
+    /// 无参数；延时截图开始后处于倒计时，取消后结束倒计时且不再截图，无返回值（#105）。
+    @MainActor
+    func testDelayedCaptureCancelStopsCountdown() async throws {
+        let status = StatusBarController.shared
+        status.startDelayedCapture(seconds: 1)
+        XCTAssertTrue(status.isDelayingCapture)
+        status.cancelDelayedCapture()
+        XCTAssertFalse(status.isDelayingCapture)
+        // 边界：超过倒计时时长后仍无截图任务被重新挂起。
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertFalse(status.isDelayingCapture)
+    }
+
     /// 无参数；朗读声音按语言的默认地区补全，系统没有该地区声音时退回语言本身，无返回值。
     func testSpeechVoiceUsesDefaultRegion() {
         // 边界：只给语言码（en）应补全为美式发音；带地区的繁体中文保持地区；阿拉伯语默认地区无声音时仍能取到声音。

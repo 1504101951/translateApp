@@ -11,6 +11,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var automaticItem: NSMenuItem?
     private var accessItem: NSMenuItem?
     private var stopCaptureItem: NSMenuItem?
+    /// 「取消延时截图」只在倒计时期间显示；「截取上次区域」只在有记录时可用；显示器子菜单在菜单打开时重建（#105）。
+    private var cancelDelayItem: NSMenuItem?
+    private var lastRegionItem: NSMenuItem?
+    private var displayMenu: NSMenu?
+    /// 延时截图的剩余秒数与倒计时任务；没有倒计时时均为 nil。
+    private var countdown: Int?
+    private var delayTask: Task<Void, Never>?
     private var liveAbort = false
     /// 执行中或仍在最短保持时间内的 MCP 截图数；大于 0 时显示采集图标。
     private var mcpCaptures = 0
@@ -51,10 +58,37 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(settings)
 
         menu.addItem(.separator())
-        // 截图编辑工具栏承载媒体工具，菜单栏保留普通截图和采集停止。
+        // 截图编辑工具栏承载媒体工具，菜单栏保留普通截图、捕获选项和采集停止。
+        let cancelDelay = NSMenuItem(title: "取消延时截图", action: #selector(cancelDelay), keyEquivalent: "")
+        cancelDelay.target = self
+        cancelDelay.isHidden = countdown == nil
+        cancelDelayItem = cancelDelay
+        menu.addItem(cancelDelay)
         let screenshot = NSMenuItem(title: "区域截图…", action: #selector(captureScreenshot), keyEquivalent: "")
         screenshot.target = self
         menu.addItem(screenshot)
+        let lastRegion = NSMenuItem(title: "截取上次区域", action: #selector(captureLastRegion), keyEquivalent: "")
+        lastRegion.target = self
+        lastRegion.isEnabled = ScreenshotRegion.saved != nil
+        lastRegionItem = lastRegion
+        menu.addItem(lastRegion)
+        let displays = NSMenuItem(title: "截取显示器", action: nil, keyEquivalent: "")
+        let displayMenu = NSMenu()
+        displayMenu.autoenablesItems = false
+        displays.submenu = displayMenu
+        self.displayMenu = displayMenu
+        menu.addItem(displays)
+        let delay = NSMenuItem(title: "延时截图", action: nil, keyEquivalent: "")
+        let delayMenu = NSMenu()
+        delayMenu.autoenablesItems = false
+        for seconds in AppConstants.screenshotDelays {
+            let item = NSMenuItem(title: "\(seconds) 秒", action: #selector(startDelay(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = seconds
+            delayMenu.addItem(item)
+        }
+        delay.submenu = delayMenu
+        menu.addItem(delay)
         let stop = NSMenuItem(title: "停止采集", action: #selector(stopCapture), keyEquivalent: "")
         stop.target = self
         stop.isEnabled = MacPlatformBridge.Shared.instance?.capture.canStop == true
@@ -134,8 +168,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         statusItem?.button?.image = idleImage()
     }
 
-    /// 无参数；返回非实时翻译状态的模板图标：MCP 截图进行中为采集图标，否则为翻译图标。
+    /// 无参数；返回非实时翻译状态的模板图标：延时截图倒计时为剩余秒数，MCP 截图进行中为采集图标，否则为翻译图标。
     private func idleImage() -> NSImage? {
+        if let countdown {
+            let image = NSImage(systemSymbolName: "\(countdown).circle", accessibilityDescription: "\(countdown) 秒后截图")
+            image?.isTemplate = true
+            return image
+        }
         let image = mcpCaptures > 0
             ? NSImage(systemSymbolName: AppConstants.mcpCaptureSymbol, accessibilityDescription: "agent 截图中")
             : NSImage(systemSymbolName: "translate", accessibilityDescription: "选区翻译")
@@ -154,9 +193,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         automaticItem?.state = enabled ? .off : .on
     }
 
-    /// menu 为即将展示的菜单；即时读取权限状态，无返回值。
+    /// menu 为即将展示的菜单；即时读取权限、倒计时、上次区域与显示器列表，无返回值。
     func menuWillOpen(_ menu: NSMenu) {
         stopCaptureItem?.isEnabled = MacPlatformBridge.Shared.instance?.capture.canStop == true
+        cancelDelayItem?.isHidden = countdown == nil
+        lastRegionItem?.isEnabled = ScreenshotRegion.saved != nil
+        // 显示器可能在两次打开菜单之间接入或断开，按当前系统顺序重建。
+        displayMenu?.removeAllItems()
+        for screen in NSScreen.screens {
+            guard let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            else { continue }
+            let item = NSMenuItem(title: screen.localizedName, action: #selector(captureDisplay(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = Int(id)
+            displayMenu?.addItem(item)
+        }
         let trusted = AccessibilitySelection.isTrusted(prompt: false)
         accessItem?.title = trusted ? "辅助功能已开启" : "授予辅助功能权限…"
         accessItem?.isEnabled = !trusted
@@ -171,6 +222,60 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// 无参数；菜单关闭后进入系统区域框选，不触发翻译，无返回值。
     @objc private func captureScreenshot() {
         DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture() }
+    }
+
+    /// 无参数；冻结上次导出选区所在显示器并选中同一区域，无返回值（#105）。
+    @objc private func captureLastRegion() {
+        // 菜单项只在已有上次区域时可用。
+        let region = ScreenshotRegion.saved!
+        DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture(.lastRegion(region)) }
+    }
+
+    /// sender 的 tag 为显示器 ID；冻结该显示器并选中整屏，无返回值（#105）。
+    @objc private func captureDisplay(_ sender: NSMenuItem) {
+        let id = CGDirectDisplayID(sender.tag)
+        DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture(.display(id)) }
+    }
+
+    /// sender 的 tag 为倒计时秒数；开始延时截图，无返回值（#105）。
+    @objc private func startDelay(_ sender: NSMenuItem) { startDelayedCapture(seconds: sender.tag) }
+
+    /// 无参数；取消延时截图，无返回值（#105）。
+    @objc private func cancelDelay() { cancelDelayedCapture() }
+
+    /// 无参数；返回是否有未结束的延时截图。
+    var isDelayingCapture: Bool { delayTask != nil }
+
+    /// seconds 为倒计时秒数；每秒把菜单栏图标换为剩余秒数，到时恢复图标后截取指针所在显示器，无返回值（#105）。
+    func startDelayedCapture(seconds: Int) {
+        cancelDelayedCapture()
+        delayTask = Task { @MainActor [weak self] in
+            for remaining in stride(from: seconds, to: 0, by: -1) {
+                self?.showCountdown(remaining)
+                try? await Task.sleep(for: .seconds(1))
+                // 取消时由 cancelDelayedCapture 恢复图标。
+                guard !Task.isCancelled else { return }
+            }
+            self?.delayTask = nil
+            self?.showCountdown(nil)
+            // 下一拍再冻结画面，菜单栏先重绘为原图标，倒计时不进入截图。
+            DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture() }
+        }
+    }
+
+    /// 无参数；取消未结束的延时截图并恢复图标，没有倒计时时保持原状，无返回值。
+    func cancelDelayedCapture() {
+        guard let delayTask else { return }
+        delayTask.cancel()
+        self.delayTask = nil
+        showCountdown(nil)
+    }
+
+    /// remaining 为剩余秒数，nil 表示倒计时结束；更新菜单栏图标，实时翻译的中止图标优先，无返回值。
+    private func showCountdown(_ remaining: Int?) {
+        countdown = remaining
+        guard !liveAbort else { return }
+        statusItem?.button?.image = idleImage()
     }
 
     /// active为连续采集状态；更新提示与停止能力，保持图标入口宽度不变。

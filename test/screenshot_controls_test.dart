@@ -205,6 +205,60 @@ void main() {
     await mouse.removePointer();
   });
 
+  testWidgets('整屏与上次区域的初始选区直接选中：控制点可拉伸，内部可拖动', (tester) async {
+    // 边界：与窗口预览相同的初始矩形，cropSelected 为 true 时角点立即是拉伸光标、内部为抓手，
+    // 拖动右下角后新角点仍可拉伸（#105）。
+    tester.view.physicalSize = const Size(960, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final png = await tester.runAsync(_image);
+    const channel = MethodChannel('test/crop-selected');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.getScreenshot) {
+        return {
+          'id': 'selected',
+          'bytes': png,
+          'width': 960,
+          'height': 740,
+          'cropX': 200,
+          'cropY': 180,
+          'cropWidth': 400,
+          'cropHeight': 300,
+          'cropSelected': true,
+        };
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(ScreenshotApp(channel: channel));
+    await tester.pumpAndSettle();
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(20, 20));
+
+    /// position 为窗口坐标；移动鼠标并返回当前光标。
+    Future<MouseCursor?> cursorAt(Offset position) async {
+      await mouse.moveTo(position);
+      await tester.pumpAndSettle();
+      return RendererBinding.instance.mouseTracker.debugDeviceActiveCursor(1);
+    }
+
+    const resize = NativeResizeCursor(
+      NativeResizeCursor.northWestSouthEast,
+      channel: channel,
+    );
+    expect(await cursorAt(const Offset(200, 180)), resize);
+    expect(await cursorAt(const Offset(400, 330)), SystemMouseCursors.grab);
+    await tester.dragFrom(const Offset(600, 480), const Offset(-100, -80));
+    await tester.pumpAndSettle();
+    expect(await cursorAt(const Offset(500, 400)), resize);
+    // 选区外的空白处仍是框选光标（工具栏位于新选区下方，避开其位置）。
+    expect(await cursorAt(const Offset(100, 100)), SystemMouseCursors.precise);
+    await mouse.removePointer();
+  });
+
   testWidgets('光标优先操作文字并可选中移动拉伸截图，空白拖动不重新框选', (tester) async {
     // 使用与视口1:1的图像，实际鼠标坐标应对应导出像素和文本框几何。
     tester.view.physicalSize = const Size(960, 740);

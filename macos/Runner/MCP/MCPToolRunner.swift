@@ -21,12 +21,12 @@ enum MCPToolRunner {
             case .captureScreen(let index, let options):
                 guard let id = displayID(index) else { return displayOutOfRange(index) }
                 return try await capture {
-                    try await MCPImageOutput.reply(ScreenCaptureService.captureDisplayImage(displayID: id).image, options: options)
+                    try await MCPImageOutput.reply(ScreenCaptureService.captureDisplayImage(displayID: id, showsCursor: false).image, options: options)
                 }
             case .captureRect(let index, let x, let y, let width, let height, let reference, let options):
                 guard let id = displayID(index) else { return displayOutOfRange(index) }
                 return try await capture {
-                    let image = try await ScreenCaptureService.captureDisplayImage(displayID: id).image
+                    let image = try await ScreenCaptureService.captureDisplayImage(displayID: id, showsCursor: false).image
                     // sourceRect 把 reference 清晰度下 capture_screen 输出图的坐标换算回原始像素。
                     guard let rect = MCPImageOutput.sourceRect(
                         x: x, y: y, width: width, height: height, detail: reference,
