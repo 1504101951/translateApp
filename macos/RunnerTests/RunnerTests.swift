@@ -1,4 +1,5 @@
 import Cocoa
+import CoreImage
 import FlutterMacOS
 import ServiceManagement
 import Translation
@@ -860,6 +861,54 @@ class RunnerTests: XCTestCase {
         let blankPng = try XCTUnwrap(blankBitmap.representation(using: .png, properties: [:]))
         let empty = try await ScreenCaptureService.recognizeText(png: blankPng)
         XCTAssertTrue(empty.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// name 为 CoreImage 码生成器名，message 为码内容，scale 为放大倍数；返回逐像素放大的码位图。
+    private func generatedCode(_ name: String, message: String, scale: CGFloat) throws -> CGImage {
+        let filter = try XCTUnwrap(CIFilter(name: name))
+        filter.setValue(Data(message.utf8), forKey: "inputMessage")
+        let output = try XCTUnwrap(filter.outputImage).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        return try XCTUnwrap(CIContext().createCGImage(output, from: output.extent))
+    }
+
+    /// 无参数；生成的二维码与 Code128 条码读出原内容并按自上而下排序，并排的相同二维码只保留一个，空白图返回空数组（#108）。
+    @MainActor
+    func testDetectCodesReadsQRAndBarcodeInPositionOrder() async throws {
+        let link = "https://example.com/a?b=1"
+        let qr = try generatedCode("CIQRCodeGenerator", message: link, scale: 6)
+        let bar = try generatedCode("CICode128BarcodeGenerator", message: "TRANSLATE-108", scale: 2)
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: 640, height: 520, bitsPerComponent: 8, bytesPerRow: 0,
+            space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 640, height: 520))
+        context.interpolationQuality = .none
+        // CG 原点在左下：两个二维码在上半部并排，条码在下方。
+        for x in [40, 360] {
+            context.draw(qr, in: CGRect(x: x, y: 260, width: qr.width, height: qr.height))
+        }
+        context.draw(bar, in: CGRect(x: 40, y: 40, width: bar.width, height: bar.height))
+        let image = try XCTUnwrap(context.makeImage())
+        let png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        let codes = try await ScreenCaptureService.detectCodes(png: png)
+        XCTAssertEqual(codes, [
+            ["symbology": "qr", "payload": link],
+            ["symbology": "code128", "payload": "TRANSLATE-108"],
+        ])
+        let blank = try screenshotFixture(width: 64, height: 64, color: .white)
+        let none = try await ScreenCaptureService.detectCodes(png: blank)
+        XCTAssertEqual(none, [])
+    }
+
+    /// 无参数；只有带主机名的 http/https 内容可交给浏览器，协议大小写不敏感，其他协议与无协议文字返回 nil（#108）。
+    func testScreenshotLinkAcceptsOnlyHttpLinksWithHost() {
+        XCTAssertEqual(ScreenshotLink.url(from: "https://example.com/a")?.absoluteString, "https://example.com/a")
+        XCTAssertNotNil(ScreenshotLink.url(from: "HTTP://EXAMPLE.COM"))
+        for raw in ["https://", "example.com", "file:///etc/hosts", "javascript:alert(1)", "tel:10086", ""] {
+            XCTAssertNil(ScreenshotLink.url(from: raw), raw)
+        }
     }
 
     /// 无参数；本进程已有录屏授权时 requestAccess 必须立刻 true，不再走申请框。

@@ -150,6 +150,9 @@ abstract final class MethodNames {
   /// recognizeText 的稳定协议值，变更须同步两端及持久化调用方。
   static const recognizeText = 'recognizeText';
 
+  /// openLink 的稳定协议值；截图识别结果中的链接交给默认浏览器（#108），变更须同步两端。
+  static const openLink = 'openLink';
+
   /// recordShortcut 的稳定协议值，变更须同步两端及持久化调用方。
   static const recordShortcut = 'recordShortcut';
 

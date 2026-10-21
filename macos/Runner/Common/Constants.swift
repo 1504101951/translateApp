@@ -195,6 +195,10 @@ enum AppConstants {
     static let openAccessibilityMethod = "openAccessibility"
     /// openLoginItems 协议值；与Dart常量及持久化调用方同步。
     static let openLoginItemsMethod = "openLoginItems"
+    /// openLink 协议值；截图识别结果中的链接交给默认浏览器（#108），与Dart常量同步。
+    static let openLinkMethod = "openLink"
+    /// 识别结果中允许打开的链接协议；其他协议只可复制（#108），与Dart常量同步。
+    static let openableLinkSchemes: Set<String> = ["http", "https"]
     /// permissionStatusChanged 协议值；与Dart常量及持久化调用方同步。
     static let permissionStatusChangedMethod = "permissionStatusChanged"
     /// permissionWizardMain 协议值；与Dart常量及持久化调用方同步。

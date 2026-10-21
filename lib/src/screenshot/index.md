@@ -12,6 +12,6 @@
 7. [drawing_controls.dart](drawing_controls.dart)：提供带应用和取消语义的独立调色盘与粗细选择控件。
 
 8. [drawing_preferences.dart](drawing_preferences.dart)：定义按工具独立保存的绘图属性及其持久化格式。
-9. [recognized_text_panel.dart](recognized_text_panel.dart)：显示“识别文字”结果的可拖动弹窗，渲染 Markdown 并支持选中复制与复制全部原文。
+9. [recognized_text_panel.dart](recognized_text_panel.dart)：显示“识别文字”结果的可拖动弹窗，列出二维码与条码并可复制或打开 http/https 链接，渲染 Markdown 并支持选中复制与复制全部原文。
 10. [markdown_view.dart](markdown_view.dart)：把识别结果 Markdown 解析为标题、段落、列表与表格并渲染，宽表格横向滚动。
 11. [beautify.dart](beautify.dart)：定义截图美化参数，并提供预览与导出共用的背景、阴影与圆角绘制。

@@ -183,6 +183,31 @@ enum ScreenCaptureService {
         return try await recognizeDocument(image: image).map(\.markdown).joined(separator: "\n\n")
     }
 
+    /// png 为截图像素；返回画面中带文字内容的二维码与条码，结构为 {symbology, payload}（symbology 为 Vision 类型名，如 qr、ean13）。
+    /// 按位置自上而下、自左向右排序，类型与内容都相同的码只保留一个；无码返回空数组（#108）。
+    static func detectCodes(png: Data) async throws -> [[String: String]] {
+        guard let image = NSBitmapImageRep(data: png)?.cgImage else {
+            throw NSError(
+                domain: "TranslateApp",
+                code: 13,
+                userInfo: [NSLocalizedDescriptionKey: "无法读取截图以识别文字。"]
+            )
+        }
+        let observations = try await DetectBarcodesRequest().perform(on: image)
+        // 归一化坐标原点在左下：上边越高越靠前，同一高度再按左边缘。
+        let ordered = observations.sorted { first, second in
+            let a = first.boundingBox.cgRect, b = second.boundingBox.cgRect
+            return a.maxY != b.maxY ? a.maxY > b.maxY : a.minX < b.minX
+        }
+        var seen = Set<String>()
+        return ordered.compactMap { observation in
+            guard let payload = observation.payloadString, !payload.isEmpty else { return nil }
+            let symbology = String(describing: observation.symbology)
+            guard seen.insert("\(symbology)\n\(payload)").inserted else { return nil }
+            return ["symbology": symbology, "payload": payload]
+        }
+    }
+
     /// OCR Markdown 的一个块；rect 为块在识别图像中的像素框，原点左上。
     struct OCRBlock: Equatable {
         let markdown: String

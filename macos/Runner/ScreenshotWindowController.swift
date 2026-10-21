@@ -429,14 +429,28 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
                 return
             }
-            // recognizeText 输出 OCR Markdown，Vision 文档识别为异步接口。
+            // recognizeText 输出 OCR Markdown，detectCodes 输出二维码与条码；Vision 均为异步接口（#108）。
             Task { @MainActor in
                 do {
-                    result(try await ScreenCaptureService.recognizeText(png: payload))
+                    let text = try await ScreenCaptureService.recognizeText(png: payload)
+                    let codes = try await ScreenCaptureService.detectCodes(png: payload)
+                    result(["text": text, "codes": codes])
                 } catch {
                     result(FlutterError(code: AppConstants.ocrFailedError, message: error.localizedDescription, details: nil))
                 }
             }
+        case AppConstants.openLinkMethod:
+            guard let id = args["id"] as? String, id == captureId else {
+                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                return
+            }
+            // ScreenshotLink 只放行 http/https；其他协议即使来自识别结果也不打开（#108）。
+            guard let raw = args["url"] as? String, let url = ScreenshotLink.url(from: raw) else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "只能打开 http 或 https 链接。", details: nil))
+                return
+            }
+            // 交给默认浏览器；成功后由 Dart 关闭截图编辑。
+            result(NSWorkspace.shared.open(url))
         case AppConstants.copyTextMethod:
             guard let text = args["text"] as? String, !text.isEmpty else {
                 result(FlutterError(code: AppConstants.ocrEmptyError, message: "没有可复制的文字。", details: nil))
@@ -884,6 +898,19 @@ extension ScreenshotWindowController {
         initialCrop = nil
         freezeView.image = nil
         channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
+    }
+}
+
+/// 截图识别结果中可交给浏览器打开的链接（#108）。
+enum ScreenshotLink {
+    /// raw 为码内容原文；返回协议为 http/https 且带主机名的 URL，其他内容返回 nil（只可复制）。
+    static func url(from raw: String) -> URL? {
+        guard let url = URL(string: raw),
+              let scheme = url.scheme?.lowercased(),
+              AppConstants.openableLinkSchemes.contains(scheme),
+              url.host?.isEmpty == false
+        else { return nil }
+        return url
     }
 }
 

@@ -1138,7 +1138,9 @@ void main() {
     };
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == MethodNames.getScreenshot) return snapshot;
-      if (call.method == MethodNames.recognizeText) return 'Hello';
+      if (call.method == MethodNames.recognizeText) {
+        return {'text': 'Hello', 'codes': <Object>[]};
+      }
       if (call.method == MethodNames.copyText) {
         copyPending.complete();
         await copyReply.future;

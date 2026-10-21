@@ -13,6 +13,7 @@ import 'package:translate_app/src/common/utils/geometry.dart';
 import 'package:translate_app/src/common/utils/screenshot_filename.dart';
 import 'package:translate_app/src/history/screenshot_history.dart';
 import 'package:translate_app/src/screenshot/edit_document.dart';
+import 'package:translate_app/src/screenshot/recognized_text_panel.dart';
 import 'package:translate_app/src/screenshot/screenshot_app.dart';
 import 'package:translate_app/src/settings/app_settings.dart';
 
@@ -445,7 +446,9 @@ void main() {
           'directory': '',
         };
       }
-      if (call.method == MethodNames.recognizeText) return markdown;
+      if (call.method == MethodNames.recognizeText) {
+        return {'text': markdown, 'codes': <Object>[]};
+      }
       if (call.method == MethodNames.copyText) return null;
       return null;
     });
@@ -475,6 +478,108 @@ void main() {
     await tester.tap(find.byTooltip('关闭').last);
     await tester.pump();
     expect(find.text('Hello'), findsNothing);
+  });
+
+  test('只有带主机名的 http/https 内容可作为链接打开', () {
+    // 边界：协议大小写不敏感；缺主机名、无协议的域名与 file/javascript/tel 协议都只能复制（#108）。
+    expect(isOpenableLink('https://example.com/a?b=1'), isTrue);
+    expect(isOpenableLink('HTTP://EXAMPLE.COM'), isTrue);
+    for (final payload in [
+      'https://',
+      'example.com',
+      'file:///etc/hosts',
+      'javascript:alert(1)',
+      'tel:10086',
+      '4006381333931',
+    ]) {
+      expect(isOpenableLink(payload), isFalse, reason: payload);
+    }
+  });
+
+  testWidgets('识别结果列出二维码与条码：逐条复制，只有 http/https 可打开并关闭截图', (tester) async {
+    // 边界：没有文字时不显示复制全部；javascript 内容的二维码不提供打开；打开失败保留截图并提示；
+    // 打开成功后关闭截图；文字与码都为空时提示三者都没有（#108）。
+    tester.view.physicalSize = const Size(960, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = await tester.runAsync(_pngCheckerboard);
+    const channel = MethodChannel('test/screenshot-codes');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <MethodCall>[];
+    var codes = <Object>[
+      {'symbology': 'qr', 'payload': 'https://example.com/a'},
+      {'symbology': 'qr', 'payload': 'javascript:alert(1)'},
+      {'symbology': 'ean13', 'payload': '4006381333931'},
+    ];
+    var opened = false;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      switch (call.method) {
+        case MethodNames.getScreenshot:
+          return {
+            'id': 'shot-codes',
+            'bytes': bytes,
+            'capturedAt': 0,
+            'width': 8,
+            'height': 8,
+          };
+        case MethodNames.recognizeText:
+          return {'text': '', 'codes': codes};
+        case MethodNames.openLink:
+          return opened;
+        default:
+          return null;
+      }
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const ScreenshotApp(channel: channel));
+    await tester.pump();
+    await _tapExport(tester, const Key('screenshot-ocr-copy'));
+    expect(find.text('识别结果'), findsOneWidget);
+    expect(find.text('二维码'), findsNWidgets(2));
+    expect(find.text('条码 · EAN13'), findsOneWidget);
+    expect(find.text('https://example.com/a'), findsOneWidget);
+    expect(find.byTooltip('复制全部'), findsNothing);
+    expect(find.byTooltip('打开链接'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('复制内容').last);
+    await tester.pump();
+    expect(
+      calls.where((c) => c.method == MethodNames.copyText).single.arguments,
+      {'text': '4006381333931'},
+    );
+    expect(find.text('已复制内容'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+
+    await tester.tap(find.byTooltip('打开链接'));
+    await tester.pumpAndSettle();
+    expect(
+      calls.where((c) => c.method == MethodNames.openLink).single.arguments,
+      {'id': 'shot-codes', 'url': 'https://example.com/a'},
+    );
+    expect(find.text('无法打开链接'), findsOneWidget);
+    expect(
+      calls.where((c) => c.method == MethodNames.closeScreenshot),
+      isEmpty,
+    );
+
+    opened = true;
+    await tester.tap(find.byTooltip('打开链接'));
+    await tester.pumpAndSettle();
+    expect(
+      calls.where((c) => c.method == MethodNames.closeScreenshot),
+      isNotEmpty,
+    );
+
+    codes = [];
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(const ScreenshotApp(channel: channel));
+    await tester.pump();
+    await _tapExport(tester, const Key('screenshot-ocr-copy'));
+    expect(find.text('画面中没有可识别的文字、二维码或条码'), findsOneWidget);
+    expect(find.text('识别结果'), findsNothing);
   });
 
   testWidgets('截图翻译完成后在识别位置显示译文', (tester) async {

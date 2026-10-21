@@ -155,8 +155,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   String? _savedPath;
   List<_OcrOverlay> _ocrOverlays = [];
 
-  /// “识别文字”得到的全部文字；非空时显示结果弹窗。
-  String? _recognizedText;
+  /// “识别文字”得到的文字 Markdown 与二维码/条码；非空时显示结果弹窗（#108）。
+  ({String text, List<RecognizedCode> codes})? _recognition;
 
   /// 结果弹窗相对窗口中心的拖动位移。
   Offset _recognizedOffset = Offset.zero;
@@ -273,8 +273,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           return;
         }
         // 识别结果弹窗打开时，Esc 先关闭弹窗，不关闭截图。
-        if (_recognizedText != null) {
-          setState(() => _recognizedText = null);
+        if (_recognition != null) {
+          setState(() => _recognition = null);
           return;
         }
         if (_textInputOpen) {
@@ -344,7 +344,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _textController.clear();
       _strokePoints.clear();
       _ocrOverlays = [];
-      _recognizedText = null;
+      _recognition = null;
       _tool = ScreenshotTool.crop;
       _selectedTextId = null;
       _selectedShapeId = null;
@@ -940,35 +940,62 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
   }
 
-  /// 无参数；识别截图中的文字并打开结果弹窗，不写剪贴板；无字时只提示。
+  /// 无参数；识别截图中的文字与二维码/条码并打开结果弹窗，不写剪贴板；两者都没有时只提示（#108）。
   Future<void> _showRecognizedText() async {
     // 识别可跨越换图；等待结束后必须仍是同一捕获身份。
     final id = _capture['id'];
-    final text = await _recognizeOcr();
-    if (!mounted || _capture['id'] != id || text == null) return;
-    if (text.trim().isEmpty) {
+    // _recognizeOcr 返回识别文字与码，失败时为 null 并已显示错误。
+    final recognition = await _recognizeOcr();
+    if (!mounted || _capture['id'] != id || recognition == null) return;
+    if (recognition.text.trim().isEmpty && recognition.codes.isEmpty) {
       setState(() {
-        _message = '画面中没有可识别的文字';
+        _message = '画面中没有可识别的文字、二维码或条码';
         _failed = true;
       });
       return;
     }
     setState(() {
-      _recognizedText = text;
+      _recognition = recognition;
       _recognizedOffset = Offset.zero;
     });
   }
 
-  /// 无参数；把弹窗中的全部文字写入剪贴板，成功后显示一秒提示，弹窗保持打开。
-  Future<void> _copyRecognizedText() async {
+  /// text 为待复制内容，feedback 为成功提示；写入剪贴板后显示一秒提示，弹窗保持打开，无返回值。
+  Future<void> _copyRecognized(String text, String feedback) async {
     final id = _capture['id'];
-    final text = _recognizedText;
-    if (text == null) return;
     try {
       await widget.channel.invokeMethod<void>(MethodNames.copyText, {
         'text': text,
       });
-      if (mounted && _capture['id'] == id) _showCopyFeedback('已复制文字');
+      if (mounted && _capture['id'] == id) _showCopyFeedback(feedback);
+    } on PlatformException catch (error) {
+      if (mounted && _capture['id'] == id) {
+        setState(() {
+          _message = error.message;
+          _failed = true;
+        });
+      }
+    }
+  }
+
+  /// url 为码中的 http/https 链接；交给默认浏览器打开，成功后关闭截图编辑，失败时保留截图并提示，无返回值（#108）。
+  Future<void> _openLink(String url) async {
+    final id = _capture['id'];
+    try {
+      final opened = await widget.channel.invokeMethod<bool>(
+        MethodNames.openLink,
+        {'id': id, 'url': url},
+      );
+      if (!mounted || _capture['id'] != id) return;
+      // 冻结画面会遮住浏览器，打开后结束截图编辑。
+      if (opened == true) {
+        await _close();
+        return;
+      }
+      setState(() {
+        _message = '无法打开链接';
+        _failed = true;
+      });
     } on PlatformException catch (error) {
       if (mounted && _capture['id'] == id) {
         setState(() {
@@ -1052,8 +1079,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     }
   }
 
-  /// 无参数；合成当前编辑图并请求设备 OCR，失败时返回 null。
-  Future<String?> _recognizeOcr() async {
+  /// 无参数；合成当前编辑图并请求设备识别文字与二维码/条码。
+  /// 返回 text 为 OCR Markdown（可为空），codes 为按位置排序的码；失败时显示错误并返回 null。
+  Future<({String text, List<RecognizedCode> codes})?> _recognizeOcr() async {
     final id = _capture['id'];
     if (id == null || !_document.hasImage || _busy) return null;
     setState(() {
@@ -1063,11 +1091,20 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     });
     try {
       final bytes = await _document.renderPng();
-      final text = await widget.channel.invokeMethod<String>(
+      final result = (await widget.channel.invokeMapMethod<String, Object?>(
         MethodNames.recognizeText,
         {'id': id, 'bytes': bytes},
+      ))!;
+      return (
+        text: result['text'] as String,
+        codes: [
+          for (final code in result['codes'] as List)
+            (
+              symbology: (code as Map)['symbology'] as String,
+              payload: code['payload'] as String,
+            ),
+        ],
       );
-      return text ?? '';
     } on PlatformException catch (error) {
       if (mounted) {
         setState(() {
@@ -2133,16 +2170,21 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   ),
                 ),
               // 识别结果弹窗浮在截图之上，初始居中，可拖动标题区移动。
-              if (_recognizedText != null)
+              if (_recognition != null)
                 Center(
                   child: Transform.translate(
                     offset: _recognizedOffset,
                     child: SizedBox.fromSize(
                       size: RecognizedTextPanel.size,
                       child: RecognizedTextPanel(
-                        text: _recognizedText!,
-                        onCopyAll: _copyRecognizedText,
-                        onClose: () => setState(() => _recognizedText = null),
+                        text: _recognition!.text,
+                        codes: _recognition!.codes,
+                        onCopyAll: () =>
+                            _copyRecognized(_recognition!.text, '已复制文字'),
+                        onCopyCode: (payload) =>
+                            _copyRecognized(payload, '已复制内容'),
+                        onOpenLink: _openLink,
+                        onClose: () => setState(() => _recognition = null),
                         onDrag: (delta) =>
                             setState(() => _recognizedOffset += delta),
                       ),

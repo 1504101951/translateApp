@@ -35,6 +35,9 @@ class ScreenshotDefaults {
 
   /// 字号档位；减/加在此列表内移动。
   static const List<double> fontSizes = [14, 18, 24, 32, 48];
+
+  /// 识别结果中允许打开的链接协议；其他协议只可复制（#108），与 Swift 常量同步。
+  static const openableLinkSchemes = {'http', 'https'};
 }
 
 /// 图形工具的四种模式；名称用于偏好持久化。
