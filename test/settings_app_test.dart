@@ -405,6 +405,118 @@ void main() {
     expect(tester.widget<TextField>(width).controller!.text, isEmpty);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('截图页确认动作与上传分享：下拉自动保存，编辑弹窗校验后提交目标与钥匙串草稿（#111）', (tester) async {
+    // 边界：确认动作默认复制图片，选「上传并复制链接」后保存为 upload；上传目标为 http 时留在弹窗提示；
+    // 只填 Access Key ID 时提示须同时填写；完整填写后偏好含目标、credentials 以 upload-s3 携带两项密钥，
+    // 列表行显示「主机/存储桶」；再次打开时密钥框为空并说明已保存。
+    const channel = MethodChannel(ChannelNames.settings);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var settings = <String, Object?>{'revision': 0};
+    Map? credentials;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.systemStatus) {
+        return {'accessibility': true};
+      }
+      if (call.method == MethodNames.getSettings) return settings;
+      if (call.method == MethodNames.saveSettings) {
+        final draft = Map<String, Object?>.from(call.arguments as Map);
+        credentials = draft.remove('credentials') as Map?;
+        settings = {
+          ...draft,
+          'revision': (settings['revision'] as int) + 1,
+          MethodNames.credentialIds: [
+            if (credentials?.isNotEmpty == true)
+              PreferenceKeys.uploadCredentials,
+          ],
+        };
+        return settings;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('截图'));
+    await tester.pumpAndSettle();
+    final scrollable = find
+        .descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.text('复制图片'),
+      150,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('复制图片'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('上传并复制链接').last);
+    await tester.pumpAndSettle();
+    expect(settings[PreferenceKeys.screenshotConfirmAction], 'upload');
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('上传分享')),
+      150,
+      scrollable: scrollable,
+    );
+    expect(find.text('未配置'), findsOneWidget);
+    await tester.tap(find.text('编辑…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('服务地址')),
+      'http://s3.example.com',
+    );
+    await tester.enterText(find.byKey(const ValueKey('区域')), 'auto');
+    await tester.enterText(find.byKey(const ValueKey('存储桶')), 'shots');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('服务地址须为 https，区域与存储桶不能为空。'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('服务地址')),
+      'https://s3.example.com',
+    );
+    await tester.enterText(find.byKey(const ValueKey('Access Key ID')), 'AKID');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Access Key ID 与 Secret Access Key 须同时填写。'),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('Secret Access Key')),
+      'SECRET',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('上传分享'), findsWidgets);
+    expect(settings[PreferenceKeys.uploadEndpoint], 'https://s3.example.com');
+    expect(settings[PreferenceKeys.uploadRegion], 'auto');
+    expect(settings[PreferenceKeys.uploadBucket], 'shots');
+    expect(credentials, {
+      PreferenceKeys.uploadCredentials: {
+        'accessKeyId': 'AKID',
+        'secretAccessKey': 'SECRET',
+      },
+    });
+    expect(find.text('s3.example.com/shots'), findsOneWidget);
+
+    await tester.tap(find.text('编辑…'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('Access Key ID')))
+          .controller!
+          .text,
+      isEmpty,
+    );
+    expect(find.text('已保存，留空保留；保存在 macOS 钥匙串。'), findsNWidgets(2));
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('术语表：管理弹窗内添加、编辑与删除即时自动保存，同一目标语言下重复时留在编辑弹窗提示', (tester) async {
     // 边界：新增 api 与已有 API 只差大小写，视为重复；编辑条目本身不算与自己重复；
     // 原文术语为空时「确定」不可用；译法留空显示为保留原文。

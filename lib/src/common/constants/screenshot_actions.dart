@@ -20,11 +20,14 @@ abstract final class ScreenshotActions {
   static const text = 'screenshot-tool-text';
   static const mask = 'screenshot-tool-mask';
   static const brush = 'screenshot-tool-brush';
+  static const eyedropper = 'screenshot-tool-eyedropper';
+  static const ruler = 'screenshot-tool-ruler';
   static const beautify = 'screenshot-beautify';
   static const ratio = 'screenshot-ratio';
   static const pin = 'screenshot-pin';
   static const save = 'screenshot-save';
   static const copy = 'screenshot-copy';
+  static const upload = 'screenshot-upload';
   static const ocrCopy = 'screenshot-ocr-copy';
   static const ocrTranslate = 'screenshot-ocr-translate';
   static const close = 'screenshot-close';
@@ -50,6 +53,9 @@ abstract final class ScreenshotActions {
     step: (icon: Icons.looks_one_outlined, hostsChildren: true),
     text: (icon: Icons.text_fields, hostsChildren: true),
     brush: (icon: Icons.brush, hostsChildren: true),
+    // 取色复制指针处源像素色值，标尺测量两点像素距离；均不产生标注（#111）。
+    eyedropper: (icon: Icons.colorize, hostsChildren: true),
+    ruler: (icon: Icons.straighten, hostsChildren: true),
     // 美化展开自己的设置行，不承载子级（#103）。
     beautify: (icon: Icons.auto_awesome_outlined, hostsChildren: false),
     // 比例展开比例行，锁定后续框选与调整的宽高比（#106）。
@@ -57,6 +63,8 @@ abstract final class ScreenshotActions {
     pin: (icon: Icons.push_pin_outlined, hostsChildren: false),
     save: (icon: Icons.save_outlined, hostsChildren: false),
     copy: (icon: Icons.copy_outlined, hostsChildren: false),
+    // 上传到设置中的 S3 兼容存储并复制分享链接（#111）。
+    upload: (icon: Icons.cloud_upload_outlined, hostsChildren: false),
     ocrCopy: (icon: Icons.text_snippet_outlined, hostsChildren: false),
     ocrTranslate: (icon: Icons.translate, hostsChildren: false),
     live: (icon: Icons.subtitles_outlined, hostsChildren: false),
@@ -64,8 +72,9 @@ abstract final class ScreenshotActions {
   };
 
   /// 默认的父子结构：键为父级，值为按顺序排列的子级；未列出的功能默认是一级。
+  /// 取色与标尺默认放在截图的子级行，一级保持 17 项、不超出 640pt 工具栏（#111）。
   static const defaultChildren = <String, List<String>>{
-    crop: [record, scrolling],
+    crop: [record, scrolling, eyedropper, ruler],
   };
 
   /// 可拼接功能的图标；键的顺序即默认顺序。
@@ -96,11 +105,14 @@ abstract final class ScreenshotActions {
     text: '文字',
     mask: '图形',
     brush: '画笔',
+    eyedropper: '取色',
+    ruler: '标尺',
     beautify: '美化',
     ratio: '比例',
     pin: '贴图',
     save: '保存',
     copy: '复制图片',
+    upload: '上传',
     ocrCopy: '识别文字',
     ocrTranslate: '翻译文字',
     close: '关闭',

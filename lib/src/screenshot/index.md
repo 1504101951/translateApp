@@ -15,3 +15,4 @@
 9. [recognized_text_panel.dart](recognized_text_panel.dart)：显示“识别文字”结果的可拖动弹窗，列出二维码与条码并可复制或打开 http/https 链接，渲染 Markdown 并支持选中复制与复制全部原文。
 10. [markdown_view.dart](markdown_view.dart)：把识别结果 Markdown 解析为标题、段落、列表与表格并渲染，宽表格横向滚动。
 11. [beautify.dart](beautify.dart)：定义截图美化参数，并提供预览与导出共用的背景、阴影与圆角绘制。
+12. [measure_layer.dart](measure_layer.dart)：显示取色标签与标尺测量线，并提供色值与测量文字格式化；不进入导出与撤销。

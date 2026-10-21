@@ -50,7 +50,7 @@ void main() {
 
   test('旧配置补上实时翻译并丢弃已移除的撤销与重做', () {
     // 作用：升级前保存的工具栏配置在新版本里仍能读取，不因顶层动作增减而校验失败。
-    // 边界：旧顺序含撤销、重做且不含实时翻译、编号、美化与比例；新动作插到默认顺序中各自前一个动作之后（实时翻译在翻译文字后，编号在箭头后，美化在画笔后，比例在美化后）；
+    // 边界：旧顺序含撤销、重做且不含实时翻译、编号、美化与比例；新动作插到默认顺序中各自前一个动作之后（实时翻译在翻译文字后，编号在箭头后，美化在画笔后，比例在美化后，上传在复制图片后）；
     // 撤销的快捷键和隐藏状态一并丢弃，其余动作的相对顺序不变。
     const old = [
       ScreenshotActions.close,
@@ -92,6 +92,7 @@ void main() {
       ScreenshotActions.pin,
       ScreenshotActions.save,
       ScreenshotActions.copy,
+      ScreenshotActions.upload,
       ScreenshotActions.ocrCopy,
     ]);
     expect(migrated.hidden, isEmpty);
@@ -184,14 +185,16 @@ void main() {
     );
   });
 
-  test('默认结构为截图包含录制与滚动长截图；旧配置读取后回到同一结构', () {
-    // 作用：升级前只保存了一级顺序的配置，读取后不因缺少两个功能而校验失败。
-    // 边界：旧配置没有父子结构键，也不含录制与滚动长截图；两者回到截图之下，其余一级顺序不变。
+  test('默认结构为截图包含录制、滚动长截图、取色与标尺；旧配置读取后回到同一结构', () {
+    // 作用：升级前只保存了一级顺序的配置，读取后不因缺少子级功能而校验失败。
+    // 边界：旧配置没有父子结构键，也不含录制、滚动长截图、取色与标尺；四者按默认顺序回到截图之下（#111），其余一级顺序不变。
     final defaults = ScreenshotToolbarPreferences();
     expect(defaults.children, {
       ScreenshotActions.crop: [
         ScreenshotActions.record,
         ScreenshotActions.scrolling,
+        ScreenshotActions.eyedropper,
+        ScreenshotActions.ruler,
       ],
     });
     expect(defaults.parentOf(ScreenshotActions.record), ScreenshotActions.crop);
@@ -412,8 +415,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('快捷键已绑定其他截图动作。'), findsOneWidget);
     expect(saved.shortcuts.containsKey(ScreenshotActions.crop), isFalse);
-    // 通过真实拖拽手柄把光标拖到截图及其两个子级之后：每行 56pt，
-    // 从第 1 行中心下移 196pt 落在第 4 行与第 5 行之间；指针没有右移，保持一级。
+    // 通过真实拖拽手柄把光标拖到截图及其四个子级之后：每行 56pt，
+    // 从第 1 行中心下移 308pt 落在第 6 行与第 7 行之间；指针没有右移，保持一级。
     final handle = find.byKey(const ValueKey('drag-screenshot-tool-cursor'));
     final gesture = await tester.startGesture(
       tester.getCenter(handle),
@@ -422,7 +425,7 @@ void main() {
     await tester.pump();
     await gesture.moveBy(const Offset(0, 20));
     await tester.pump();
-    await gesture.moveBy(const Offset(0, 176));
+    await gesture.moveBy(const Offset(0, 288));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('toolbar-drop-line')), findsOneWidget);
     await gesture.up();
@@ -431,6 +434,8 @@ void main() {
     expect(saved.children[ScreenshotActions.crop], [
       ScreenshotActions.record,
       ScreenshotActions.scrolling,
+      ScreenshotActions.eyedropper,
+      ScreenshotActions.ruler,
     ]);
     expect(saved.order.take(2), [
       ScreenshotActions.crop,

@@ -1,7 +1,17 @@
 import 'package:flutter/painting.dart';
 
-/// 编辑工具；与工具栏一一对应，不含设置里的目录选择。
-enum ScreenshotTool { cursor, crop, rect, arrow, step, text, brush }
+/// 编辑工具；与工具栏一一对应，不含设置里的目录选择。eyedropper 为取色、ruler 为标尺，二者不产生标注（#111）。
+enum ScreenshotTool {
+  cursor,
+  crop,
+  rect,
+  arrow,
+  step,
+  text,
+  brush,
+  eyedropper,
+  ruler,
+}
 
 /// 标注种类；裁剪不进入此枚举，撤销只覆盖这些标注。step 为步骤编号标记（#107）。
 enum AnnotationKind { rectangle, arrow, text, mask, stroke, step }
@@ -49,6 +59,17 @@ enum ShapeVariant {
 
   bool get filled => this == filledRectangle || this == filledCircle;
   bool get circular => this == circle || this == filledCircle;
+}
+
+/// 确认截图（回车或双击）时执行的动作；name 为偏好值，缺省为复制图片（#111）。
+enum ScreenshotConfirmAction {
+  copy,
+  copyAndSave,
+  upload;
+
+  /// wire为偏好原文；返回对应动作，缺省按复制图片处理，未知值直接抛错。
+  static ScreenshotConfirmAction parse(String? wire) =>
+      wire == null ? copy : values.byName(wire);
 }
 
 /// 录制目标协议；name与原生CaptureTarget逐项对应，应用包含全部可见窗口。

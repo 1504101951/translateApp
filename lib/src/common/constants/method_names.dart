@@ -209,6 +209,12 @@ abstract final class MethodNames {
   /// 截图窗口在导出成功后记住选区，供「截取上次区域」复用；参数 id 与选区像素 x、y、width、height（#105）。
   static const rememberScreenshotRegion = 'rememberScreenshotRegion';
 
+  /// 截图窗口读取上传目标描述「主机/存储桶」；参数 id，未配置返回 null（#111）。
+  static const uploadTarget = 'uploadTarget';
+
+  /// 截图窗口请求主引擎上传导出图；参数 id、bytes，返回分享链接（#111）。
+  static const uploadScreenshot = 'uploadScreenshot';
+
   /// 截图窗口在导出成功后请求主引擎记录截图历史；参数 id、bytes、capturedAt（#29）。
   static const recordScreenshotHistory = 'recordScreenshotHistory';
 

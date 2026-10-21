@@ -1,6 +1,8 @@
 import '../screenshot/drawing_preferences.dart';
 import '../common/constants/appearance_modes.dart';
 import '../common/constants/preference_keys.dart';
+import '../common/constants/screenshot_enums.dart';
+import '../upload/s3_upload.dart';
 import '../translation/glossary.dart';
 import '../translation/language_direction.dart';
 import 'service_config.dart';
@@ -26,6 +28,12 @@ class AppSettings {
     this.liveRecording = false,
     this.screenshotIncludesCursor = false,
     this.recordingShowsClicks = false,
+    this.screenshotConfirmAction = ScreenshotConfirmAction.copy,
+    this.uploadEndpoint = '',
+    this.uploadRegion = '',
+    this.uploadBucket = '',
+    this.uploadPrefix = '',
+    this.uploadPublicBase = '',
     this.mcpEnabled = false,
     this.gifMaximumWidth,
     this.glassAppearance = AppearanceModes.system,
@@ -75,6 +83,25 @@ class AppSettings {
 
   /// 区域与显示器录制是否显示鼠标点击高亮；默认关闭，应用录制不含指针因此不显示（#110）。
   bool recordingShowsClicks;
+
+  /// 确认截图（回车或双击）时的动作；上传仍先提示目标（#111）。
+  ScreenshotConfirmAction screenshotConfirmAction;
+
+  /// S3 兼容上传目标；地址、区域与存储桶为空时视为未配置，访问密钥另存钥匙串（#111）。
+  String uploadEndpoint;
+  String uploadRegion;
+  String uploadBucket;
+  String uploadPrefix;
+  String uploadPublicBase;
+
+  /// 无参数；返回已配置的上传目标，未配置或地址不是 https 时返回 null。
+  S3Target? get uploadTarget => S3Target.parse(
+    endpoint: uploadEndpoint,
+    region: uploadRegion,
+    bucket: uploadBucket,
+    prefix: uploadPrefix,
+    publicBase: uploadPublicBase,
+  );
 
   /// 是否允许本机 MCP 客户端截图；默认关闭，关闭时 App 对所有 MCP 工具返回「MCP 未开启」。
   bool mcpEnabled;
@@ -158,6 +185,14 @@ class AppSettings {
           map[PreferenceKeys.screenshotIncludesCursor] as bool? ?? false,
       recordingShowsClicks:
           map[PreferenceKeys.recordingShowsClicks] as bool? ?? false,
+      screenshotConfirmAction: ScreenshotConfirmAction.parse(
+        map[PreferenceKeys.screenshotConfirmAction] as String?,
+      ),
+      uploadEndpoint: map[PreferenceKeys.uploadEndpoint] as String? ?? '',
+      uploadRegion: map[PreferenceKeys.uploadRegion] as String? ?? '',
+      uploadBucket: map[PreferenceKeys.uploadBucket] as String? ?? '',
+      uploadPrefix: map[PreferenceKeys.uploadPrefix] as String? ?? '',
+      uploadPublicBase: map[PreferenceKeys.uploadPublicBase] as String? ?? '',
       mcpEnabled: map[PreferenceKeys.mcpEnabled] as bool? ?? false,
       gifMaximumWidth: map[PreferenceKeys.gifMaximumWidth] as int?,
       glassAppearance:
@@ -265,6 +300,12 @@ class AppSettings {
     PreferenceKeys.liveRecording: liveRecording,
     PreferenceKeys.screenshotIncludesCursor: screenshotIncludesCursor,
     PreferenceKeys.recordingShowsClicks: recordingShowsClicks,
+    PreferenceKeys.screenshotConfirmAction: screenshotConfirmAction.name,
+    PreferenceKeys.uploadEndpoint: uploadEndpoint,
+    PreferenceKeys.uploadRegion: uploadRegion,
+    PreferenceKeys.uploadBucket: uploadBucket,
+    PreferenceKeys.uploadPrefix: uploadPrefix,
+    PreferenceKeys.uploadPublicBase: uploadPublicBase,
     PreferenceKeys.mcpEnabled: mcpEnabled,
     PreferenceKeys.gifMaximumWidth: ?gifMaximumWidth,
     PreferenceKeys.glassAppearance: glassAppearance,

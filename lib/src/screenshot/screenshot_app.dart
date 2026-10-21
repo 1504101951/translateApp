@@ -24,6 +24,7 @@ import 'beautify.dart';
 import 'edit_document.dart';
 import 'drawing_style.dart';
 import 'drawing_controls.dart';
+import 'measure_layer.dart';
 import 'recognized_text_panel.dart';
 import 'screenshot_editor_layout.dart';
 import '../settings/screenshot_toolbar_preferences.dart';
@@ -129,8 +130,22 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   ShapeVariant get _styleShape => _styleSelection?.shape ?? _drawing.shape;
   String? _selectedShapeId;
   bool _shapeSelecting = false;
-  bool _styleDialogOpen = false;
+  /// 样式或上传确认弹窗打开中：Esc 关闭弹窗、回车不导出、新截图先关闭弹窗。
+  bool _dialogOpen = false;
   ui.Image? _sourceImage;
+
+  /// 标尺两端（截图像素）；不进入标注与撤销，切换工具或新截图后清除（#111）。
+  ({Offset start, Offset end})? _ruler;
+
+  /// 取色悬停点（截图像素），指针离开画布时为 null（#111）。
+  Offset? _picker;
+
+  /// 当前截图的非预乘 RGBA 源像素及其解码任务；每张截图首次取色时解码一次（#111）。
+  ByteData? _sourcePixels;
+  Future<void>? _pixelLoad;
+
+  /// 确认截图（回车或双击）时的动作，来自截图快照与工具栏变更通知（#111）。
+  ScreenshotConfirmAction _confirmAction = ScreenshotConfirmAction.copy;
 
   ScreenshotTool _tool = ScreenshotTool.crop;
   bool _busy = false;
@@ -201,6 +216,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     ScreenshotActions.step: ScreenshotTool.step,
     ScreenshotActions.text: ScreenshotTool.text,
     ScreenshotActions.brush: ScreenshotTool.brush,
+    ScreenshotActions.eyedropper: ScreenshotTool.eyedropper,
+    ScreenshotActions.ruler: ScreenshotTool.ruler,
   };
   bool _cropSelected = false;
 
@@ -239,10 +256,16 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         // 当前单一截图引擎是绘图属性的唯一编辑入口；旧保存回声不能回滚较新的本地输入。
         // 新截图从完整快照恢复参数；若未来允许并行截图引擎，需改为按字段带版本合并。
         // 工具配置独立更新，不替换正在编辑的图片、裁剪和标注草稿。
-        final next = ScreenshotToolbarPreferences.fromMap(
-          Map<Object?, Object?>.from(call.arguments as Map),
-        );
-        if (mounted) setState(() => _toolbar = next);
+        final map = Map<Object?, Object?>.from(call.arguments as Map);
+        final next = ScreenshotToolbarPreferences.fromMap(map);
+        if (mounted) {
+          setState(() {
+            _toolbar = next;
+            _confirmAction = ScreenshotConfirmAction.parse(
+              map[PreferenceKeys.screenshotConfirmAction] as String?,
+            );
+          });
+        }
       } else if (call.method == MethodNames.screenshotChanged) {
         _replace(Map<Object?, Object?>.from(call.arguments as Map));
       } else if (call.method == MethodNames.screenshotToolbarAction) {
@@ -268,7 +291,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           });
           return;
         }
-        if (_styleDialogOpen) {
+        if (_dialogOpen) {
           Navigator.of(_editorKey.currentContext!).pop();
           return;
         }
@@ -316,7 +339,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     _recordingApplications = [];
     _loadingApplications = false;
     _applicationRequest++;
-    if (_styleDialogOpen) {
+    if (_dialogOpen) {
       Navigator.of(_editorKey.currentContext!).pop();
     }
     _feedbackTimer?.cancel();
@@ -326,8 +349,15 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     setState(() {
       _sourceImage?.dispose();
       _sourceImage = null;
+      _sourcePixels = null;
+      _pixelLoad = null;
+      _ruler = null;
+      _picker = null;
       _capture = value;
       _toolbar = ScreenshotToolbarPreferences.fromMap(value);
+      _confirmAction = ScreenshotConfirmAction.parse(
+        value[PreferenceKeys.screenshotConfirmAction] as String?,
+      );
       _drawing = DrawingPreferences.fromMap(
         value[PreferenceKeys.screenshotDrawing] as Map?,
       );
@@ -477,7 +507,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     final initialWidth = selected == null
         ? _nextStyle.strokeWidth
         : selected.strokeWidth / _pixelRatio;
-    _styleDialogOpen = true;
+    _dialogOpen = true;
     _setTextInput(true);
     final result = await showDialog<Object>(
       context: _editorKey.currentContext!,
@@ -495,7 +525,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               ),
       ),
     );
-    _styleDialogOpen = false;
+    _dialogOpen = false;
     if (!mounted || captureId != _capture['id']) return;
     _setTextInput(editingText);
     if (editingText) {
@@ -782,7 +812,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// 无参数；确认当前文字、开始选区采集或复制截图，返回该操作结束的 Future。
   Future<void> _confirmScreenshot() async {
-    if (_styleDialogOpen) return;
+    if (_dialogOpen) return;
     if (_busy) return;
     if (_recordingExpanded || _liveExpanded) {
       if (_recordingTarget == CaptureTarget.application &&
@@ -797,11 +827,18 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _commitText();
       return;
     }
-    // 只有导出事务确认复制成功才结束截图；失败保留当前编辑状态。
-    await _export('copy', closeAfterCopy: true);
+    // 确认动作由设置「回车或双击确认时」决定；只有导出事务成功才结束截图，失败保留当前编辑状态（#111）。
+    switch (_confirmAction) {
+      case ScreenshotConfirmAction.copy:
+        await _export('copy', closeAfterCopy: true);
+      case ScreenshotConfirmAction.copyAndSave:
+        await _export('copySave', closeAfterCopy: true);
+      case ScreenshotConfirmAction.upload:
+        await _upload(closeAfter: true);
+    }
   }
 
-  /// action 为 copy/save/pin；先在 Dart 合成 PNG，再把 bytes 交给原生，无返回值。
+  /// action 为 copy/save/pin/copySave（先保存再复制）；先在 Dart 合成 PNG，再把 bytes 交给原生，无返回值。
   Future<void> _export(String action, {bool closeAfterCopy = false}) async {
     final id = _capture['id'];
     if (id == null || !_document.hasImage || _busy) return;
@@ -818,7 +855,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         unit: _pixelRatio,
       );
       if (!mounted || _capture['id'] != id) return;
-      if (action == 'save') {
+      if (action == 'save' || action == 'copySave') {
         saved = await widget.channel.invokeMethod<String>(
           MethodNames.saveScreenshot,
           {
@@ -837,8 +874,11 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           _savedPath = saved;
           _message = '已保存截图';
         });
-        _afterExport(id, bytes);
-        return;
+        // 复制并保存在保存成功后继续走复制与关闭（#111）。
+        if (action == 'save') {
+          _afterExport(id, bytes);
+          return;
+        }
       }
       if (action == 'pin') {
         final origin = pinOriginAppKit(
@@ -891,6 +931,137 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     } finally {
       if (mounted && _capture['id'] == id) setState(() => _busy = false);
     }
+  }
+
+  /// closeAfter 为成功后是否关闭截图（确认截图动作）；向主引擎查询上传目标，用户确认后上传导出图并复制分享链接，无返回值（#111）。
+  /// 未配置目标时只提示去设置、不发送图像；取消确认或上传失败保留编辑。
+  Future<void> _upload({bool closeAfter = false}) async {
+    final id = _capture['id'];
+    if (id == null || !_document.hasImage || _busy) return;
+    setState(() {
+      _busy = true;
+      _message = null;
+      _failed = false;
+    });
+    try {
+      // 主引擎按已提交设置返回「主机/存储桶」，未配置为 null。
+      final target = await widget.channel.invokeMethod<String>(
+        MethodNames.uploadTarget,
+        {'id': id},
+      );
+      if (!mounted || _capture['id'] != id) return;
+      if (target == null) {
+        setState(() {
+          _message = '未配置上传目标，请在「设置 → 截图 → 上传分享」中填写。';
+          _failed = true;
+        });
+        return;
+      }
+      _dialogOpen = true;
+      final confirmed = await showDialog<bool>(
+        context: _editorKey.currentContext!,
+        builder: (dialogContext) => NativeGlassDialog(
+          title: const Text('上传截图'),
+          content: Text('将上传到 $target，并复制分享链接。'),
+          actions: [
+            NativeGlassSurface(
+              material: true,
+              child: TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('取消'),
+              ),
+            ),
+            NativeGlassSurface(
+              material: true,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('上传'),
+              ),
+            ),
+          ],
+        ),
+      );
+      _dialogOpen = false;
+      if (confirmed != true || !mounted || _capture['id'] != id) return;
+      // 上传与复制使用同一张导出图（含美化）。
+      final bytes = await _document.renderPng(
+        beautify: _beautify,
+        unit: _pixelRatio,
+      );
+      if (!mounted || _capture['id'] != id) return;
+      final link = await widget.channel.invokeMethod<String>(
+        MethodNames.uploadScreenshot,
+        {'id': id, 'bytes': bytes},
+      );
+      if (!mounted || _capture['id'] != id) return;
+      await widget.channel.invokeMethod<void>(MethodNames.copyText, {
+        'text': link,
+      });
+      if (!mounted || _capture['id'] != id) return;
+      _afterExport(id, bytes);
+      _showCopyFeedback('已上传，链接已复制');
+      if (closeAfter) {
+        await widget.channel.invokeMethod<void>(MethodNames.closeScreenshot);
+      }
+    } on PlatformException catch (error) {
+      if (!mounted || _capture['id'] != id) return;
+      setState(() {
+        _message = error.message;
+        _failed = true;
+      });
+    } finally {
+      if (mounted && _capture['id'] == id) setState(() => _busy = false);
+    }
+  }
+
+  /// 无参数；返回解码当前源图非预乘 RGBA 的任务，同一张截图只解码一次；源图尚未解码完成时不缓存，下次取色重试（#111）。
+  Future<void> _sourcePixelsReady() {
+    final image = _sourceImage;
+    if (image == null) return Future.value();
+    return _pixelLoad ??= image
+        .toByteData(format: ui.ImageByteFormat.rawStraightRgba)
+        .then((data) {
+          if (mounted && image == _sourceImage) {
+            setState(() => _sourcePixels = data);
+          }
+        });
+  }
+
+  /// 无参数；返回取色悬停点的源像素颜色，像素尚未解码或指针不在画布上时返回 null（#111）。
+  Color? get _pickedColor {
+    final point = _picker;
+    final pixels = _sourcePixels;
+    if (point == null || pixels == null) return null;
+    final x = point.dx.floor().clamp(0, _document.width - 1);
+    final y = point.dy.floor().clamp(0, _document.height - 1);
+    final offset = (y * _document.width + x) * 4;
+    return Color.fromARGB(
+      255,
+      pixels.getUint8(offset),
+      pixels.getUint8(offset + 1),
+      pixels.getUint8(offset + 2),
+    );
+  }
+
+  /// point 为悬停处的截图像素坐标，null 表示指针离开画布；更新取色悬停点并按需解码源像素，无返回值（#111）。
+  void _hoverPicker(Offset? point) {
+    if (point == _picker) return;
+    setState(() => _picker = point);
+    if (point != null) unawaited(_sourcePixelsReady());
+  }
+
+  /// point 为单击处的截图像素坐标；等待源像素就绪后复制该点的 `#RRGGBB` 并提示，无返回值（#111）。
+  Future<void> _pickColor(Offset point) async {
+    setState(() => _picker = point);
+    await _sourcePixelsReady();
+    final color = _pickedColor;
+    if (!mounted || color == null) return;
+    // colorHex 把源像素格式化为大写 #RRGGBB。
+    final hex = colorHex(color);
+    await widget.channel.invokeMethod<void>(MethodNames.copyText, {
+      'text': hex,
+    });
+    if (mounted) _showCopyFeedback('已复制 $hex');
   }
 
   /// id 为本次截图身份，bytes 为刚导出成功的图片；记住本次选区（#105）并请求主引擎按「记录截图历史」开关写入（#29），无返回值。
@@ -1146,6 +1317,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     _selectedShapeId = null;
 
     if (!_document.hasImage || _busy || _textInputOpen) return;
+    // 标尺只记录两点，新拖动替换上一条；取色只响应单击。二者都不产生标注（#111）。
+    if (_tool == ScreenshotTool.ruler) {
+      setState(() => _ruler = (start: imagePoint, end: imagePoint));
+      return;
+    }
+    if (_tool == ScreenshotTool.eyedropper) return;
     if ((_tool == ScreenshotTool.text || _tool == ScreenshotTool.cursor) &&
         _startTextGesture(imagePoint)) {
       return;
@@ -1194,6 +1371,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
 
   /// imagePoint 为拖拽中的源图像素坐标；只更新预览，不写历史，无返回值。
   void _onDragUpdate(Offset imagePoint) {
+    if (_tool == ScreenshotTool.ruler && _ruler != null) {
+      setState(() => _ruler = (start: _ruler!.start, end: imagePoint));
+      return;
+    }
     if (_shapeSelecting) return;
     if (_dragStart == null || _textInputOpen) return;
     setState(() {
@@ -1588,6 +1769,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     switch (_tool) {
       case ScreenshotTool.cursor:
       case ScreenshotTool.crop:
+      case ScreenshotTool.eyedropper:
+      case ScreenshotTool.ruler:
         return null;
       case ScreenshotTool.text:
         return EditAnnotation(
@@ -2020,7 +2203,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                       _busy ||
                       ((_recordingExpanded || _liveExpanded) &&
                           _recordingTarget != CaptureTarget.region),
-                  textInputOpen: _textInputOpen && !_styleDialogOpen,
+                  textInputOpen: _textInputOpen && !_dialogOpen,
                   sourceImage: _sourceImage,
                   selectedShape: _selectedShapeId == null
                       ? null
@@ -2040,6 +2223,13 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   onCropTap: _onCropTap,
                   onStepTap: (point) {
                     if (_tool == renderedTool) _placeStep(point);
+                  },
+                  ruler: _ruler,
+                  picker: _picker,
+                  pickerColor: _pickedColor,
+                  onPickerHover: _hoverPicker,
+                  onPickerTap: (point) {
+                    if (_tool == renderedTool) unawaited(_pickColor(point));
                   },
                   cropSelected:
                       _cropSelected &&
@@ -2328,6 +2518,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           if (_textInputOpen) _commitText();
           _tool = entry.value;
           _expandedRow = null;
+          // 测量结果只属于当前工具，切换后清除（#111）。
+          _ruler = null;
+          _picker = null;
           unawaited(_syncRecordingPreview());
           unawaited(_syncLivePreview());
           _recordingApplication = null;
@@ -2377,6 +2570,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       ScreenshotActions.pin: _document.hasImage ? () => _export('pin') : null,
       ScreenshotActions.save: _document.hasImage ? () => _export('save') : null,
       ScreenshotActions.copy: _document.hasImage ? () => _export('copy') : null,
+      ScreenshotActions.upload: _document.hasImage ? _upload : null,
       ScreenshotActions.ocrCopy: _document.hasImage ? _showRecognizedText : null,
       ScreenshotActions.ocrTranslate: _document.hasImage ? _translateOcr : null,
       ScreenshotActions.close: _close,
@@ -2752,6 +2946,11 @@ class _EditorSurface extends StatefulWidget {
     required this.onTextTap,
     required this.onCropTap,
     required this.onStepTap,
+    required this.ruler,
+    required this.picker,
+    required this.pickerColor,
+    required this.onPickerHover,
+    required this.onPickerTap,
     required this.cropSelected,
     required this.activeHandle,
     required this.onDoubleTap,
@@ -2818,6 +3017,15 @@ class _EditorSurface extends StatefulWidget {
 
   /// 编号工具下的单击位置（源图像素）；放置编号标记（#107）。
   final ValueChanged<Offset> onStepTap;
+
+  /// 标尺两端、取色悬停点（截图像素）与该点源像素颜色；由 MeasureLayer 显示（#111）。
+  final ({Offset start, Offset end})? ruler;
+  final Offset? picker;
+  final Color? pickerColor;
+
+  /// 取色工具下的悬停位置（截图像素，离开画布为 null）与单击位置（#111）。
+  final ValueChanged<Offset?> onPickerHover;
+  final ValueChanged<Offset> onPickerTap;
   final bool cropSelected;
   final String? activeHandle;
   final VoidCallback onDoubleTap;
@@ -2929,104 +3137,120 @@ class _EditorSurfaceState extends State<_EditorSurface> {
             );
           }
 
-          final canvasContent = GestureDetector(
-            key: const Key('screenshot-canvas'),
-            // 裁剪起点就是按下点，不能被手势识别阈值移动。
-            dragStartBehavior: DragStartBehavior.down,
-            behavior: HitTestBehavior.opaque,
-            // 文字与编号工具的连续单击不能被识别为双击复制，也不等待双击超时。
-            onDoubleTapDown:
-                widget.textInputOpen ||
-                    widget.busy ||
-                    widget.tool == ScreenshotTool.text ||
-                    widget.tool == ScreenshotTool.step
-                ? null
-                : (details) =>
-                      widget.onDoubleTapDown(toImage(details.localPosition)),
-            onDoubleTap:
-                widget.textInputOpen ||
-                    widget.busy ||
-                    widget.tool == ScreenshotTool.text ||
-                    widget.tool == ScreenshotTool.step
-                ? null
-                : widget.onDoubleTap,
-            onPanStart: widget.busy
-                ? null
-                : (details) =>
-                      widget.onDragStart(toImage(details.localPosition)),
-            onPanUpdate: widget.busy || widget.textInputOpen
-                ? null
-                : (details) =>
-                      widget.onDragUpdate(toImage(details.localPosition)),
-            onPanEnd: widget.busy || widget.textInputOpen
-                ? null
-                : (_) => widget.onDragEnd(),
-            onTapUp: !widget.busy
-                ? (details) {
-                    final point = toImage(details.localPosition);
-                    // 输入中的点击只用于结束输入，由文字入口统一处理。
-                    if (widget.textInputOpen) {
-                      widget.onTextTap(point);
-                    } else if (widget.tool == ScreenshotTool.crop) {
-                      widget.onCropTap(point);
-                    } else if (widget.tool == ScreenshotTool.text ||
-                        widget.tool == ScreenshotTool.cursor) {
-                      widget.onTextTap(point);
-                    } else if (widget.tool == ScreenshotTool.step) {
-                      widget.onStepTap(point);
-                    }
-                  }
+          // 文字、编号、取色与标尺的连续单击不能被识别为双击复制，也不等待双击超时。
+          final singleTapTool = const {
+            ScreenshotTool.text,
+            ScreenshotTool.step,
+            ScreenshotTool.eyedropper,
+            ScreenshotTool.ruler,
+          }.contains(widget.tool);
+          final canvasContent = MouseRegion(
+            opaque: false,
+            // 取色工具悬停时报告指针处的截图像素（#111）。
+            onHover: widget.tool == ScreenshotTool.eyedropper
+                ? (event) => widget.onPickerHover(toImage(event.localPosition))
                 : null,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.memory(
-                  widget.document.sourcePng!,
-                  fit: BoxFit.fill,
-                  scale: MediaQuery.devicePixelRatioOf(context),
-                  cacheWidth: widget.document.width,
-                  cacheHeight: widget.document.height,
-                  filterQuality: FilterQuality.none,
-                  isAntiAlias: false,
-                  gaplessPlayback: true,
-                ),
-                CustomPaint(
-                  painter: _OverlayPainter(
-                    sourceImage: widget.sourceImage,
-                    selectedShape: widget.selectedShape,
-                    annotations: widget.document.annotations,
-                    previewAnnotation: widget.previewAnnotation,
-                    imageSize: imageSize,
+            onExit: (_) => widget.onPickerHover(null),
+            child: GestureDetector(
+              key: const Key('screenshot-canvas'),
+              // 裁剪起点就是按下点，不能被手势识别阈值移动。
+              dragStartBehavior: DragStartBehavior.down,
+              behavior: HitTestBehavior.opaque,
+              onDoubleTapDown: widget.textInputOpen || widget.busy || singleTapTool
+                  ? null
+                  : (details) =>
+                        widget.onDoubleTapDown(toImage(details.localPosition)),
+              onDoubleTap: widget.textInputOpen || widget.busy || singleTapTool
+                  ? null
+                  : widget.onDoubleTap,
+              onPanStart: widget.busy
+                  ? null
+                  : (details) =>
+                        widget.onDragStart(toImage(details.localPosition)),
+              onPanUpdate: widget.busy || widget.textInputOpen
+                  ? null
+                  : (details) =>
+                        widget.onDragUpdate(toImage(details.localPosition)),
+              onPanEnd: widget.busy || widget.textInputOpen
+                  ? null
+                  : (_) => widget.onDragEnd(),
+              onTapUp: !widget.busy
+                  ? (details) {
+                      final point = toImage(details.localPosition);
+                      // 输入中的点击只用于结束输入，由文字入口统一处理。
+                      if (widget.textInputOpen) {
+                        widget.onTextTap(point);
+                      } else if (widget.tool == ScreenshotTool.crop) {
+                        widget.onCropTap(point);
+                      } else if (widget.tool == ScreenshotTool.text ||
+                          widget.tool == ScreenshotTool.cursor) {
+                        widget.onTextTap(point);
+                      } else if (widget.tool == ScreenshotTool.step) {
+                        widget.onStepTap(point);
+                      } else if (widget.tool == ScreenshotTool.eyedropper) {
+                        widget.onPickerTap(point);
+                      }
+                    }
+                  : null,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.memory(
+                    widget.document.sourcePng!,
+                    fit: BoxFit.fill,
+                    scale: MediaQuery.devicePixelRatioOf(context),
+                    cacheWidth: widget.document.width,
+                    cacheHeight: widget.document.height,
+                    filterQuality: FilterQuality.none,
+                    isAntiAlias: false,
+                    gaplessPlayback: true,
                   ),
-                ),
-                ...[
-                  for (final overlay in widget.ocrOverlays)
-                    Positioned.fromRect(
-                      rect: mapRectToFitted(
-                        overlay.rect,
-                        imageSize,
-                        Offset.zero & fitted.size,
-                      ).intersect(Offset.zero & fitted.size),
-                      child: IgnorePointer(
-                        child: ColoredBox(
-                          color: const Color(0xCCFFFFFF),
-                          child: FittedBox(
-                            fit: BoxFit.contain,
-                            child: Text(
-                              overlay.translation.isEmpty
-                                  ? overlay.source
-                                  : overlay.translation,
-                              style: const TextStyle(
-                                color: Colors.black,
-                                fontWeight: FontWeight.w600,
+                  CustomPaint(
+                    painter: _OverlayPainter(
+                      sourceImage: widget.sourceImage,
+                      selectedShape: widget.selectedShape,
+                      annotations: widget.document.annotations,
+                      previewAnnotation: widget.previewAnnotation,
+                      imageSize: imageSize,
+                    ),
+                  ),
+                  // 测量线与取色标签在标注之上，不进入导出（#111）。
+                  if (widget.ruler != null || widget.picker != null)
+                    MeasureLayer(
+                      imageSize: imageSize,
+                      ruler: widget.ruler,
+                      picker: widget.picker,
+                      pickerColor: widget.pickerColor,
+                    ),
+                  ...[
+                    for (final overlay in widget.ocrOverlays)
+                      Positioned.fromRect(
+                        rect: mapRectToFitted(
+                          overlay.rect,
+                          imageSize,
+                          Offset.zero & fitted.size,
+                        ).intersect(Offset.zero & fitted.size),
+                        child: IgnorePointer(
+                          child: ColoredBox(
+                            color: const Color(0xCCFFFFFF),
+                            child: FittedBox(
+                              fit: BoxFit.contain,
+                              child: Text(
+                                overlay.translation.isEmpty
+                                    ? overlay.source
+                                    : overlay.translation,
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           );
 
@@ -3115,6 +3339,11 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                     : SystemMouseCursors.basic;
               }
               if (widget.tool == ScreenshotTool.brush) return widget.brushCursor;
+              // 取色与标尺需要对准像素（#111）。
+              if (widget.tool == ScreenshotTool.eyedropper ||
+                  widget.tool == ScreenshotTool.ruler) {
+                return SystemMouseCursors.precise;
+              }
               return SystemMouseCursors.basic;
             },
             child: Stack(

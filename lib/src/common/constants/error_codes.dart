@@ -27,6 +27,9 @@ abstract final class ErrorCodes {
   /// rollback_failed 的稳定协议值，变更须同步两端及持久化调用方。
   static const rollbackFailed = 'rollback_failed';
 
+  /// upload_failed：主 Dart 引擎上传截图失败或未配置目标，截图引擎显示其 message（#111）。
+  static const uploadFailed = 'upload_failed';
+
   /// save_failed 的稳定协议值，变更须同步两端及持久化调用方。
   static const saveFailed = 'save_failed';
 

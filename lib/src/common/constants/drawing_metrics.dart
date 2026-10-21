@@ -67,6 +67,23 @@ abstract final class BeautifyMetrics {
   static const shadowOffset = 8.0;
 }
 
+/// 取色与标尺的点尺寸（#111）；标签底色、高度、内边距、圆角与字号沿用 [CropMetrics]。
+abstract final class MeasureMetrics {
+  /// 标签与指针（取色）或终点（标尺）在两个方向上的距离。
+  static const labelOffset = 12.0;
+
+  /// 取色色块边长、白边宽度、圆角与到文字的间距。
+  static const swatchSize = 10.0;
+  static const swatchBorder = 1.0;
+  static const swatchRadius = 2.0;
+  static const swatchGap = 4.0;
+
+  /// 标尺白线宽、黑色 60% 描边宽与两端垂直端点线的长度。
+  static const lineWidth = 1.0;
+  static const outlineWidth = 3.0;
+  static const tickLength = 8.0;
+}
+
 /// 框选精确控制的预设与数值（#106），全部对应样式Spec #67；长度单位标注在各字段。
 abstract final class CropMetrics {
   /// 比例行的预设：按钮文字与宽高比，null 为自由。

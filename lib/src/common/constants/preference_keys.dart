@@ -24,6 +24,19 @@ abstract final class PreferenceKeys {
   /// 区域与显示器录制是否由系统绘制鼠标点击高亮；Swift 开始录制时读取（#110）。
   static const recordingShowsClicks = 'recordingShowsClicks';
 
+  /// 确认截图时的动作：copy、copyAndSave 或 upload；仅 Dart 读取（#111）。
+  static const screenshotConfirmAction = 'screenshotConfirmAction';
+
+  /// S3 兼容上传目标的服务地址、区域、存储桶、对象键前缀与分享链接前缀；仅 Dart 读取，访问密钥在钥匙串（#111）。
+  static const uploadEndpoint = 'uploadEndpoint';
+  static const uploadRegion = 'uploadRegion';
+  static const uploadBucket = 'uploadBucket';
+  static const uploadPrefix = 'uploadPrefix';
+  static const uploadPublicBase = 'uploadPublicBase';
+
+  /// 上传访问密钥的钥匙串账户；值为 {accessKeyId, secretAccessKey}，随 saveSettings 的 credentials 提交（#111）。
+  static const uploadCredentials = 'upload-s3';
+
   /// 术语表；值为 {term, translation, language} 字典列表，仅 Dart 读取（#104）。
   static const glossary = 'glossary';
 

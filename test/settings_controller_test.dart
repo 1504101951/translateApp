@@ -77,6 +77,46 @@ void main() {
     });
   });
 
+  test('上传访问密钥：草稿与已保存值合并写入钥匙串，留空不改，快照报告已保存（#111）', () async {
+    // 边界：首次保存两项密钥后快照的 credentialIds 含 upload-s3；第二次只改 Secret 时保留原 Access Key ID；
+    // 空草稿不读取也不改写已保存值；上传目标设置随普通偏好提交。
+    final platform = _FileSettingsPlatform(saved);
+    controller = SettingsController(
+      initial: AppSettings(primaryLanguage: 'zh-CN'),
+      platform: platform,
+      onSaved: (_) {},
+    );
+    Future<Map> save(int revision, Map<String, String> draft) async =>
+        await controller.handle(
+          MethodCall(MethodNames.saveSettings, {
+            ...controller.current.toMap(),
+            PreferenceKeys.uploadEndpoint: 'https://s3.example.com',
+            PreferenceKeys.uploadRegion: 'auto',
+            PreferenceKeys.uploadBucket: 'shots',
+            'revision': revision,
+            'credentials': {PreferenceKeys.uploadCredentials: draft},
+          }),
+        ) as Map;
+    var snapshot = await save(0, {
+      'accessKeyId': 'AKID',
+      'secretAccessKey': 'first',
+    });
+    expect(snapshot[MethodNames.credentialIds], [
+      PreferenceKeys.uploadCredentials,
+    ]);
+    expect(controller.current.uploadTarget?.label, 's3.example.com/shots');
+    snapshot = await save(1, {'secretAccessKey': 'second'});
+    expect(await platform.readCredentials(PreferenceKeys.uploadCredentials), {
+      'accessKeyId': 'AKID',
+      'secretAccessKey': 'second',
+    });
+    await save(2, {});
+    expect(await platform.readCredentials(PreferenceKeys.uploadCredentials), {
+      'accessKeyId': 'AKID',
+      'secretAccessKey': 'second',
+    });
+  });
+
   test('存储目录不可用时不发布配置，修复目录后下一次提交成功', () async {
     // 用真实文件阻断父目录；失败来自文件系统，不伪造平台异常或检查下游调用次数。
     saved.parent.deleteSync();

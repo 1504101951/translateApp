@@ -155,6 +155,8 @@ DrawingStyle是标注组合的不可变样式，颜色与线宽控件只返回�
 
 图形工具采用rect配置身份，四种图形、编号标记和普通/马赛克/荧光笔画笔通过同一绘制方法服务预览与PNG导出；浮层选择框不进入像素。编号标记（#107）为 `AnnotationKind.step`，编号不存进标注，由 `stepNumbers` 按文档标注顺序推导后传给 `EditDocument.paintAnnotation`，撤销/重做增删标记后其余编号自然更新。荧光笔为 `ShapeMode.highlighter`，样式颜色保持不透明，绘制时整条轨迹一次施加 40% 不透明度。共享数值在common/constants/drawing_metrics.dart，控件在screenshot/drawing_controls.dart。
 
+取色与标尺（#111）是截图编辑器的瞬时状态，由 `screenshot/measure_layer.dart` 的 `MeasureLayer` 叠加在标注之上显示，不进入 `EditDocument`、撤销与导出：取色在每张截图首次使用时把 `_sourceImage` 解码为非预乘 RGBA 并缓存，按悬停或单击处的截图像素读取颜色，经 `copyText` 复制 `#RRGGBB`；标尺只保存两端截图像素。确认截图的动作 `screenshotConfirmAction` 由 Swift 随截图快照与工具栏变更通知交给截图引擎。上传由主 Dart 引擎执行：截图引擎经 `uploadTarget`、`uploadScreenshot` 请求，Swift 核对 captureId 后经 `requestApplication` 转交；主引擎 `upload/upload_requests.dart` 按已提交设置得到 `S3Target`，读取钥匙串账户 `upload-s3` 的访问密钥，由 `upload/s3_upload.dart` 用 `package:crypto` 计算 AWS Signature V4，以 `dart:io HttpClient` 对路径式地址单次 PUT（不跟随重定向），返回分享链接后截图引擎经 `copyText` 复制。上传访问密钥随 `saveSettings` 的 credentials 提交，`SettingsController` 把草稿与已保存值合并后写入钥匙串。
+
 DrawingPreferences按工具保存颜色、线宽、形状与画笔模式，主Dart设置队列验证并写入screenshotDrawing偏好。历史SQLite插入成功通知原生转发historyChanged，窗口内按请求版本重载；主题内层Builder驱动完整历史列表样式重建。
 
 绘图属性按具体图形模式、普通画笔、马赛克画笔与荧光笔隔离。DrawingPreferences.styleFor负责解析对应子工具的不可变样式；调整写入自己的variants槽，基础配置用于初始化未调整的子工具，不在子工具之间传播修改。

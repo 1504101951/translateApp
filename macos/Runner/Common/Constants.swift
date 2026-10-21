@@ -76,6 +76,8 @@ enum AppConstants {
     static let captureFailedError = "capture_failed"
     static let saveDrawingPreferencesMethod = "saveDrawingPreferences"
     static let screenshotDrawingKey = "screenshotDrawing"
+    /// screenshotConfirmAction 偏好键；确认截图时的动作，随截图快照与工具栏变更通知交给截图引擎（#111），与Dart常量同步。
+    static let screenshotConfirmActionKey = "screenshotConfirmAction"
     static let historyChangedMethod = "historyChanged"
     static let historyChangedNotification = Notification.Name("translateapp.historyChanged")
 
@@ -304,6 +306,10 @@ enum AppConstants {
     static let rememberScreenshotRegionMethod = "rememberScreenshotRegion"
     /// recordScreenshotHistory 协议值；截图导出成功后转发主引擎记录，与Dart常量同步。
     static let recordScreenshotHistoryMethod = "recordScreenshotHistory"
+    /// uploadTarget 协议值；截图引擎经主引擎读取上传目标描述，未配置返回 nil（#111），与Dart常量同步。
+    static let uploadTargetMethod = "uploadTarget"
+    /// uploadScreenshot 协议值；截图引擎把 PNG 交给主引擎上传，返回分享链接（#111），与Dart常量同步。
+    static let uploadScreenshotMethod = "uploadScreenshot"
     /// screenshotHistoryList 协议值；历史窗口读取截图历史，转发主引擎，与Dart常量同步。
     static let screenshotHistoryListMethod = "screenshotHistoryList"
     /// deleteScreenshotHistory 协议值；历史窗口删除截图历史，转发主引擎，与Dart常量同步。

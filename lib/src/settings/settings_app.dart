@@ -3,6 +3,8 @@ import '../common/constants/appearance_modes.dart';
 import '../common/constants/method_names.dart';
 import '../common/constants/channel_names.dart';
 import '../common/constants/error_codes.dart';
+import '../common/constants/preference_keys.dart';
+import '../common/constants/screenshot_enums.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +19,7 @@ import 'mcp_settings_page.dart';
 import 'service_config.dart';
 import 'screenshot_toolbar_editor.dart';
 import 'service_editor.dart';
+import 'upload_editor.dart';
 
 /// 设置窗口顶部分段；仅控制展示，不进入持久化偏好。
 enum SettingsSection { general, translation, screenshot, mcp }
@@ -329,6 +332,38 @@ class _SettingsPageState extends State<_SettingsPage>
       }
       if (draft.credentials.isNotEmpty) {
         _credentials[draft.config.id] = draft.credentials;
+      }
+    });
+  }
+
+  /// 无参数；打开上传分享编辑弹窗，确定后自动提交目标设置与访问密钥草稿，取消不写入，返回弹窗关闭的 Future（#111）。
+  Future<void> _editUpload() async {
+    final settings = _settings!;
+    final draft = await showDialog<UploadDraft>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => UploadEditor(
+        endpoint: settings.uploadEndpoint,
+        region: settings.uploadRegion,
+        bucket: settings.uploadBucket,
+        prefix: settings.uploadPrefix,
+        publicBase: settings.uploadPublicBase,
+        hasCredentials: _credentialIds.contains(
+          PreferenceKeys.uploadCredentials,
+        ),
+      ),
+    );
+    if (draft == null || !mounted) return;
+    _edit(() {
+      _settings!
+        ..uploadEndpoint = draft.endpoint
+        ..uploadRegion = draft.region
+        ..uploadBucket = draft.bucket
+        ..uploadPrefix = draft.prefix
+        ..uploadPublicBase = draft.publicBase;
+      // 密钥草稿随下一笔设置事务写入钥匙串；留空保留已保存值。
+      if (draft.credentials.isNotEmpty) {
+        _credentials[PreferenceKeys.uploadCredentials] = draft.credentials;
       }
     });
   }
@@ -875,6 +910,51 @@ class _SettingsPageState extends State<_SettingsPage>
                           ..screenshotShortcutKeyCode = keyCode
                           ..screenshotShortcutModifiers = modifiers
                           ..screenshotShortcutLabel = label,
+                      ),
+                    ],
+                  ),
+                  // 回车或双击确认截图时执行的动作（#111）。
+                  NativeGlassGroup(
+                    children: [
+                      const Text(
+                        '确认截图',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      NativeGlassDropdown<ScreenshotConfirmAction>(
+                        label: '回车或双击确认时',
+                        value: settings.screenshotConfirmAction,
+                        items: const {
+                          ScreenshotConfirmAction.copy: '复制图片',
+                          ScreenshotConfirmAction.copyAndSave: '复制并保存',
+                          ScreenshotConfirmAction.upload: '上传并复制链接',
+                        },
+                        onChanged: (action) => _edit(
+                          () => settings.screenshotConfirmAction = action,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // S3 兼容上传目标；编辑在弹窗中完成，密钥不逐键写入钥匙串（#111）。
+                  NativeGlassGroup(
+                    children: [
+                      const Text(
+                        '上传分享',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      ListTile(
+                        key: const ValueKey('上传分享'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(settings.uploadTarget?.label ?? '未配置'),
+                        subtitle: const Text('S3 兼容存储；每次上传前提示目标'),
+                        trailing: NativeGlassSurface(
+                          material: true,
+                          child: TextButton(
+                            onPressed: _recording ? null : _editUpload,
+                            child: const Text('编辑…'),
+                          ),
+                        ),
                       ),
                     ],
                   ),

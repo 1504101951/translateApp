@@ -269,10 +269,10 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         return value
     }
 
-    /// 无参数；返回已保存的工具栏配置子集，缺省值由Dart领域对象提供。
+    /// 无参数；返回已保存的工具栏配置与确认截图动作子集，缺省值由Dart领域对象提供。
     private func toolbarPreferences() -> [String: Any] {
         let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
-        return preferences.filter { [AppConstants.screenshotToolbarOrderKey, AppConstants.screenshotToolbarChildrenKey, AppConstants.screenshotToolbarShortcutsKey, AppConstants.screenshotToolbarHiddenKey, AppConstants.screenshotDrawingKey].contains($0.key) }
+        return preferences.filter { [AppConstants.screenshotToolbarOrderKey, AppConstants.screenshotToolbarChildrenKey, AppConstants.screenshotToolbarShortcutsKey, AppConstants.screenshotToolbarHiddenKey, AppConstants.screenshotDrawingKey, AppConstants.screenshotConfirmActionKey].contains($0.key) }
     }
 
     /// 无参数；只广播工具偏好，保留图像与标注，关闭窗口时无订阅者。
@@ -482,6 +482,12 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             MacPlatformBridge.Shared.instance?.requestApplication(
                 AppConstants.recordScreenshotHistoryMethod, arguments: args, result: result
             )
+        case AppConstants.uploadTargetMethod, AppConstants.uploadScreenshotMethod:
+            guard let id = args["id"] as? String, id == captureId else {
+                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
+            }
+            // 主 Dart 引擎持有上传设置与钥匙串凭据，签名并上传后返回分享链接（#111）。
+            MacPlatformBridge.Shared.instance?.requestApplication(call.method, arguments: args, result: result)
         case AppConstants.translatePlainTextMethod:
             guard let id = args["id"] as? String, id == captureId else {
                 result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
