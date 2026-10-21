@@ -63,6 +63,17 @@ MouseCursor cursorForEditHandle(
   }
 }
 
+/// 工具栏下方可展开的设置行；录制与实时翻译为目标选择行，美化与比例为设置行（#103、#106）。
+enum _ExpandedRow { recording, live, beautify, ratio }
+
+/// 方向键对应的单位移动方向（#106）；LogicalKeyboardKey 重写了相等判断，不能作为常量映射的键。
+final _arrowDirections = <LogicalKeyboardKey, Offset>{
+  LogicalKeyboardKey.arrowLeft: Offset(-1, 0),
+  LogicalKeyboardKey.arrowRight: Offset(1, 0),
+  LogicalKeyboardKey.arrowUp: Offset(0, -1),
+  LogicalKeyboardKey.arrowDown: Offset(0, 1),
+};
+
 /// 独立截图编辑入口；channel 连接原生内存截图、剪贴板、保存与贴图。
 class ScreenshotApp extends StatefulWidget {
   const ScreenshotApp({
@@ -82,11 +93,14 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   final EditDocument _document = EditDocument();
   final FocusNode _focusNode = FocusNode();
   // 录制目标属于当前截图草稿；应用异步查询按截图身份和目标隔离。
-  bool _recordingExpanded = false;
-  bool _liveExpanded = false;
+  /// 工具栏下方展开的设置行，同一时刻最多一行；收起美化或比例行后已选值仍生效（#103、#106）。
+  _ExpandedRow? _expandedRow;
+  bool get _recordingExpanded => _expandedRow == _ExpandedRow.recording;
+  bool get _liveExpanded => _expandedRow == _ExpandedRow.live;
+  bool get _beautifyExpanded => _expandedRow == _ExpandedRow.beautify;
 
-  /// 美化行是否展开；收起后已选美化仍生效（#103）。
-  bool _beautifyExpanded = false;
+  /// 本次截图锁定的选区宽高比；null 为自由，新截图重置（#106）。
+  double? _cropRatio;
 
   /// 本次截图的美化参数；null 表示不美化，新截图重置。
   BeautifyStyle? _beautify;
@@ -196,6 +210,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       ? ScreenshotActions.record
       : _beautifyExpanded
       ? ScreenshotActions.beautify
+      : _expandedRow == _ExpandedRow.ratio
+      ? ScreenshotActions.ratio
       : _toolIds.entries.firstWhere((entry) => entry.value == _tool).key;
 
   /// 无参数；返回第二行应展示其子级的一级工具。
@@ -243,11 +259,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         // 原生键路由与 Flutter 键盘共用确认语义，过期捕获不能触发导出。
         await _confirmScreenshot();
       } else if (call.method == MethodNames.escapePressed) {
-        if (_recordingExpanded || _liveExpanded || _beautifyExpanded) {
+        if (_expandedRow != null) {
           setState(() {
-            _recordingExpanded = false;
-            _liveExpanded = false;
-            _beautifyExpanded = false;
+            _expandedRow = null;
             unawaited(_syncRecordingPreview());
             unawaited(_syncLivePreview());
           });
@@ -291,11 +305,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   /// value 为原生截图快照；替换图片并清空上一张草稿，无返回值。
   void _replace(Map<Object?, Object?> value) {
     if (!mounted) return;
-    _recordingExpanded = false;
-    _liveExpanded = false;
-    // 每次截图默认不美化。
-    _beautifyExpanded = false;
+    _expandedRow = null;
+    // 每次截图默认不美化、比例自由。
     _beautify = null;
+    _cropRatio = null;
     unawaited(_syncLivePreview());
     _recordingTarget = CaptureTarget.region;
     _recordingApplication = null;
@@ -1140,13 +1153,12 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _dragCurrent = imagePoint;
       if (_previewCrop != null) {
         if (_resizeHandle != null) {
-          _previewCrop = _resizedRect(
-            _document.cropRect,
-            _resizeHandle!,
-            imagePoint,
-          );
+          // 锁定比例时控制点按比例调整，移动选区不受比例影响（#106）。
+          _previewCrop = _cropRatio == null || _resizeHandle == 'move'
+              ? _resizedRect(_document.cropRect, _resizeHandle!, imagePoint)
+              : _ratioResized(_document.cropRect, _resizeHandle!, imagePoint);
         } else if (_dragStart != null) {
-          _previewCrop = Rect.fromPoints(_dragStart!, imagePoint);
+          _previewCrop = _newSelection(_dragStart!, imagePoint);
         }
         return;
       }
@@ -1189,7 +1201,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     if (cropPreview != null) {
       Rect? next = handle != null ? cropPreview : null;
       if (next == null) {
-        final rect = Rect.fromPoints(start, end);
+        final rect = _newSelection(start, end);
         final minSide = 8 * _pixelRatio;
         if (rect.width >= minSide && rect.height >= minSide) {
           next = rect;
@@ -1407,11 +1419,120 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         bottom = point.dy;
     }
     return Rect.fromLTRB(
-      left <= right - 8 ? left : right - 8,
-      top <= bottom - 8 ? top : bottom - 8,
+      left <= right - CropMetrics.minSide ? left : right - CropMetrics.minSide,
+      top <= bottom - CropMetrics.minSide ? top : bottom - CropMetrics.minSide,
       right,
       bottom,
     );
+  }
+
+  /// start/end 为拖出新选区的起止像素点；返回自由或锁定比例的新选区，比例下不强制最小边长（由松手时判断）。
+  Rect _newSelection(Offset start, Offset end) => _cropRatio == null
+      ? Rect.fromPoints(start, end)
+      : ratioRect(
+          anchor: start,
+          toward: end,
+          ratio: _cropRatio!,
+          byHeight: false,
+          bounds: Size(_document.width.toDouble(), _document.height.toDouble()),
+          minSide: 0,
+        );
+
+  /// bounds 为当前选区，handle 为控制点，point 为指针像素位置；返回按锁定比例、以对角或对边为锚点调整后的选区（#106）。
+  Rect _ratioResized(Rect bounds, String handle, Offset point) {
+    // 角点由指针决定宽度；左右边只改宽度、上下边只改高度，另一边按比例推算。
+    final (anchor, toward, byHeight) = switch (handle) {
+      'nw' => (bounds.bottomRight, point, false),
+      'ne' => (bounds.bottomLeft, point, false),
+      'sw' => (bounds.topRight, point, false),
+      'e' => (bounds.topLeft, Offset(point.dx, bounds.bottom), false),
+      'w' => (bounds.topRight, Offset(point.dx, bounds.bottom), false),
+      's' => (bounds.topLeft, Offset(bounds.right, point.dy), true),
+      'n' => (bounds.bottomLeft, Offset(bounds.right, point.dy), true),
+      _ => (bounds.topLeft, point, false),
+    };
+    return ratioRect(
+      anchor: anchor,
+      toward: toward,
+      ratio: _cropRatio!,
+      byHeight: byHeight,
+      bounds: Size(_document.width.toDouble(), _document.height.toDouble()),
+      minSide: CropMetrics.minSide,
+    );
+  }
+
+  /// ratio 为选择的宽高比，null 为自由；锁定时以选区左上角为锚点保持宽度调整高度，超出截图则整体缩小，无返回值（#106）。
+  void _chooseRatio(double? ratio) {
+    setState(() {
+      _cropRatio = ratio;
+      if (ratio != null) _cropSelected = true;
+    });
+    if (ratio == null) return;
+    final crop = _document.cropRect;
+    _document.setCrop(
+      ratioRect(
+        anchor: crop.topLeft,
+        toward: crop.bottomRight,
+        ratio: ratio,
+        byHeight: false,
+        bounds: Size(_document.width.toDouble(), _document.height.toDouble()),
+        minSide: CropMetrics.minSide,
+      ),
+    );
+  }
+
+  /// direction 为方向键的单位方向；在截图或光标工具、未选中标注时移动或调整选区。
+  /// ⇧ 使用大步长，⌥ 以左上角为锚点调整宽高（锁定比例时另一边按比例推算）；返回是否已处理该按键（#106）。
+  bool _nudgeCrop(Offset direction) {
+    final keyboard = HardwareKeyboard.instance;
+    if (!_document.hasImage ||
+        _busy ||
+        (_tool != ScreenshotTool.crop && _tool != ScreenshotTool.cursor) ||
+        _selectedShapeId != null ||
+        _selectedTextId != null ||
+        keyboard.isMetaPressed ||
+        keyboard.isControlPressed) {
+      return false;
+    }
+    final step = direction *
+        (keyboard.isShiftPressed
+            ? CropMetrics.nudgeLargeStep
+            : CropMetrics.nudgeStep);
+    final crop = _document.cropRect;
+    final bounds = Size(_document.width.toDouble(), _document.height.toDouble());
+    final Rect next;
+    if (!keyboard.isAltPressed) {
+      // 移动保持尺寸，停在截图边缘。
+      next = Rect.fromLTWH(
+        (crop.left + step.dx).clamp(0, bounds.width - crop.width).toDouble(),
+        (crop.top + step.dy).clamp(0, bounds.height - crop.height).toDouble(),
+        crop.width,
+        crop.height,
+      );
+    } else if (_cropRatio == null) {
+      next = Rect.fromLTRB(
+        crop.left,
+        crop.top,
+        (crop.right + step.dx)
+            .clamp(crop.left + CropMetrics.minSide, bounds.width)
+            .toDouble(),
+        (crop.bottom + step.dy)
+            .clamp(crop.top + CropMetrics.minSide, bounds.height)
+            .toDouble(),
+      );
+    } else {
+      next = ratioRect(
+        anchor: crop.topLeft,
+        toward: crop.bottomRight + step,
+        ratio: _cropRatio!,
+        byHeight: step.dy != 0,
+        bounds: bounds,
+        minSide: CropMetrics.minSide,
+      );
+    }
+    setState(() => _cropSelected = true);
+    _document.setCrop(next);
+    return true;
   }
 
   /// start/end 为拖拽端点；返回对应工具的预览标注，裁剪/文字返回 null。
@@ -1728,11 +1849,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         onKeyEvent: (node, event) {
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
           if (event.logicalKey == LogicalKeyboardKey.escape) {
-            if (_recordingExpanded || _liveExpanded || _beautifyExpanded) {
+            if (_expandedRow != null) {
               setState(() {
-                _recordingExpanded = false;
-                _liveExpanded = false;
-                _beautifyExpanded = false;
+                _expandedRow = null;
                 unawaited(_syncRecordingPreview());
                 unawaited(_syncLivePreview());
               });
@@ -1746,8 +1865,13 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             }
             return KeyEventResult.handled;
           }
-          // 文字输入中把 ⌘Z 留给输入框；否则与工具栏共用标注历史。
+          // 文字输入中把 ⌘Z 与方向键留给输入框；否则与工具栏共用标注历史。
           if (_textInputOpen) return KeyEventResult.ignored;
+          // _nudgeCrop 按方向键微调选区；不满足条件时交给后续处理（#106）。
+          final direction = _arrowDirections[event.logicalKey];
+          if (direction != null && _nudgeCrop(direction)) {
+            return KeyEventResult.handled;
+          }
           if (event.logicalKey == LogicalKeyboardKey.enter ||
               event.logicalKey == LogicalKeyboardKey.numpadEnter) {
             // 复用导出事务：复制成功才关闭，失败保留截图供重试。
@@ -1898,13 +2022,16 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                       : 0,
                   applicationCount: _recordingApplications.length,
                   beautify: _beautify,
-                  // 美化行：无背景 + 渐变 + 内边距 + 两种圆角 + 阴影。
-                  beautifyItems: _beautifyExpanded
-                      ? 1 +
-                            BeautifyMetrics.backgrounds.length +
-                            BeautifyMetrics.paddings.length +
-                            3
-                      : 0,
+                  // 美化行：无背景 + 渐变 + 内边距 + 两种圆角 + 阴影；比例行：全部比例预设。
+                  settingsRowItems: switch (_expandedRow) {
+                    _ExpandedRow.beautify =>
+                      1 +
+                          BeautifyMetrics.backgrounds.length +
+                          BeautifyMetrics.paddings.length +
+                          3,
+                    _ExpandedRow.ratio => CropMetrics.ratios.length,
+                    _ => 0,
+                  },
                   feedbackIsError: _failed,
                   feedback: _message,
                   ocrOverlays: _ocrOverlays,
@@ -2088,9 +2215,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           ? () {
               setState(() {
                 _tool = ScreenshotTool.crop;
-                _recordingExpanded = !_recordingExpanded;
-                _liveExpanded = false;
-                _beautifyExpanded = false;
+                _expandedRow = _recordingExpanded
+                    ? null
+                    : _ExpandedRow.recording;
                 _selectedShapeId = null;
                 _selectedTextId = null;
               });
@@ -2119,9 +2246,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           // 切换工具前结束输入并保留文字。
           if (_textInputOpen) _commitText();
           _tool = entry.value;
-          _recordingExpanded = false;
-          _liveExpanded = false;
-          _beautifyExpanded = false;
+          _expandedRow = null;
           unawaited(_syncRecordingPreview());
           unawaited(_syncLivePreview());
           _recordingApplication = null;
@@ -2133,9 +2258,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           ? () {
               setState(() {
                 _tool = ScreenshotTool.crop;
-                _liveExpanded = !_liveExpanded;
-                _recordingExpanded = false;
-                _beautifyExpanded = false;
+                _expandedRow = _liveExpanded ? null : _ExpandedRow.live;
                 _selectedShapeId = null;
                 _selectedTextId = null;
               });
@@ -2147,9 +2270,24 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       ScreenshotActions.beautify: _document.hasImage
           ? () {
               setState(() {
-                _beautifyExpanded = !_beautifyExpanded;
-                _recordingExpanded = false;
-                _liveExpanded = false;
+                _expandedRow = _beautifyExpanded
+                    ? null
+                    : _ExpandedRow.beautify;
+              });
+              unawaited(_syncRecordingPreview());
+              unawaited(_syncLivePreview());
+            }
+          : null,
+      // 比例作用于截图选区：切到截图工具并展开或收起比例行，与其他设置行互斥（#106）。
+      ScreenshotActions.ratio: _document.hasImage
+          ? () {
+              setState(() {
+                _tool = ScreenshotTool.crop;
+                _expandedRow = _expandedRow == _ExpandedRow.ratio
+                    ? null
+                    : _ExpandedRow.ratio;
+                _selectedShapeId = null;
+                _selectedTextId = null;
               });
               unawaited(_syncRecordingPreview());
               unawaited(_syncLivePreview());
@@ -2402,6 +2540,20 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             selected: beautify?.shadow == true,
           ),
         ]),
+      // 比例行：自由与固定宽高比，锁定后框选与调整保持比例（#106）。
+      if (_expandedRow == _ExpandedRow.ratio)
+        captureRow('ratio-row', [
+          for (final preset in CropMetrics.ratios)
+            captureButton(
+              preset.label == '自由' ? '自由比例' : '比例 ${preset.label}',
+              Text(
+                preset.label,
+                style: const TextStyle(fontSize: CropMetrics.ratioFontSize),
+              ),
+              () => _chooseRatio(preset.ratio),
+              selected: _cropRatio == preset.ratio,
+            ),
+        ]),
       if ((_recordingExpanded || _liveExpanded) &&
           _tool == ScreenshotTool.crop)
         captureRow('recording-targets-row', [
@@ -2432,8 +2584,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             _liveExpanded ? '取消实时翻译' : '取消录制',
             const Icon(Icons.close, size: 16),
             () => setState(() {
-              _recordingExpanded = false;
-              _liveExpanded = false;
+              _expandedRow = null;
               unawaited(_syncRecordingPreview());
               unawaited(_syncLivePreview());
               _recordingApplication = null;
@@ -2529,7 +2680,7 @@ class _EditorSurface extends StatefulWidget {
     this.secondaryItemCount = 0,
     this.recordingRows = 0,
     this.beautify,
-    this.beautifyItems = 0,
+    this.settingsRowItems = 0,
     this.applicationCount = 0,
     required this.feedbackIsError,
     required this.feedback,
@@ -2550,8 +2701,8 @@ class _EditorSurface extends StatefulWidget {
   /// 本次截图的美化参数；非 null 时在选区外预览背景与阴影。
   final BeautifyStyle? beautify;
 
-  /// 美化行的按钮数；0 表示美化行收起，参与工具栏尺寸计算。
-  final int beautifyItems;
+  /// 展开中的美化行或比例行的按钮数；0 表示均收起，参与工具栏尺寸计算。
+  final int settingsRowItems;
   final int applicationCount;
   final bool feedbackIsError;
   final MethodChannel channel;
@@ -2635,7 +2786,7 @@ class _EditorSurfaceState extends State<_EditorSurface> {
             widget.secondaryItemCount,
             if (widget.recordingRows > 0) 5,
             if (widget.recordingRows > 1) widget.applicationCount,
-            if (widget.beautifyItems > 0) widget.beautifyItems,
+            if (widget.settingsRowItems > 0) widget.settingsRowItems,
           ].reduce(math.max);
           final layout = ScreenshotEditorLayout.place(
             viewport: constraints.biggest,
@@ -2664,7 +2815,7 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                 1 +
                 (widget.secondaryItemCount > 0 ? 1 : 0) +
                 widget.recordingRows +
-                (widget.beautifyItems > 0 ? 1 : 0),
+                (widget.settingsRowItems > 0 ? 1 : 0),
           );
           final fitted = layout.canvas;
           Rect cropDisplay = mapRectToFitted(
@@ -2932,6 +3083,53 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                     ),
                   ),
                 ),
+                // 选区像素尺寸标签：优先在左上角外侧上方，空间不足时放进选区内（#106）。
+                if ((widget.tool == ScreenshotTool.crop ||
+                        widget.tool == ScreenshotTool.cursor) &&
+                    widget.recordingWindows == null &&
+                    !widget.textInputOpen)
+                  Positioned(
+                    left: cropDisplay.left +
+                        (cropDisplay.top -
+                                    CropMetrics.labelGap -
+                                    CropMetrics.labelHeight <
+                                fitted.top
+                            ? CropMetrics.labelGap
+                            : 0),
+                    top: cropDisplay.top -
+                                CropMetrics.labelGap -
+                                CropMetrics.labelHeight <
+                            fitted.top
+                        ? cropDisplay.top + CropMetrics.labelGap
+                        : cropDisplay.top -
+                              CropMetrics.labelGap -
+                              CropMetrics.labelHeight,
+                    child: IgnorePointer(
+                      child: Container(
+                        key: const Key('crop-size-label'),
+                        height: CropMetrics.labelHeight,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: CropMetrics.labelPadding,
+                        ),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: CropMetrics.labelBackground,
+                          borderRadius: BorderRadius.circular(
+                            CropMetrics.labelRadius,
+                          ),
+                        ),
+                        child: Text(
+                          '${(widget.previewCrop ?? widget.document.cropRect).width.round()} × '
+                          '${(widget.previewCrop ?? widget.document.cropRect).height.round()}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: CropMetrics.labelFontSize,
+                            fontFeatures: [ui.FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 // 拖动时不让工具栏遮住正在变化的选区；松开后按新选区重新定位。
                 if ((widget.dragStart == null || widget.textInputOpen) &&
                     (widget.toolbarItemCount > 0 ||

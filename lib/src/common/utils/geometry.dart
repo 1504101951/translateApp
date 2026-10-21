@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 /// points 为点列；返回包围盒，单点时给 1px 以免空矩形。
@@ -96,4 +97,39 @@ String? editHandleAt(Rect bounds, Offset point, double pad, {double? edgePad}) {
   }
   if (bounds.contains(point)) return 'move';
   return null;
+}
+
+/// anchor 为保持不动的角点，toward 为指针一侧的点，ratio 为宽高比，byHeight 为 true 时由高度推算宽度，
+/// bounds 为截图像素尺寸，minSide 为较短边的最小长度（0 表示不限制）。
+/// 返回从 anchor 指向 toward 所在方向、保持 ratio 且不越出 bounds 的矩形；空间不足时整体缩小（#106）。
+Rect ratioRect({
+  required Offset anchor,
+  required Offset toward,
+  required double ratio,
+  required bool byHeight,
+  required Size bounds,
+  required double minSide,
+}) {
+  final right = toward.dx >= anchor.dx;
+  final down = toward.dy >= anchor.dy;
+  // 先按驱动方向得到宽度，再保证较短边不小于 minSide。
+  var width = byHeight
+      ? (toward.dy - anchor.dy).abs() * ratio
+      : (toward.dx - anchor.dx).abs();
+  width = math.max(width, minSide * math.max(1, ratio));
+  // 指针一侧剩余空间换算成宽度上限，超出时整体缩小。
+  width = math.min(
+    width,
+    math.min(
+      right ? bounds.width - anchor.dx : anchor.dx,
+      (down ? bounds.height - anchor.dy : anchor.dy) * ratio,
+    ),
+  );
+  final height = width / ratio;
+  return Rect.fromLTWH(
+    right ? anchor.dx : anchor.dx - width,
+    down ? anchor.dy : anchor.dy - height,
+    width,
+    height,
+  );
 }

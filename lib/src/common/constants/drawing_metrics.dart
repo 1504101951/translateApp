@@ -54,3 +54,34 @@ abstract final class BeautifyMetrics {
   static const shadowBlur = 24.0;
   static const shadowOffset = 8.0;
 }
+
+/// 框选精确控制的预设与数值（#106），全部对应样式Spec #67；长度单位标注在各字段。
+abstract final class CropMetrics {
+  /// 比例行的预设：按钮文字与宽高比，null 为自由。
+  static const ratios = <({String label, double? ratio})>[
+    (label: '自由', ratio: null),
+    (label: '1:1', ratio: 1),
+    (label: '4:3', ratio: 4 / 3),
+    (label: '3:4', ratio: 3 / 4),
+    (label: '16:9', ratio: 16 / 9),
+    (label: '9:16', ratio: 9 / 16),
+  ];
+
+  /// 比例按钮文字字号（点），四字符比例放进 32pt 按钮。
+  static const ratioFontSize = 11.0;
+
+  /// 方向键每次移动或调整的截图像素；按住 ⇧ 时使用大步长。
+  static const nudgeStep = 1.0;
+  static const nudgeLargeStep = 10.0;
+
+  /// 选区与文字框的最小边长（截图像素），拖动、比例与方向键调整共用。
+  static const minSide = 8.0;
+
+  /// 尺寸标签（点）：字号、固定高度、左右内边距、与选区的间距、圆角及黑色 60% 背景。
+  static const labelFontSize = 12.0;
+  static const labelHeight = 18.0;
+  static const labelPadding = 6.0;
+  static const labelGap = 4.0;
+  static const labelRadius = 4.0;
+  static const labelBackground = Color(0x99000000);
+}

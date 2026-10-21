@@ -15,7 +15,7 @@ Dart业务逻辑和Flutter界面行为回归测试。
 11. [permission_wizard_app_test.dart](permission_wizard_app_test.dart)：验证权限向导显示、状态刷新与完成行为。
 12. [permission_wizard_test.dart](permission_wizard_test.dart)：验证两项权限齐备后的进入条件。
 13. [screenshot_app_test.dart](screenshot_app_test.dart)：验证截图编辑、标注与导出行为。
-14. [screenshot_controls_test.dart](screenshot_controls_test.dart)：验证截图工具快捷键、选择、拉伸及确认行为。
+14. [screenshot_controls_test.dart](screenshot_controls_test.dart)：验证截图工具快捷键、选择、拉伸、方向键微调、固定比例及确认行为。
 15. [screenshot_toolbar_preferences_test.dart](screenshot_toolbar_preferences_test.dart)：验证工具排序、显隐、快捷键录制和配置校验。
 16. [screenshot_translation_test.dart](screenshot_translation_test.dart)：验证截图文本翻译、捕获失效与历史写入。
 17. [selection_history_test.dart](selection_history_test.dart)：验证选区翻译成功、失败和取消时的历史记录边界。

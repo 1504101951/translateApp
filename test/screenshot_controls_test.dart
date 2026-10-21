@@ -259,6 +259,264 @@ void main() {
     await mouse.removePointer();
   });
 
+  test('比例矩形朝指针方向生长，较短边不小于下限，空间不足时整体缩小', () {
+    // 边界：宽度由 dx 驱动时忽略 dy；指针在锚点左上方时向左上生长；byHeight 由 dy 推算宽度；
+    // 下方只剩 40、右侧只剩 60 时分别被对应方向限制；横向与纵向比例下较短边各自不小于 8；minSide 为 0 时允许空矩形（#106）。
+    const bounds = Size(960, 740);
+    Rect rect(
+      Offset anchor,
+      Offset toward,
+      double ratio, {
+      bool byHeight = false,
+      double minSide = 8,
+    }) => ratioRect(
+      anchor: anchor,
+      toward: toward,
+      ratio: ratio,
+      byHeight: byHeight,
+      bounds: bounds,
+      minSide: minSide,
+    );
+    expect(
+      rect(const Offset(100, 100), const Offset(300, 400), 1),
+      const Rect.fromLTWH(100, 100, 200, 200),
+    );
+    expect(
+      rect(const Offset(100, 100), const Offset(40, 0), 16 / 9),
+      const Rect.fromLTWH(40, 66.25, 60, 33.75),
+    );
+    expect(
+      rect(const Offset(0, 0), const Offset(500, 90), 16 / 9, byHeight: true),
+      const Rect.fromLTWH(0, 0, 160, 90),
+    );
+    expect(
+      rect(const Offset(100, 700), const Offset(900, 710), 1),
+      const Rect.fromLTWH(100, 700, 40, 40),
+    );
+    expect(
+      rect(const Offset(900, 100), const Offset(1200, 200), 1),
+      const Rect.fromLTWH(900, 100, 60, 60),
+    );
+    final landscape = rect(const Offset(10, 10), const Offset(11, 11), 16 / 9);
+    expect(landscape.height, closeTo(8, 1e-9));
+    expect(landscape.width, closeTo(128 / 9, 1e-9));
+    final portrait = rect(const Offset(10, 10), const Offset(11, 11), 9 / 16);
+    expect(portrait.width, closeTo(8, 1e-9));
+    expect(portrait.height, closeTo(128 / 9, 1e-9));
+    expect(
+      rect(const Offset(10, 10), const Offset(10, 10), 1, minSide: 0),
+      const Rect.fromLTWH(10, 10, 0, 0),
+    );
+  });
+
+  testWidgets('方向键移动选区 1 像素、⇧ 10 像素，⌥ 调整大小，限制在截图内且最小边长 8', (tester) async {
+    // 边界：移动与 ⌥ 调整均停在截图四边；⌥⇧← 连按后宽度停在 8；
+    // 尺寸标签上方空间足够时贴在选区左上角外侧，选区贴顶时放进选区内 4pt；导出图与记住的区域和标签一致（#106）。
+    final calls = (await _pumpSelectedCrop(tester, 'test/crop-nudge')).calls;
+    final label = find.byKey(const Key('crop-size-label'));
+    expect(find.text('400 × 300'), findsOneWidget);
+    expect(tester.getRect(label).bottom, 176);
+    expect(tester.getRect(label).left, 200);
+
+    await _arrow(tester, LogicalKeyboardKey.arrowRight);
+    await _arrow(tester, LogicalKeyboardKey.arrowDown);
+    await _arrow(
+      tester,
+      LogicalKeyboardKey.arrowLeft,
+      modifiers: [LogicalKeyboardKey.shiftLeft],
+    );
+    expect(await _copyCrop(tester, calls), (
+      const Size(400, 300),
+      const Rect.fromLTWH(191, 181, 400, 300),
+    ));
+
+    await _arrow(
+      tester,
+      LogicalKeyboardKey.arrowRight,
+      modifiers: [LogicalKeyboardKey.altLeft],
+    );
+    await _arrow(
+      tester,
+      LogicalKeyboardKey.arrowUp,
+      modifiers: [LogicalKeyboardKey.altLeft, LogicalKeyboardKey.shiftLeft],
+    );
+    expect(find.text('401 × 290'), findsOneWidget);
+    for (final key in [
+      LogicalKeyboardKey.arrowRight,
+      LogicalKeyboardKey.arrowDown,
+    ]) {
+      await _arrow(
+        tester,
+        key,
+        modifiers: [LogicalKeyboardKey.shiftLeft],
+        times: 60,
+      );
+    }
+    expect(await _copyCrop(tester, calls), (
+      const Size(401, 290),
+      const Rect.fromLTWH(559, 450, 401, 290),
+    ));
+
+    for (final key in [
+      LogicalKeyboardKey.arrowLeft,
+      LogicalKeyboardKey.arrowUp,
+    ]) {
+      await _arrow(
+        tester,
+        key,
+        modifiers: [LogicalKeyboardKey.shiftLeft],
+        times: 60,
+      );
+    }
+    expect(tester.getRect(label).topLeft, const Offset(4, 4));
+    await _arrow(
+      tester,
+      LogicalKeyboardKey.arrowLeft,
+      modifiers: [LogicalKeyboardKey.altLeft, LogicalKeyboardKey.shiftLeft],
+      times: 50,
+    );
+    expect(find.text('8 × 290'), findsOneWidget);
+    expect(await _copyCrop(tester, calls), (
+      const Size(8, 290),
+      const Rect.fromLTWH(0, 0, 8, 290),
+    ));
+    for (final key in [
+      LogicalKeyboardKey.arrowRight,
+      LogicalKeyboardKey.arrowDown,
+    ]) {
+      await _arrow(
+        tester,
+        key,
+        modifiers: [LogicalKeyboardKey.altLeft, LogicalKeyboardKey.shiftLeft],
+        times: 100,
+      );
+    }
+    expect(find.text('960 × 740'), findsOneWidget);
+    // 等待复制反馈计时结束，避免遗留计时器。
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('文字输入中与选中标注时方向键不移动选区，取消选中后恢复', (tester) async {
+    // 边界：输入框打开时隐藏尺寸标签且方向键留给输入框；光标工具选中矩形后方向键无效；
+    // 点击空白取消选中后同一按键移动 1 像素，证明前两次是被条件拦下（#106）。
+    final calls = (await _pumpSelectedCrop(
+      tester,
+      'test/crop-nudge-ignore',
+    )).calls;
+    await tester.tap(find.byKey(const Key('screenshot-tool-text')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('screenshot-canvas')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('screenshot-text-field')),
+      'Hi',
+    );
+    expect(find.byKey(const Key('crop-size-label')), findsNothing);
+    await _arrow(tester, LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('screenshot-tool-rect')));
+    await tester.pumpAndSettle();
+    await tester.dragFrom(const Offset(250, 250), const Offset(100, 80));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('screenshot-tool-cursor')));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(350, 300));
+    // 画布同时识别双击，单击要等双击超时后才生效。
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
+    await _arrow(tester, LogicalKeyboardKey.arrowRight);
+    expect(
+      (await _copyCrop(tester, calls)).$2,
+      const Rect.fromLTWH(200, 180, 400, 300),
+    );
+
+    await tester.tapAt(const Offset(100, 100));
+    // 画布同时识别双击，单击要等双击超时后才生效。
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
+    await _arrow(tester, LogicalKeyboardKey.arrowRight);
+    expect(
+      (await _copyCrop(tester, calls)).$2,
+      const Rect.fromLTWH(201, 180, 400, 300),
+    );
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('锁定比例后新框选、控制点与 ⌥ 方向键保持比例；自由与新截图解除', (tester) async {
+    // 边界：选择 1:1/16:9 以左上角为锚点保持宽度；角点由宽度驱动、上边由高度驱动；
+    // Esc 先收起比例行但比例仍生效；选择自由后 ⌥↓ 只改高度；新截图恢复自由（#106）。
+    final pumped = await _pumpSelectedCrop(tester, 'test/crop-ratio');
+    await tester.tap(find.byKey(const Key(ScreenshotActions.ratio)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ratio-row')), findsOneWidget);
+    await tester.tap(find.byTooltip('比例 1:1'));
+    await tester.pumpAndSettle();
+    expect(find.text('400 × 400'), findsOneWidget);
+    await tester.tap(find.byTooltip('比例 16:9'));
+    await tester.pumpAndSettle();
+    expect(find.text('400 × 225'), findsOneWidget);
+
+    await tester.dragFrom(const Offset(600, 405), const Offset(100, 300));
+    await tester.pumpAndSettle();
+    expect(find.text('500 × 281'), findsOneWidget);
+    await tester.dragFrom(const Offset(450, 180), const Offset(0, -80));
+    await tester.pumpAndSettle();
+    expect(find.text('642 × 361'), findsOneWidget);
+    await tester.dragFrom(const Offset(20, 20), const Offset(160, 40));
+    await tester.pumpAndSettle();
+    expect(find.text('160 × 90'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ratio-row')), findsNothing);
+    expect(find.byKey(const Key('screenshot-canvas')), findsOneWidget);
+    await _arrow(
+      tester,
+      LogicalKeyboardKey.arrowRight,
+      modifiers: [LogicalKeyboardKey.altLeft],
+    );
+    expect(find.text('161 × 91'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key(ScreenshotActions.ratio)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('自由比例'));
+    await tester.pumpAndSettle();
+    await _arrow(
+      tester,
+      LogicalKeyboardKey.arrowDown,
+      modifiers: [LogicalKeyboardKey.altLeft],
+    );
+    expect(find.text('161 × 92'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('比例 1:1'));
+    await tester.pumpAndSettle();
+    expect(find.text('161 × 161'), findsOneWidget);
+    await tester.runAsync(() async {
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            pumped.channel.name,
+            const StandardMethodCodec().encodeMethodCall(
+              MethodCall(MethodNames.screenshotChanged, {
+                ...pumped.snapshot,
+                'id': 'second',
+              }),
+            ),
+            (_) {},
+          );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ratio-row')), findsNothing);
+    await _arrow(
+      tester,
+      LogicalKeyboardKey.arrowRight,
+      modifiers: [LogicalKeyboardKey.altLeft],
+    );
+    expect(find.text('401 × 300'), findsOneWidget);
+  });
+
   testWidgets('光标优先操作文字并可选中移动拉伸截图，空白拖动不重新框选', (tester) async {
     // 使用与视口1:1的图像，实际鼠标坐标应对应导出像素和文本框几何。
     tester.view.physicalSize = const Size(960, 740);
@@ -931,4 +1189,113 @@ Future<Uint8List> _image({int width = 320, int height = 240}) async {
   image.dispose();
   picture.dispose();
   return bytes!.buffer.asUint8List();
+}
+
+/// tester 为测试驱动，name 为通道名；以 960×740 截图、已选中的选区 (200,180,400,300) 装载编辑器。
+/// 返回通道、记录全部调用的列表与截图快照，供导出后读取选区或发送新截图（#106）。
+Future<
+  ({
+    MethodChannel channel,
+    List<MethodCall> calls,
+    Map<String, Object?> snapshot,
+  })
+>
+_pumpSelectedCrop(WidgetTester tester, String name) async {
+  tester.view.physicalSize = const Size(960, 740);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final png = await tester.runAsync(() => _image(width: 960, height: 740));
+  final channel = MethodChannel(name);
+  final calls = <MethodCall>[];
+  final snapshot = <String, Object?>{
+    'id': 'crop',
+    'bytes': png,
+    'width': 960,
+    'height': 740,
+    'capturedAt': 0,
+    'cropX': 200,
+    'cropY': 180,
+    'cropWidth': 400,
+    'cropHeight': 300,
+    'cropSelected': true,
+  };
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(channel, (call) async {
+    calls.add(call);
+    return call.method == MethodNames.getScreenshot ? snapshot : null;
+  });
+  addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+  await tester.pumpWidget(ScreenshotApp(channel: channel));
+  await tester.pumpAndSettle();
+  return (channel: channel, calls: calls, snapshot: snapshot);
+}
+
+/// tester 为测试驱动，key 为方向键，modifiers 为按住的修饰键，times 为连按次数；发送按键并刷新，无返回值。
+Future<void> _arrow(
+  WidgetTester tester,
+  LogicalKeyboardKey key, {
+  List<LogicalKeyboardKey> modifiers = const [],
+  int times = 1,
+}) async {
+  for (final modifier in modifiers) {
+    await tester.sendKeyDownEvent(modifier);
+  }
+  for (var i = 0; i < times; i++) {
+    await tester.sendKeyEvent(key);
+  }
+  for (final modifier in modifiers.reversed) {
+    await tester.sendKeyUpEvent(modifier);
+  }
+  await tester.pumpAndSettle();
+}
+
+/// tester 为测试驱动，calls 为通道调用记录；点击复制，返回导出图像素尺寸与记住的截图区域。
+Future<(Size, Rect)> _copyCrop(
+  WidgetTester tester,
+  List<MethodCall> calls,
+) async {
+  calls.clear();
+  final copy = find.byKey(const Key(ScreenshotActions.copy));
+  await tester.ensureVisible(copy);
+  // 导出与 PNG 解码使用真实图像线程。
+  final size = await tester.runAsync(() async {
+    await tester.tap(copy);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final bytes =
+        (calls
+                    .firstWhere(
+                      (call) => call.method == MethodNames.copyScreenshot,
+                    )
+                    .arguments
+                as Map)['bytes']
+            as Uint8List;
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final size = Size(
+      frame.image.width.toDouble(),
+      frame.image.height.toDouble(),
+    );
+    frame.image.dispose();
+    codec.dispose();
+    return size;
+  });
+  await tester.pumpAndSettle();
+  final region =
+      calls
+              .firstWhere(
+                (call) => call.method == MethodNames.rememberScreenshotRegion,
+              )
+              .arguments
+          as Map;
+  return (
+    size!,
+    Rect.fromLTWH(
+      (region['x'] as num).toDouble(),
+      (region['y'] as num).toDouble(),
+      (region['width'] as num).toDouble(),
+      (region['height'] as num).toDouble(),
+    ),
+  );
 }

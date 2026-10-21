@@ -20,6 +20,7 @@ abstract final class ScreenshotActions {
   static const mask = 'screenshot-tool-mask';
   static const brush = 'screenshot-tool-brush';
   static const beautify = 'screenshot-beautify';
+  static const ratio = 'screenshot-ratio';
   static const pin = 'screenshot-pin';
   static const save = 'screenshot-save';
   static const copy = 'screenshot-copy';
@@ -48,6 +49,8 @@ abstract final class ScreenshotActions {
     brush: (icon: Icons.brush, hostsChildren: true),
     // 美化展开自己的设置行，不承载子级（#103）。
     beautify: (icon: Icons.auto_awesome_outlined, hostsChildren: false),
+    // 比例展开比例行，锁定后续框选与调整的宽高比（#106）。
+    ratio: (icon: Icons.aspect_ratio, hostsChildren: false),
     pin: (icon: Icons.push_pin_outlined, hostsChildren: false),
     save: (icon: Icons.save_outlined, hostsChildren: false),
     copy: (icon: Icons.copy_outlined, hostsChildren: false),
@@ -89,6 +92,7 @@ abstract final class ScreenshotActions {
     mask: '图形',
     brush: '画笔',
     beautify: '美化',
+    ratio: '比例',
     pin: '贴图',
     save: '保存',
     copy: '复制图片',

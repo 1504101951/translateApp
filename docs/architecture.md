@@ -149,6 +149,8 @@ TranslationProgress 只保存已完成分片、配对和上一片双尾；Select
 
 截图美化（#103）由 `BeautifyStyle` 描述，`paintBeautifyBackdrop` 在内容外画渐变背景并在背景上画阴影、覆盖圆角外四角；编辑器的 `_DimPainter` 以显示坐标调用它预览，`EditDocument.renderPng(beautify:, unit:)` 以像素倍率调用它导出，二者一致。复制与保存传入美化参数，贴图与 OCR 不传。美化参数只属于本次截图，不写偏好。
 
+框选精确控制（#106）的比例修正由 `common/utils/geometry.dart` 的 `ratioRect` 完成：给定不动的锚点、指针点、宽高比、驱动方向与截图尺寸，返回保持比例、不越界且较短边不小于下限的矩形；新框选、八个控制点、选择比例与 ⌥ 方向键共用它。比例与方向键微调状态只属于 `ScreenshotApp` 本次截图，不写偏好，也不进入 `EditDocument` 撤销历史。工具栏下方展开的行由 `_ExpandedRow`（录制、实时翻译、美化、比例）统一表示，同一时刻最多一行。
+
 DrawingStyle是标注组合的不可变样式，颜色与线宽控件只返回已确认的值；文档沿用现有命令历史。原生采集在取得前台应用时冻结显示名，不在异步完成后按PID重新查询。
 
 图形工具采用rect配置身份，四种图形和普通/马赛克画笔通过同一绘制方法服务预览与PNG导出；浮层选择框不进入像素。共享数值在common/constants/drawing_metrics.dart，控件在screenshot/drawing_controls.dart。
