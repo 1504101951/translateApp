@@ -153,8 +153,8 @@ TranslationProgress 只保存已完成分片、配对和上一片双尾；Select
 
 DrawingStyle是标注组合的不可变样式，颜色与线宽控件只返回已确认的值；文档沿用现有命令历史。原生采集在取得前台应用时冻结显示名，不在异步完成后按PID重新查询。
 
-图形工具采用rect配置身份，四种图形和普通/马赛克画笔通过同一绘制方法服务预览与PNG导出；浮层选择框不进入像素。共享数值在common/constants/drawing_metrics.dart，控件在screenshot/drawing_controls.dart。
+图形工具采用rect配置身份，四种图形、编号标记和普通/马赛克/荧光笔画笔通过同一绘制方法服务预览与PNG导出；浮层选择框不进入像素。编号标记（#107）为 `AnnotationKind.step`，编号不存进标注，由 `stepNumbers` 按文档标注顺序推导后传给 `EditDocument.paintAnnotation`，撤销/重做增删标记后其余编号自然更新。荧光笔为 `ShapeMode.highlighter`，样式颜色保持不透明，绘制时整条轨迹一次施加 40% 不透明度。共享数值在common/constants/drawing_metrics.dart，控件在screenshot/drawing_controls.dart。
 
 DrawingPreferences按工具保存颜色、线宽、形状与画笔模式，主Dart设置队列验证并写入screenshotDrawing偏好。历史SQLite插入成功通知原生转发historyChanged，窗口内按请求版本重载；主题内层Builder驱动完整历史列表样式重建。
 
-绘图属性按具体图形模式、普通画笔与马赛克画笔隔离。DrawingPreferences.styleFor负责解析对应子工具的不可变样式；调整写入自己的variants槽，基础配置用于初始化未调整的子工具，不在子工具之间传播修改。
+绘图属性按具体图形模式、普通画笔、马赛克画笔与荧光笔隔离。DrawingPreferences.styleFor负责解析对应子工具的不可变样式；调整写入自己的variants槽，基础配置用于初始化未调整的子工具，不在子工具之间传播修改。

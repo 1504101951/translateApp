@@ -155,6 +155,16 @@ double textBoxHeight({
   required double width,
 }) => layoutTextBox(text: text, fontSize: fontSize, width: width).height;
 
+/// annotations 为文档标注（按绘制顺序）；返回每个编号标记 id 对应的编号，按出现顺序从 1 递增。
+/// 编号不存进标注，增删标记后其余标记随顺序重新编号（#107）。
+Map<String, int> stepNumbers(Iterable<EditAnnotation> annotations) {
+  var next = 0;
+  return {
+    for (final annotation in annotations)
+      if (annotation.kind == AnnotationKind.step) annotation.id: ++next,
+  };
+}
+
 /// 截图编辑文档：持有源 PNG、裁剪框与平铺标注，并合成导出位图。
 class EditDocument extends ChangeNotifier {
   Uint8List? _sourcePng;
@@ -316,8 +326,15 @@ class EditDocument extends ChangeNotifier {
     canvas.save();
     canvas.clipRect(dst);
     canvas.translate(-srcRect.left, -srcRect.top);
+    // stepNumbers 按标注顺序给编号标记编号，与编辑预览一致。
+    final numbers = stepNumbers(_annotations);
     for (final annotation in _annotations) {
-      paintAnnotation(canvas, annotation, sourceImage: source);
+      paintAnnotation(
+        canvas,
+        annotation,
+        sourceImage: source,
+        stepNumber: numbers[annotation.id],
+      );
     }
     canvas.restore();
     final content = recorder.endRecording();
@@ -368,14 +385,20 @@ class EditDocument extends ChangeNotifier {
     return recorder.endRecording();
   }
 
-  /// canvas 为绘制目标，annotation 为源图像素坐标下的标注；无返回值。
+  /// canvas 为绘制目标，annotation 为源图像素坐标下的标注，stepNumber 为编号标记的编号（其他标注不需要）；无返回值。
   static void paintAnnotation(
     Canvas canvas,
     EditAnnotation annotation, {
     ui.Image? sourceImage,
+    int? stepNumber,
   }) {
-    // 统一渲染接缝让预览与导出使用相同原图马赛克算法。
-    _paintAnnotation(canvas, annotation, sourceImage: sourceImage);
+    // 统一渲染接缝让预览与导出使用相同原图马赛克算法与编号样式。
+    _paintAnnotation(
+      canvas,
+      annotation,
+      sourceImage: sourceImage,
+      stepNumber: stepNumber,
+    );
   }
 
   /// command为编辑命令；执行并入撤销栈，清空重做栈并通知监听者，无返回值。
@@ -467,10 +490,29 @@ class EditDocument extends ChangeNotifier {
     canvas.restore();
   }
 
+  /// text 为编号文字，fontSize 为字号，color 为数字颜色；返回不换行的粗体段落。
+  static ui.Paragraph _stepLabel(String text, double fontSize, Color color) {
+    final builder =
+        ui.ParagraphBuilder(
+            ui.ParagraphStyle(fontSize: fontSize, fontWeight: FontWeight.w700),
+          )
+          ..pushStyle(
+            ui.TextStyle(
+              color: color,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w700,
+            ),
+          )
+          ..addText(text);
+    return builder.build()
+      ..layout(const ui.ParagraphConstraints(width: double.infinity));
+  }
+
   static void _paintAnnotation(
     Canvas canvas,
     EditAnnotation annotation, {
     ui.Image? sourceImage,
+    int? stepNumber,
   }) {
     switch (annotation.kind) {
       case AnnotationKind.rectangle:
@@ -551,8 +593,13 @@ class EditDocument extends ChangeNotifier {
           _paintMosaic(canvas, sourceImage, clip, clip.getBounds());
           return;
         }
+        // 荧光笔整条轨迹一次绘制半透明颜色，同一笔内重叠处不叠加加深（#107）。
         final paint = Paint()
-          ..color = annotation.color
+          ..color = annotation.shapeMode == ShapeMode.highlighter
+              ? annotation.color.withValues(
+                  alpha: DrawingMetrics.highlighterOpacity,
+                )
+              : annotation.color
           ..strokeWidth = annotation.strokeWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
@@ -564,6 +611,34 @@ class EditDocument extends ChangeNotifier {
           path.lineTo(point.dx, point.dy);
         }
         canvas.drawPath(path, paint);
+      case AnnotationKind.step:
+        // 实心圆内居中画编号；数字颜色按圆的亮度取黑或白，过宽时缩小字号（#107）。
+        final diameter = annotation.bounds.width;
+        canvas.drawCircle(
+          annotation.bounds.center,
+          diameter / 2,
+          Paint()..color = annotation.color,
+        );
+        final digits =
+            annotation.color.computeLuminance() >
+                DrawingMetrics.stepLightThreshold
+            ? const Color(0xFF000000)
+            : const Color(0xFFFFFFFF);
+        final fontSize = diameter * DrawingMetrics.stepFontRatio;
+        final maxWidth = diameter * DrawingMetrics.stepTextMaxRatio;
+        var label = _stepLabel('${stepNumber!}', fontSize, digits);
+        if (label.maxIntrinsicWidth > maxWidth) {
+          label = _stepLabel(
+            '$stepNumber',
+            fontSize * maxWidth / label.maxIntrinsicWidth,
+            digits,
+          );
+        }
+        canvas.drawParagraph(
+          label,
+          annotation.bounds.center -
+              Offset(label.maxIntrinsicWidth / 2, label.height / 2),
+        );
       case AnnotationKind.text:
         // layoutTextBox 按文字框宽度换行，与编辑时的高度测量一致。
         canvas.drawParagraph(

@@ -26,9 +26,10 @@ bool supportsStrokeWidth(ScreenshotTool tool) => const {
   ScreenshotTool.brush,
 }.contains(tool);
 
-/// tool为工具、mode为图形模式；返回是否支持颜色，马赛克不消耗颜色。
+/// tool为工具、mode为图形模式；返回是否支持颜色，马赛克不消耗颜色，编号只调整颜色。
 bool supportsDrawingColor(ScreenshotTool tool, ShapeMode mode) =>
     (tool == ScreenshotTool.brush && mode != ShapeMode.mosaic) ||
     tool == ScreenshotTool.rect ||
     tool == ScreenshotTool.arrow ||
+    tool == ScreenshotTool.step ||
     tool == ScreenshotTool.text;

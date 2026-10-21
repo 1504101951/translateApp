@@ -13,6 +13,18 @@ abstract final class DrawingMetrics {
   static const maxWidth = 20.0;
   static const defaultWidth = 3.0;
   static const mosaicPixels = 12.0;
+
+  /// 荧光笔（#107）：默认黄色与 16pt 粗细，绘制时施加 40% 不透明度。
+  static const highlighterColor = Color(0xFFFFCC00);
+  static const highlighterWidth = 16.0;
+  static const highlighterOpacity = 0.4;
+
+  /// 步骤编号标记（#107）：圆直径（pt），数字字号占直径比例，数字最大宽度占直径比例；
+  /// 圆的相对亮度超过阈值时数字用黑色，否则用白色。
+  static const stepDiameter = 28.0;
+  static const stepFontRatio = 0.55;
+  static const stepTextMaxRatio = 0.8;
+  static const stepLightThreshold = 0.5;
   static const colors = <Color>[
     Color(0xFFFF3B30),
     Color(0xFFFF9500),

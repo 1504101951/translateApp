@@ -198,6 +198,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     ScreenshotActions.crop: ScreenshotTool.crop,
     ScreenshotActions.rect: ScreenshotTool.rect,
     ScreenshotActions.arrow: ScreenshotTool.arrow,
+    ScreenshotActions.step: ScreenshotTool.step,
     ScreenshotActions.text: ScreenshotTool.text,
     ScreenshotActions.brush: ScreenshotTool.brush,
   };
@@ -405,6 +406,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       AnnotationKind.stroke => ScreenshotTool.brush,
       AnnotationKind.text => ScreenshotTool.text,
       AnnotationKind.mask => ScreenshotTool.rect,
+      AnnotationKind.step => ScreenshotTool.step,
     };
   }
 
@@ -417,6 +419,14 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         continue;
       }
       if (a.kind == AnnotationKind.mask) return a;
+      // 编号标记按圆形命中（#107）。
+      if (a.kind == AnnotationKind.step) {
+        if ((point - a.bounds.center).distance <=
+            a.bounds.width / 2 + tolerance) {
+          return a;
+        }
+        continue;
+      }
       if (a.kind == AnnotationKind.rectangle) {
         if (a.shape.circular) {
           final distance = (point - a.bounds.center).distance;
@@ -1576,6 +1586,17 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           ),
           bounds: _drawing.shape.circular ? _circleBounds(bounds) : bounds,
         );
+      // 编号标记以指针所在处为圆心，拖动时跟随指针（#107）。
+      case ScreenshotTool.step:
+        return EditAnnotation(
+          id: 'preview',
+          kind: AnnotationKind.step,
+          style: _nextStyle,
+          bounds: Rect.fromCircle(
+            center: end,
+            radius: DrawingMetrics.stepDiameter * _pixelRatio / 2,
+          ),
+        );
       case ScreenshotTool.arrow:
         return EditAnnotation(
           id: 'preview',
@@ -1754,6 +1775,21 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _selectedTextId = null;
       _cropSelected = inside;
     });
+  }
+
+  /// imagePoint 为点击位置；在该处放置下一个编号标记并记入撤销历史，无返回值（#107）。
+  void _placeStep(Offset imagePoint) {
+    if (!_document.hasImage || _busy) return;
+    // _draftAnnotation 生成以点击处为圆心的编号标记，文档分配正式 id。
+    final draft = _draftAnnotation(imagePoint, imagePoint)!;
+    _document.addAnnotation(
+      EditAnnotation(
+        id: '',
+        kind: draft.kind,
+        style: draft.style,
+        bounds: draft.bounds,
+      ),
+    );
   }
 
   /// imagePoint 为点击位置；点已有文字再编辑，点空白落默认文本框。
@@ -1965,6 +2001,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                     if (_tool == renderedTool) _onTextTap(point);
                   },
                   onCropTap: _onCropTap,
+                  onStepTap: (point) {
+                    if (_tool == renderedTool) _placeStep(point);
+                  },
                   cropSelected:
                       _cropSelected &&
                       !((_recordingExpanded || _liveExpanded) &&
@@ -2344,6 +2383,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       '${ScreenshotActions.shapePrefix}filledCircle': Icons.circle,
       '${ScreenshotActions.brushPrefix}solid': Icons.brush,
       '${ScreenshotActions.brushPrefix}mosaic': Icons.grid_on,
+      '${ScreenshotActions.brushPrefix}highlighter': Icons.border_color,
     };
     // 模式按钮不产生hover层；普通操作保留主题反馈，属性不进入顶层排序。
     Widget button(String id) {
@@ -2669,6 +2709,7 @@ class _EditorSurface extends StatefulWidget {
     required this.onDragEnd,
     required this.onTextTap,
     required this.onCropTap,
+    required this.onStepTap,
     required this.cropSelected,
     required this.activeHandle,
     required this.onDoubleTap,
@@ -2732,6 +2773,9 @@ class _EditorSurface extends StatefulWidget {
   final VoidCallback onDragEnd;
   final ValueChanged<Offset> onTextTap;
   final ValueChanged<Offset> onCropTap;
+
+  /// 编号工具下的单击位置（源图像素）；放置编号标记（#107）。
+  final ValueChanged<Offset> onStepTap;
   final bool cropSelected;
   final String? activeHandle;
   final VoidCallback onDoubleTap;
@@ -2848,17 +2892,20 @@ class _EditorSurfaceState extends State<_EditorSurface> {
             // 裁剪起点就是按下点，不能被手势识别阈值移动。
             dragStartBehavior: DragStartBehavior.down,
             behavior: HitTestBehavior.opaque,
+            // 文字与编号工具的连续单击不能被识别为双击复制，也不等待双击超时。
             onDoubleTapDown:
                 widget.textInputOpen ||
                     widget.busy ||
-                    widget.tool == ScreenshotTool.text
+                    widget.tool == ScreenshotTool.text ||
+                    widget.tool == ScreenshotTool.step
                 ? null
                 : (details) =>
                       widget.onDoubleTapDown(toImage(details.localPosition)),
             onDoubleTap:
                 widget.textInputOpen ||
                     widget.busy ||
-                    widget.tool == ScreenshotTool.text
+                    widget.tool == ScreenshotTool.text ||
+                    widget.tool == ScreenshotTool.step
                 ? null
                 : widget.onDoubleTap,
             onPanStart: widget.busy
@@ -2883,6 +2930,8 @@ class _EditorSurfaceState extends State<_EditorSurface> {
                     } else if (widget.tool == ScreenshotTool.text ||
                         widget.tool == ScreenshotTool.cursor) {
                       widget.onTextTap(point);
+                    } else if (widget.tool == ScreenshotTool.step) {
+                      widget.onStepTap(point);
                     }
                   }
                 : null,
@@ -3415,6 +3464,8 @@ class _OverlayPainter extends CustomPainter {
     canvas.save();
     canvas.scale(scaleX, scaleY);
     final draggingId = previewAnnotation?.id;
+    // stepNumbers 按标注顺序编号，与导出一致；拖动中的新标记排在最后（#107）。
+    final numbers = stepNumbers(annotations);
     for (final annotation in annotations) {
       // 拖动中只画预览，避免文字留在原地、松手再瞬移。
       if (draggingId != null &&
@@ -3426,6 +3477,7 @@ class _OverlayPainter extends CustomPainter {
         canvas,
         annotation,
         sourceImage: sourceImage,
+        stepNumber: numbers[annotation.id],
       );
     }
     if (previewAnnotation != null) {
@@ -3433,6 +3485,7 @@ class _OverlayPainter extends CustomPainter {
         canvas,
         previewAnnotation!,
         sourceImage: sourceImage,
+        stepNumber: numbers.length + 1,
       );
     }
     if (selectedShape != null) {

@@ -1,13 +1,13 @@
 import 'package:flutter/painting.dart';
 
 /// 编辑工具；与工具栏一一对应，不含设置里的目录选择。
-enum ScreenshotTool { cursor, crop, rect, arrow, text, brush }
+enum ScreenshotTool { cursor, crop, rect, arrow, step, text, brush }
 
-/// 标注种类；裁剪不进入此枚举，撤销只覆盖这些标注。
-enum AnnotationKind { rectangle, arrow, text, mask, stroke }
+/// 标注种类；裁剪不进入此枚举，撤销只覆盖这些标注。step 为步骤编号标记（#107）。
+enum AnnotationKind { rectangle, arrow, text, mask, stroke, step }
 
-/// 画笔绘制模式，普通颜色轨迹或原图像素马赛克。
-enum ShapeMode { solid, mosaic }
+/// 画笔绘制模式：普通颜色轨迹、原图像素马赛克或半透明荧光笔（#107）。
+enum ShapeMode { solid, mosaic, highlighter }
 
 /// 截图标注的默认样式；工具栏未改前使用这些值。
 class ScreenshotDefaults {

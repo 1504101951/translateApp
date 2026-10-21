@@ -16,6 +16,7 @@ abstract final class ScreenshotActions {
   static const scrolling = 'screenshot-scrolling';
   static const rect = 'screenshot-tool-rect';
   static const arrow = 'screenshot-tool-arrow';
+  static const step = 'screenshot-tool-step';
   static const text = 'screenshot-tool-text';
   static const mask = 'screenshot-tool-mask';
   static const brush = 'screenshot-tool-brush';
@@ -45,6 +46,8 @@ abstract final class ScreenshotActions {
     scrolling: (icon: Icons.unfold_more, hostsChildren: false),
     rect: (icon: Icons.crop_square, hostsChildren: true),
     arrow: (icon: Icons.north_east, hostsChildren: true),
+    // 编号点击放置自动递增的数字标记（#107）。
+    step: (icon: Icons.looks_one_outlined, hostsChildren: true),
     text: (icon: Icons.text_fields, hostsChildren: true),
     brush: (icon: Icons.brush, hostsChildren: true),
     // 美化展开自己的设置行，不承载子级（#103）。
@@ -78,6 +81,7 @@ abstract final class ScreenshotActions {
     '${shapePrefix}filledCircle': '圆形纯色填充',
     '${brushPrefix}solid': '普通画笔',
     '${brushPrefix}mosaic': '马赛克画笔',
+    '${brushPrefix}highlighter': '荧光笔',
     palette: '颜色',
     width: '粗细',
     shapeMode: '图形模式',
@@ -88,6 +92,7 @@ abstract final class ScreenshotActions {
     scrolling: '滚动长截图',
     rect: '图形',
     arrow: '箭头',
+    step: '编号',
     text: '文字',
     mask: '图形',
     brush: '画笔',

@@ -50,7 +50,7 @@ void main() {
 
   test('旧配置补上实时翻译并丢弃已移除的撤销与重做', () {
     // 作用：升级前保存的工具栏配置在新版本里仍能读取，不因顶层动作增减而校验失败。
-    // 边界：旧顺序含撤销、重做且不含实时翻译、美化与比例；新动作插到默认顺序中各自前一个动作之后（实时翻译在翻译文字后，美化在画笔后，比例在美化后）；
+    // 边界：旧顺序含撤销、重做且不含实时翻译、编号、美化与比例；新动作插到默认顺序中各自前一个动作之后（实时翻译在翻译文字后，编号在箭头后，美化在画笔后，比例在美化后）；
     // 撤销的快捷键和隐藏状态一并丢弃，其余动作的相对顺序不变。
     const old = [
       ScreenshotActions.close,
@@ -84,6 +84,7 @@ void main() {
       ScreenshotActions.crop,
       ScreenshotActions.rect,
       ScreenshotActions.arrow,
+      ScreenshotActions.step,
       ScreenshotActions.text,
       ScreenshotActions.brush,
       ScreenshotActions.beautify,

@@ -19,6 +19,7 @@ class DrawingPreferences {
              {
                ScreenshotTool.rect: const DrawingStyle(),
                ScreenshotTool.arrow: const DrawingStyle(),
+               ScreenshotTool.step: const DrawingStyle(),
                ScreenshotTool.brush: const DrawingStyle(),
                ScreenshotTool.text: const DrawingStyle(),
              },
@@ -47,6 +48,14 @@ class DrawingPreferences {
     // 基础快照为未调整的子模式提供初值；修改只写自己的覆盖项。
     if (tool == ScreenshotTool.rect && (shape ?? this.shape).filled) {
       return DrawingStyle(color: fillColor);
+    }
+    // 荧光笔未调整前使用黄色宽笔，不继承普通画笔的红色细线（#107）。
+    if (tool == ScreenshotTool.brush &&
+        (brushMode ?? this.brushMode) == ShapeMode.highlighter) {
+      return const DrawingStyle(
+        color: DrawingMetrics.highlighterColor,
+        strokeWidth: DrawingMetrics.highlighterWidth,
+      );
     }
     return styles[tool] ?? const DrawingStyle();
   }

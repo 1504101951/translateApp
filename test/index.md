@@ -45,3 +45,4 @@ Dart业务逻辑和Flutter界面行为回归测试。
 40. [screenshot_history_test.dart](screenshot_history_test.dart)：用内存SQLite与临时目录验证截图历史的默认关闭、同截图覆盖、100条与30天清理及缺失文件。
 41. [screenshot_history_page_test.dart](screenshot_history_page_test.dart)：验证截图历史分段的缺失文件只能删除、清空后的空状态与关闭记录提示。
 42. [glossary_test.dart](glossary_test.dart)：验证术语的整词与子串匹配、目标语言筛选、保留原文输出及偏好往返与重复校验。
+43. [step_highlighter_test.dart](step_highlighter_test.dart)：验证步骤编号的顺序推导、撤销重做、数字颜色与缩小、连续单击放置，以及荧光笔的半透明叠加与默认样式。
