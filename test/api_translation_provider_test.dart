@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/common/constants/text_mode.dart';
 import 'package:translate_app/src/settings/service_config.dart';
+import 'package:translate_app/src/translation/glossary.dart';
 import 'package:translate_app/src/translation/model_result.dart';
 import 'package:translate_app/src/translation/providers/api_translation_provider.dart';
 import 'package:translate_app/src/translation/translation_types.dart';
@@ -19,11 +20,12 @@ void main() {
   );
   const secrets = {'apiKey': 'test-secret', 'appId': 'test-app'};
 
-  /// kind 指定协议，server 为真实监听端，semantic 控制结构化结果；返回测试 Provider。
+  /// kind 指定协议，server 为真实监听端，semantic 控制结构化结果，glossary 为术语表；返回测试 Provider。
   ApiTranslationProvider provider(
     String kind,
     HttpServer server, {
     bool semantic = false,
+    List<GlossaryEntry> glossary = const [],
   }) => ApiTranslationProvider(
     config: ServiceConfig(
       id: 'test',
@@ -34,6 +36,7 @@ void main() {
       semanticPairs: semantic,
     ),
     credentials: () async => secrets,
+    glossary: glossary,
   );
 
   test('百度表单正确编码原文与签名，Google 解码文本实体且携带 API 凭据', () async {
@@ -518,5 +521,91 @@ void main() {
       TranslationFailureKind.paragraph,
     ]);
     await serving;
+  });
+  test('术语表：模型请求只携带命中且目标语言一致的术语，未命中时请求与无术语表完全一致', () async {
+    // 作用：单篇与批量请求都按原文筛选术语写入用户消息，并在系统提示词说明 glossary。
+    // 边界：法语条目即使原文命中也不进入中文请求；保留原文的条目以原词作为译法；
+    // 原文不含任何术语时，请求正文与不配置术语表时逐字节相同。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final bodies = <String>[];
+    final serving = () async {
+      await for (final incoming in server) {
+        bodies.add(await utf8.decoder.bind(incoming).join());
+        // 第 5 个请求为批量翻译，译文须带行首编号。
+        final content = bodies.length == 5 ? '[1] 译文' : '译文';
+        incoming.response.write(
+          'data: {"choices":[{"index":0,"delta":{"content":"$content"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+        );
+        await incoming.response.close();
+        if (bodies.length == 5) break;
+      }
+    }();
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    const glossary = [
+      GlossaryEntry(term: 'API', translation: '应用接口', language: 'zh-CN'),
+      GlossaryEntry(term: 'Kubernetes', translation: '', language: 'zh-CN'),
+      GlossaryEntry(term: 'API', translation: 'interface', language: 'fr'),
+    ];
+    const hit = TranslationRequest(
+      sourceText: 'Deploy the API on Kubernetes.',
+      detectedLanguage: 'en',
+      targetLanguage: 'zh-CN',
+    );
+    const miss = TranslationRequest(
+      sourceText: 'The capital city.',
+      detectedLanguage: 'en',
+      targetLanguage: 'zh-CN',
+    );
+    for (final (request, terms) in [
+      (hit, const <GlossaryEntry>[]),
+      (hit, glossary),
+      (miss, glossary),
+      (miss, const <GlossaryEntry>[]),
+    ]) {
+      await provider(
+        'openai',
+        server,
+        glossary: terms,
+      ).translate(request).toList();
+    }
+    await provider('openai', server, glossary: glossary)
+        .translateBatch(
+          const BatchTranslationRequest(
+            texts: ['Kubernetes cluster'],
+            detectedLanguage: 'en',
+            targetLanguage: 'zh-CN',
+          ),
+          client: client,
+        )
+        .toList();
+    await serving;
+
+    /// index 为请求序号；返回该请求的系统提示词与解析后的用户消息。
+    (String, Map) parts(int index) {
+      final messages = (jsonDecode(bodies[index]) as Map)['messages'] as List;
+      return (
+        messages[0]['content'] as String,
+        jsonDecode(messages[1]['content'] as String) as Map,
+      );
+    }
+
+    final (plainSystem, plainInput) = parts(0);
+    final (system, input) = parts(1);
+    expect(plainInput.containsKey('glossary'), isFalse);
+    expect(input['glossary'], [
+      {'term': 'API', 'translation': '应用接口'},
+      {'term': 'Kubernetes', 'translation': 'Kubernetes'},
+    ]);
+    expect(system, isNot(plainSystem));
+    expect(system, contains('glossary'));
+    expect(Map.of(input)..remove('glossary'), plainInput);
+    expect(bodies[2], bodies[3]);
+    final (batchSystem, batchInput) = parts(4);
+    expect(batchSystem, contains('glossary'));
+    expect(batchInput['glossary'], [
+      {'term': 'Kubernetes', 'translation': 'Kubernetes'},
+    ]);
   });
 }

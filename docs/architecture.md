@@ -70,6 +70,7 @@ AX 读取优先使用文本标记范围获取跨节点选区，再读取普通�
 - 模型段落对照一次接收全文上下文：本地按非空行分段并给出连续编号，模型仅返回各编号与完整译文。编号数量、顺序、整数类型和非空译文均需通过校验，再与本地原文配对；不使用模型回传的原文，不接受整篇高亮兜底。损坏 JSON、流中断和长度截断不算成功。
 - 卡片两栏的朗读按钮经 `toggleSpeech` 交给 Swift `SpeechService`（`AVSpeechSynthesizer`）：原文按识别语言、结果栏按 `SelectionSession.outputLanguage` 朗读，语言码先补全默认地区再选系统声音；同一段再次请求即停止，关闭卡片、新选区与切换模式时 Dart 发送 `stopSpeech`。
 - 卡片模式菜单通过 `SelectionSession.switchMode` 对同一原文重跑：翻译模式使用会话服务，润色、纠错、解释由 `assistProviderForSettings` 按已提交配置构造带 `TextMode` 的 `ApiTranslationProvider`，使用内置提示词、整段请求并关闭段落对照；默认服务不是模型服务时返回 null，卡片显示失败说明。只有翻译模式的完整成功写入历史，输入翻译也只在翻译模式下替换原文。
+- 术语表 `GlossaryEntry` 列表随 `AppSettings` 保存在偏好字典（键 `glossary`），Swift 不读取。`providerForSettings` 把发起时快照中的术语表交给 `ApiTranslationProvider`；模型协议的单篇与批量请求经 `glossaryHits` 只取目标语言一致且原文出现的术语（拉丁字母或数字的一侧按整词、不区分大小写匹配），写入用户消息的 `glossary` 数组并在系统提示词追加说明；没有命中时请求与无术语表时一致。谷歌、百度、Apple 系统翻译与润色、纠错、解释不使用术语表。
 - 普通模型模式产生增量 Translation Update；语义模式在校验完成后一次发布译文和配对，避免向用户展示协议 JSON。
 - Provider 使用共享的 `translateParagraphs` 保留原文分隔符并建立双语配对；普通接口顺序处理原文段落，语义模型保留整篇上下文。当前请求通过 `StreamIterator` 传播取消，失败或关闭后不处理后续段落。
 - 次要语言为空时，方向仍解析为有效的主要语言；检测语言等于目标语言时，翻译层直接返回原文及段落配对。

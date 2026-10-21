@@ -13,3 +13,4 @@
 9. [settings_controller.dart](settings_controller.dart)：持有主引擎唯一设置快照、修订号和提交队列，并处理服务连接测试。
 10. [mcp_platforms.dart](mcp_platforms.dart)：定义 MCP 接入平台注册表，并按平台检测、安装和删除 TranslateApp 条目。
 11. [mcp_settings_page.dart](mcp_settings_page.dart)：提供设置 MCP 页的开关、helper 路径、配置复制与接入平台列表。
+12. [glossary_editor.dart](glossary_editor.dart)：术语表管理弹窗与单条术语编辑弹窗，编辑确定前检查同一目标语言下是否重复。

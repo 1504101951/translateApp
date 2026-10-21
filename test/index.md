@@ -2,7 +2,7 @@
 
 Dart业务逻辑和Flutter界面行为回归测试。
 
-1. [api_translation_provider_test.dart](api_translation_provider_test.dart)：验证官方翻译服务和模型适配的请求与响应契约。
+1. [api_translation_provider_test.dart](api_translation_provider_test.dart)：验证官方翻译服务和模型适配的请求与响应契约，以及术语表命中与未命中时的请求内容。
 2. [flutter_test_config.dart](flutter_test_config.dart)：统一初始化Flutter测试所需的运行配置。
 3. [glass_appearance_test.dart](glass_appearance_test.dart)：验证玻璃主题和跨窗口外观设置。
 4. [history_app_test.dart](history_app_test.dart)：验证历史卡片内容、分页与记录设置交互。
@@ -20,7 +20,7 @@ Dart业务逻辑和Flutter界面行为回归测试。
 16. [screenshot_translation_test.dart](screenshot_translation_test.dart)：验证截图文本翻译、捕获失效与历史写入。
 17. [selection_history_test.dart](selection_history_test.dart)：验证选区翻译成功、失败和取消时的历史记录边界。
 18. [selection_session_test.dart](selection_session_test.dart)：验证选区翻译生命周期、取消和状态变化。
-19. [settings_app_test.dart](settings_app_test.dart)：验证设置页面交互、服务显示和配置更新。
+19. [settings_app_test.dart](settings_app_test.dart)：验证设置页面交互、服务显示、术语表增删改与配置更新。
 20. [settings_autosave_test.dart](settings_autosave_test.dart)：验证后台自动保存的串行、冲突和失败处理。
 21. [settings_spec_test.dart](settings_spec_test.dart)：验证设置界面是否符合数值、密度与交互规格。
 22. [settings_test.dart](settings_test.dart)：验证设置数据往返与配置校验。
@@ -44,3 +44,4 @@ Dart业务逻辑和Flutter界面行为回归测试。
 39. [beautify_test.dart](beautify_test.dart)：按像素验证截图美化的导出尺寸、背景、圆角与阴影，以及不美化时与原图一致。
 40. [screenshot_history_test.dart](screenshot_history_test.dart)：用内存SQLite与临时目录验证截图历史的默认关闭、同截图覆盖、100条与30天清理及缺失文件。
 41. [screenshot_history_page_test.dart](screenshot_history_page_test.dart)：验证截图历史分段的缺失文件只能删除、清空后的空状态与关闭记录提示。
+42. [glossary_test.dart](glossary_test.dart)：验证术语的整词与子串匹配、目标语言筛选、保留原文输出及偏好往返与重复校验。

@@ -1,6 +1,7 @@
 import '../screenshot/drawing_preferences.dart';
 import '../common/constants/appearance_modes.dart';
 import '../common/constants/preference_keys.dart';
+import '../translation/glossary.dart';
 import '../translation/language_direction.dart';
 import 'service_config.dart';
 import 'screenshot_toolbar_preferences.dart';
@@ -29,11 +30,13 @@ class AppSettings {
     this.glassOpacity = 0.8,
     this.launchAtLogin = false,
     Map<String, String>? excludedApps,
+    List<GlossaryEntry>? glossary,
     this.defaultServiceId = ServiceConfig.builtinId,
     List<ServiceConfig>? services,
     ScreenshotToolbarPreferences? screenshotToolbar,
     DrawingPreferences? drawing,
   }) : excludedApps = excludedApps ?? {},
+       glossary = glossary ?? [],
        services = services ?? [],
        screenshotToolbar = screenshotToolbar ?? ScreenshotToolbarPreferences(),
        drawing = drawing ?? DrawingPreferences();
@@ -74,6 +77,9 @@ class AppSettings {
   double glassOpacity;
   bool launchAtLogin;
   final Map<String, String> excludedApps;
+
+  /// 术语表；只对模型服务的翻译模式生效，按目标语言与原文命中后写入请求（#104）。
+  final List<GlossaryEntry> glossary;
   String defaultServiceId;
   final List<ServiceConfig> services;
 
@@ -151,6 +157,10 @@ class AppSettings {
       excludedApps: Map<String, String>.from(
         map[PreferenceKeys.excludedApps] as Map? ?? {},
       ),
+      glossary: [
+        for (final entry in map[PreferenceKeys.glossary] as List? ?? [])
+          GlossaryEntry.fromMap(entry as Map),
+      ],
     );
   }
 
@@ -182,6 +192,11 @@ class AppSettings {
                 LanguageDirection.normalize(primaryLanguage) ==
                     LanguageDirection.normalize(secondaryLanguage!))) {
       throw const FormatException('主要语言和次要语言必须不同。');
+    }
+    // 同一目标语言下同一术语只能有一种译法，否则请求中会出现互相矛盾的要求。
+    if (glossary.any((entry) => entry.term.trim().isEmpty) ||
+        glossary.map((entry) => entry.key).toSet().length != glossary.length) {
+      throw const FormatException('术语不能为空，且同一目标语言下不能重复。');
     }
     // Shift 单独搭配字母会吞掉普通输入，至少要求一个系统修饰键。
     final shortcuts = [
@@ -242,6 +257,7 @@ class AppSettings {
     PreferenceKeys.glassOpacity: glassOpacity,
     PreferenceKeys.launchAtLogin: launchAtLogin,
     PreferenceKeys.excludedApps: excludedApps,
+    PreferenceKeys.glossary: [for (final entry in glossary) entry.toMap()],
   };
 
   /// 无参数；返回当前主要/次要语言决定的翻译方向规则。

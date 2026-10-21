@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 
 import '../../common/constants/text_mode.dart';
 import '../../settings/service_config.dart';
+import '../glossary.dart';
 import '../model_result.dart';
 import '../numbered_batch.dart';
 import '../paragraph_translation.dart';
@@ -13,15 +14,20 @@ import '../translation_types.dart';
 
 /// 配置型翻译服务。单篇翻译每个请求独占连接；批量翻译使用调用方传入的连接。
 class ApiTranslationProvider implements BatchTranslationProvider {
-  /// config/credentials 为服务配置与凭据读取；mode 为处理模式，翻译外的模式只用于模型服务。
+  /// config/credentials 为服务配置与凭据读取；mode 为处理模式，翻译外的模式只用于模型服务；
+  /// glossary 为术语表，只有模型服务的翻译请求使用。
   ApiTranslationProvider({
     required this.config,
     required this.credentials,
     this.mode = TextMode.translate,
+    this.glossary = const [],
   });
   final ServiceConfig config;
   final Future<Map<String, String>> Function() credentials;
   final TextMode mode;
+
+  /// 翻译模式的术语表；润色、纠错与解释的 Provider 不传入（#104）。
+  final List<GlossaryEntry> glossary;
   @override
   String get id => config.id;
 
@@ -64,6 +70,11 @@ class ApiTranslationProvider implements BatchTranslationProvider {
   static const _connectMessage = '无法连接翻译服务，请检查网络与 API 地址。';
   static const _unknownMessage = '翻译失败，请检查服务配置；返回内容可能不符合接口格式。';
   static const _requestTimeout = Duration(seconds: 90);
+
+  /// 本次请求命中术语时追加到系统提示词，说明用户消息中的 glossary。
+  static const _glossaryInstruction =
+      '\n用户消息中的 glossary 是术语表：原文出现 term 时，译文必须使用对应的 translation；'
+      'translation 与 term 相同表示保留原文不译。';
   static const _batchInstruction =
       '\n输入 paragraphs 是若干互相独立的段落，每行一段，行首为“[编号]”。'
       '逐段完整翻译，不合并、不拆分、不遗漏、不调整顺序。'
@@ -113,9 +124,14 @@ class ApiTranslationProvider implements BatchTranslationProvider {
           );
         default:
           final assist = _assistPrompts[mode];
+          // glossaryHits 只取原文出现且目标语言一致的术语；没有命中时请求与无术语表时一致。
+          final terms = glossaryHits(glossary, [
+            request.sourceText,
+          ], request.targetLanguage);
           final system =
               assist ??
               config.prompt +
+                  (terms.isEmpty ? '' : _glossaryInstruction) +
                   (semantic
                       ? '\n本次启用双语段落对照，以下格式要求优先于“只输出译文”：'
                             '输入 paragraphs 按原文段落编号，结合全文语义逐段完整翻译，不概括、不合并、不遗漏。'
@@ -126,6 +142,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
           final input = jsonEncode({
             'source_language': request.detectedLanguage,
             'target_language': request.targetLanguage,
+            if (terms.isNotEmpty) 'glossary': terms,
             if (semantic)
               'paragraphs': [
                 for (final (index, text) in modelSourceParagraphs(
@@ -280,13 +297,23 @@ class ApiTranslationProvider implements BatchTranslationProvider {
             target: request.targetLanguage,
           );
         default:
+          // glossaryHits 在整批原文中筛选命中的术语。
+          final terms = glossaryHits(
+            glossary,
+            request.texts,
+            request.targetLanguage,
+          );
           _writeModel(
             http,
             secret,
-            system: config.prompt + _batchInstruction,
+            system:
+                config.prompt +
+                (terms.isEmpty ? '' : _glossaryInstruction) +
+                _batchInstruction,
             input: jsonEncode({
               'source_language': request.detectedLanguage,
               'target_language': request.targetLanguage,
+              if (terms.isNotEmpty) 'glossary': terms,
               // numberedBatchText 给每个段落加上“[编号]”行首。
               'paragraphs': numberedBatchText(request.texts),
             }),

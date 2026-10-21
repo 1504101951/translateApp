@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import '../common/widgets/native_glass.dart';
 
 import 'app_settings.dart';
+import 'glossary_editor.dart';
 import 'mcp_platforms.dart';
 import 'mcp_settings_page.dart';
 import 'service_config.dart';
@@ -331,6 +332,22 @@ class _SettingsPageState extends State<_SettingsPage>
       }
     });
   }
+
+  /// 无参数；打开术语表管理弹窗，弹窗内每次增删改立即自动保存，返回弹窗关闭的 Future（#104）。
+  Future<void> _manageGlossary() => showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    // GlossaryManager 每次改动都交回完整列表，由 _edit 写入草稿并自动保存。
+    builder: (_) => GlossaryManager(
+      glossary: _settings!.glossary,
+      defaultLanguage: _settings!.primaryLanguage,
+      onChanged: (entries) => _edit(
+        () => _settings!.glossary
+          ..clear()
+          ..addAll(entries),
+      ),
+    ),
+  );
 
   /// label/value 为字段名和语言码；optional 允许空值，onChanged 写回表单；返回下拉控件。
   Widget _language(
@@ -713,6 +730,17 @@ class _SettingsPageState extends State<_SettingsPage>
                             ],
                           ),
                         ),
+                      // 术语表只对模型服务的翻译生效，条目在管理弹窗中增删改（#104）。
+                      NativeGlassSettingRow(
+                        title: '术语表',
+                        child: NativeGlassSurface(
+                          material: true,
+                          child: TextButton(
+                            onPressed: _manageGlossary,
+                            child: Text('管理术语（${settings.glossary.length}）'),
+                          ),
+                        ),
+                      ),
                       NativeGlassSwitchTile(
                         title: '仅使用快捷键',
                         value: !settings.automatic,

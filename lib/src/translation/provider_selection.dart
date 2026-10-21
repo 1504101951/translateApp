@@ -21,9 +21,11 @@ BatchTranslationProvider providerForSettings(
   );
   // 系统翻译在本机完成，不读取凭据。
   if (config.isSystem) return AppleTranslationProvider(config: config);
+  // 术语表只交给配置型服务；其中只有模型服务把命中的术语写入请求。
   return ApiTranslationProvider(
     config: config,
     credentials: () => platform.readCredentials(settings.defaultServiceId),
+    glossary: settings.glossary,
   );
 }
 

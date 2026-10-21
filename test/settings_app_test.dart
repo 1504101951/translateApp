@@ -405,4 +405,92 @@ void main() {
     expect(tester.widget<TextField>(width).controller!.text, isEmpty);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('术语表：管理弹窗内添加、编辑与删除即时自动保存，同一目标语言下重复时留在编辑弹窗提示', (tester) async {
+    // 边界：新增 api 与已有 API 只差大小写，视为重复；编辑条目本身不算与自己重复；
+    // 原文术语为空时「确定」不可用；译法留空显示为保留原文。
+    const channel = MethodChannel(ChannelNames.settings);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var state = <String, Object?>{
+      'revision': 0,
+      PreferenceKeys.primaryLanguage: 'zh-CN',
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == MethodNames.systemStatus) {
+        return {'accessibility': true};
+      }
+      if (call.method == MethodNames.getSettings) {
+        return {...state, MethodNames.credentialIds: <String>[]};
+      }
+      if (call.method == MethodNames.saveSettings) {
+        final draft = Map<String, Object?>.from(call.arguments as Map)
+          ..remove('credentials');
+        state = {...draft, 'revision': (state['revision'] as int) + 1};
+        return {...state, MethodNames.credentialIds: <String>[]};
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const SettingsApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('翻译'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('管理术语（0）'));
+    await tester.pumpAndSettle();
+    expect(find.text('暂无术语'), findsOneWidget);
+
+    /// term/translation 为弹窗输入；打开添加弹窗、填写并点击确定。
+    Future<void> add(String term, String translation) async {
+      await tester.tap(find.text('添加术语'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '确定'))
+            .onPressed,
+        isNull,
+      );
+      await tester.enterText(find.byKey(const ValueKey('原文术语')), term);
+      await tester.enterText(find.byKey(const ValueKey('译法')), translation);
+      await tester.pump();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+    }
+
+    /// 无参数；返回已保存偏好中的术语表。
+    List<Object?> saved() => state[PreferenceKeys.glossary] as List;
+
+    await add('API', '应用接口');
+    expect(saved(), [
+      {'term': 'API', 'translation': '应用接口', 'language': 'zh-CN'},
+    ]);
+    expect(find.text('API → 应用接口'), findsOneWidget);
+
+    await add('api', '接口');
+    expect(find.text('该目标语言下已有此术语。'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('原文术语')), 'Kubernetes');
+    await tester.enterText(find.byKey(const ValueKey('译法')), '');
+    await tester.pump();
+    expect(find.text('该目标语言下已有此术语。'), findsNothing);
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(find.text('Kubernetes（保留原文）'), findsOneWidget);
+    expect(saved(), hasLength(2));
+
+    await tester.tap(find.byTooltip('编辑 API'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('译法')), '接口');
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect((saved().first as Map)['translation'], '接口');
+
+    await tester.tap(find.byTooltip('删除 Kubernetes'));
+    await tester.pumpAndSettle();
+    expect(saved(), [
+      {'term': 'API', 'translation': '接口', 'language': 'zh-CN'},
+    ]);
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    expect(find.text('管理术语（1）'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
