@@ -219,6 +219,18 @@ abstract final class MethodNames {
   /// 设置「记录截图历史」开关；参数 enabled。
   static const setScreenshotHistoryRecording = 'setScreenshotHistoryRecording';
 
+  /// 历史窗口把拼接或拆分结果加入截图历史；参数 images（PNG 字节列表，按列表从上到下的顺序）（#109）。
+  static const addScreenshotHistory = 'addScreenshotHistory';
+
+  /// 按顺序拼接截图历史图片；参数 paths、vertical，返回 PNG 字节（#109）。
+  static const stitchScreenshots = 'stitchScreenshots';
+
+  /// 按高度等分一张截图历史图片；参数 path、parts，返回自上而下的 PNG 字节列表（#109）。
+  static const splitScreenshot = 'splitScreenshot';
+
+  /// 逐像素比较两张截图历史图片；参数 first、second，返回 {mask, different, total}（#109）。
+  static const compareScreenshots = 'compareScreenshots';
+
   /// 用系统默认应用打开文件；参数 path。
   static const openFile = 'openFile';
 

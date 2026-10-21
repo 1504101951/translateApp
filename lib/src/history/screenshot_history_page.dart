@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../common/constants/glass_metrics.dart';
 import '../common/constants/method_names.dart';
 import '../common/widgets/native_glass.dart';
+import 'screenshot_compose_dialogs.dart';
 import 'screenshot_history.dart';
 
 /// 历史窗口的截图分段；数据以主引擎为准，文件操作交给原生（#29）。
@@ -28,11 +29,25 @@ class ScreenshotHistoryPage extends StatefulWidget {
   State<ScreenshotHistoryPage> createState() => _ScreenshotHistoryPageState();
 }
 
-/// 持有最近一次读取的截图记录、开关与操作反馈；不在窗口内另存数据。
+/// 持有最近一次读取的截图记录、开关、勾选与操作反馈；不在窗口内另存数据。
 class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
   List<ScreenshotRecord>? _records;
   bool? _recording;
   String? _message;
+
+  /// 勾选的记录 id，用于拼接、拆分与比较（#109）；只在本页保存。
+  Set<int> _selected = {};
+
+  /// 无参数；返回勾选的记录，按截图时间先后（同一时刻按 id）排列。
+  List<ScreenshotRecord> get _chosen =>
+      [
+        for (final record in _records ?? const <ScreenshotRecord>[])
+          if (_selected.contains(record.id)) record,
+      ]..sort(
+        (a, b) => a.capturedAt != b.capturedAt
+            ? a.capturedAt.compareTo(b.capturedAt)
+            : a.id.compareTo(b.id),
+      );
 
   /// 无参数；首次读取列表与开关，无返回值。
   @override
@@ -58,9 +73,15 @@ class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
         MethodNames.screenshotHistoryRecording,
       );
       if (!mounted) return;
+      final records = rows!.map(ScreenshotRecord.fromMap).toList();
       setState(() {
-        _records = rows!.map(ScreenshotRecord.fromMap).toList();
+        _records = records;
         _recording = recording!;
+        // 只保留仍存在且图片未缺失的勾选。
+        _selected = {
+          for (final record in records)
+            if (record.exists && _selected.contains(record.id)) record.id,
+        };
       });
     } on PlatformException catch (error) {
       if (!mounted) return;
@@ -77,6 +98,95 @@ class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
     try {
       await widget.channel.invokeMethod<Object?>(method, arguments);
       if (reload) await _load();
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.message ?? '操作失败，请重试。');
+    }
+  }
+
+  /// produce 调用原生生成结果图片，done 为完成提示；把结果加入截图历史、清空勾选并重新读取，失败显示原因（#109）。
+  Future<void> _compose(
+    Future<List<Uint8List>> Function() produce,
+    String Function(int count) done,
+  ) async {
+    try {
+      final images = await produce();
+      await widget.channel.invokeMethod<void>(
+        MethodNames.addScreenshotHistory,
+        {'images': images},
+      );
+      if (!mounted) return;
+      setState(() {
+        _selected = {};
+        _message = done(images.length);
+      });
+      await _load();
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.message ?? '操作失败，请重试。');
+    }
+  }
+
+  /// 无参数；选择方向后按时间先后拼接勾选的截图，返回结束的 Future。
+  Future<void> _stitch() async {
+    final chosen = _chosen;
+    // StitchDialog 返回纵向（true）或横向（false），取消为 null。
+    final vertical = await showDialog<bool>(
+      context: context,
+      builder: (_) => StitchDialog(count: chosen.length),
+    );
+    if (vertical == null) return;
+    await _compose(
+      () async => [
+        (await widget.channel.invokeMethod<Uint8List>(
+          MethodNames.stitchScreenshots,
+          {
+            'paths': [for (final record in chosen) record.path],
+            'vertical': vertical,
+          },
+        ))!,
+      ],
+      (_) => '已生成拼接图',
+    );
+  }
+
+  /// 无参数；选择段数后按高度等分勾选的截图，返回结束的 Future。
+  Future<void> _split() async {
+    final record = _chosen.single;
+    // SplitDialog 返回 2–10 的段数，取消为 null。
+    final parts = await showDialog<int>(
+      context: context,
+      builder: (_) => SplitDialog(height: record.height),
+    );
+    if (parts == null) return;
+    await _compose(
+      () async => (await widget.channel.invokeListMethod<Uint8List>(
+        MethodNames.splitScreenshot,
+        {'path': record.path, 'parts': parts},
+      ))!,
+      (count) => '已拆分为 $count 张',
+    );
+  }
+
+  /// 无参数；原生逐像素比较勾选的两张截图后打开并排比较弹窗，失败显示原因，返回结束的 Future。
+  Future<void> _compare() async {
+    final chosen = _chosen;
+    try {
+      final result = (await widget.channel.invokeMapMethod<String, Object?>(
+        MethodNames.compareScreenshots,
+        {'first': chosen[0].path, 'second': chosen[1].path},
+      ))!;
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => ScreenshotCompareDialog(
+          first: chosen[0],
+          second: chosen[1],
+          mask: result['mask'] as Uint8List,
+          different: result['different'] as int,
+          total: result['total'] as int,
+        ),
+      );
     } on PlatformException catch (error) {
       if (!mounted) return;
       setState(() => _message = error.message ?? '操作失败，请重试。');
@@ -126,6 +236,39 @@ class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
             ],
           ),
         ),
+        // 勾选后的拼接（≥2 张）、拆分（1 张）与比较（2 张）（#109）。
+        if (records != null && records.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              GlassMetrics.pagePadding,
+              8,
+              GlassMetrics.pagePadding,
+              0,
+            ),
+            child: Row(
+              children: [
+                Text(
+                  '已选 ${_selected.length} 张',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const Spacer(),
+                for (final (label, enabled, action) in [
+                  ('拼接', _selected.length >= 2, _stitch),
+                  ('拆分', _selected.length == 1, _split),
+                  ('比较', _selected.length == 2, _compare),
+                ]) ...[
+                  const SizedBox(width: 8),
+                  NativeGlassSurface(
+                    material: true,
+                    child: TextButton(
+                      onPressed: enabled ? action : null,
+                      child: Text(label),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         if (_message != null)
           Padding(
             padding: const EdgeInsets.all(GlassMetrics.panelPadding),
@@ -185,6 +328,21 @@ class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 图片缺失的记录不可勾选（#109）。
+            Checkbox(
+              value: _selected.contains(record.id),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              semanticLabel: '选择截图',
+              onChanged: record.exists
+                  ? (checked) => setState(
+                      () => checked == true
+                          ? _selected.add(record.id)
+                          : _selected.remove(record.id),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 8),
             SizedBox(
               width: ScreenshotHistoryPage.thumbnailWidth,
               height: height,

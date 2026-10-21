@@ -108,7 +108,8 @@ Future<void> main() async {
       case MethodNames.clearScreenshotHistory:
       case MethodNames.screenshotHistoryRecording:
       case MethodNames.setScreenshotHistoryRecording:
-        // handleScreenshotHistoryRequest 按开关写入并按条数与时长清理。
+      case MethodNames.addScreenshotHistory:
+        // handleScreenshotHistoryRequest 按开关写入导出截图、无条件加入拼接与拆分结果，并按条数与时长清理。
         return handleScreenshotHistoryRequest(
           screenshots,
           call,

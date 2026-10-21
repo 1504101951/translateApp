@@ -315,6 +315,32 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 NSPasteboard.general.clearContents()
                 result(NSPasteboard.general.writeObjects([item]))
             }
+        case AppConstants.stitchScreenshotsMethod:
+            guard let paths = args["paths"] as? [String], let vertical = args["vertical"] as? Bool else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "stitchScreenshots 需要 paths/vertical", details: nil)); return
+            }
+            composeInBackground(result) {
+                FlutterStandardTypedData(bytes: try ScreenshotComposer.stitch(paths: paths, vertical: vertical))
+            }
+        case AppConstants.splitScreenshotMethod:
+            guard let path = args["path"] as? String, let parts = args["parts"] as? Int else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "splitScreenshot 需要 path/parts", details: nil)); return
+            }
+            composeInBackground(result) {
+                try ScreenshotComposer.split(path: path, parts: parts).map(FlutterStandardTypedData.init(bytes:))
+            }
+        case AppConstants.compareScreenshotsMethod:
+            guard let first = args["first"] as? String, let second = args["second"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "compareScreenshots 需要 first/second", details: nil)); return
+            }
+            composeInBackground(result) {
+                let comparison = try ScreenshotComposer.compare(first: first, second: second)
+                return [
+                    "mask": FlutterStandardTypedData(bytes: comparison.mask),
+                    "different": comparison.different,
+                    "total": comparison.total,
+                ] as [String: Any]
+            }
         case AppConstants.lookupDefinitionMethod:
             guard let text = args["text"] as? String else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "lookupDefinition 需要 text", details: nil)); return
@@ -588,6 +614,19 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         }
     }
 
+    /// result 为通道回调，work 为逐像素处理大图的工作；在后台执行，回到主线程返回结果或 compose_failed 错误（#109）。
+    private func composeInBackground(_ result: @escaping FlutterResult, _ work: @escaping () throws -> Any) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let value: Any
+            do {
+                value = try work()
+            } catch {
+                value = FlutterError(code: AppConstants.composeFailedError, message: error.localizedDescription, details: nil)
+            }
+            DispatchQueue.main.async { result(value) }
+        }
+    }
+
     /// call为附属窗口请求；业务转发主Dart引擎，系统操作交给原生处理，通过result返回结果。
     func routeWindowRequest(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
@@ -598,7 +637,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
              AppConstants.vocabularyListMethod, AppConstants.deleteVocabularyMethod, AppConstants.vocabularyCsvMethod,
              AppConstants.screenshotHistoryListMethod, AppConstants.deleteScreenshotHistoryMethod,
              AppConstants.clearScreenshotHistoryMethod, AppConstants.screenshotHistoryRecordingMethod,
-             AppConstants.setScreenshotHistoryRecordingMethod:
+             AppConstants.setScreenshotHistoryRecordingMethod, AppConstants.addScreenshotHistoryMethod:
             // requestApplication只跨越引擎边界；业务状态由主引擎所属模块管理。
             requestApplication(call.method, arguments: call.arguments, result: result)
         default:

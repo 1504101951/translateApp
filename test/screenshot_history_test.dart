@@ -120,4 +120,33 @@ void main() {
     expect(store.list(), isEmpty);
     expect(store.directory.listSync().whereType<File>(), isEmpty);
   });
+
+  test('拼接与拆分结果不受记录开关限制，按给定顺序从上到下排列且身份不重复', () {
+    // 边界：开关保持默认关闭仍要写入；同一时刻生成的三段需按列表顺序显示，第二次生成不覆盖第一次；
+    // 已有 99 条时再加 3 条，按 100 条上限删除最早的 2 条。
+    store.add([fakePng(1, 10), fakePng(2, 10), fakePng(3, 10)], now);
+    expect([for (final record in store.list()) record.width], [1, 2, 3]);
+    store.add([fakePng(4, 10)], now);
+    expect(store.list(), hasLength(4));
+    expect(store.list().first.width, 4);
+    expect(store.list().every((record) => record.exists), isTrue);
+
+    store.clear();
+    store.recordingEnabled = true;
+    for (var i = 0; i < 99; i++) {
+      store.record(
+        captureId: 'old-$i',
+        png: fakePng(100 + i, 1),
+        capturedAt: now - 1000 + i,
+        now: now,
+      );
+    }
+    store.add([fakePng(1, 1), fakePng(2, 1), fakePng(3, 1)], now);
+    final widths = [for (final record in store.list()) record.width];
+    expect(widths, hasLength(100));
+    expect(widths.take(3), [1, 2, 3]);
+    expect(widths, isNot(contains(100)));
+    expect(widths, isNot(contains(101)));
+    expect(widths.last, 102);
+  });
 }

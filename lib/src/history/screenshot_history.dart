@@ -80,6 +80,9 @@ ON CONFLICT(key) DO NOTHING
   final Database database;
   final Directory directory;
 
+  /// 本进程已生成的拼接与拆分结果数，与生成时刻一起组成不重复的记录身份。
+  int _composed = 0;
+
   /// 写入或删除后的变更信号，不携带图片内容。
   final void Function()? onChanged;
 
@@ -108,6 +111,25 @@ ON CONFLICT(key) DO NOTHING
     required int now,
   }) {
     if (!recordingEnabled) return;
+    _write(captureId, png, capturedAt);
+    _prune(now);
+    onChanged?.call();
+  }
+
+  /// images 为拼接或拆分得到的 PNG，按列表中从上到下的显示顺序排列，now 为生成时刻（毫秒）。
+  /// 不检查记录开关（用户在历史窗口主动生成）；全部写入后按条数与时长清理并通知一次，无返回值（#109）。
+  void add(List<Uint8List> images, int now) {
+    // 列表按时间倒序、同一时刻按 id 倒序显示，倒序写入才能让第一张排在最上面。
+    for (final png in images.reversed) {
+      _composed += 1;
+      _write('composed-$now-$_composed', png, now);
+    }
+    _prune(now);
+    onChanged?.call();
+  }
+
+  /// captureId 为记录身份，png 为图片，capturedAt 为截图时间；写入历史目录并插入或覆盖元数据，无返回值。
+  void _write(String captureId, Uint8List png, int capturedAt) {
     final (width, height) = pngSize(png);
     directory.createSync(recursive: true);
     final fileName = '$captureId.png';
@@ -120,8 +142,6 @@ ON CONFLICT(key) DO NOTHING
          ON CONFLICT(capture_id) DO UPDATE SET width = excluded.width, height = excluded.height''',
       [captureId, fileName, width, height, capturedAt],
     );
-    _prune(now);
-    onChanged?.call();
   }
 
   /// 无参数；返回按截图时间倒序的全部记录，并标记图片文件是否仍存在。
@@ -215,6 +235,11 @@ Object? handleScreenshotHistoryRequest(
       return store.recordingEnabled;
     case MethodNames.setScreenshotHistoryRecording:
       store.recordingEnabled = map['enabled'] == true;
+      return null;
+    case MethodNames.addScreenshotHistory:
+      store.add([
+        for (final png in map['images'] as List) png as Uint8List,
+      ], now);
       return null;
     default:
       throw MissingPluginException('未知截图历史操作：${call.method}');

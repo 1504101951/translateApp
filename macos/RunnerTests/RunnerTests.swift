@@ -911,6 +911,78 @@ class RunnerTests: XCTestCase {
         }
     }
 
+    /// directory 为临时目录，name 为文件名，width/height/color 为纯色 PNG 参数；写入文件并返回路径（#109）。
+    @MainActor
+    private func composerFixture(_ directory: URL, _ name: String, width: Int, height: Int, color: NSColor) throws -> String {
+        let url = directory.appendingPathComponent(name)
+        try screenshotFixture(width: width, height: height, color: color).write(to: url)
+        return url.path
+    }
+
+    /// png 为图片字节，x/y 为左上原点的像素坐标；返回文件中存储的原始 RGBA 样本（不做色彩空间转换）。
+    private func composedPixel(_ png: Data, _ x: Int, _ y: Int) throws -> [Int] {
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: png))
+        var samples = [Int](repeating: 0, count: rep.samplesPerPixel)
+        rep.getPixel(&samples, atX: x, y: y)
+        return samples
+    }
+
+    /// 无参数；拼接保持原始像素、短边居中且空白透明，拆分余数并入最后一段、高度之和不变，比较计入尺寸差（#109）。
+    @MainActor
+    func testScreenshotComposerStitchSplitAndCompare() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let red = NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1)
+        let blue = NSColor(deviceRed: 0, green: 0, blue: 1, alpha: 1)
+        let wide = try composerFixture(directory, "wide.png", width: 40, height: 20, color: red)
+        let small = try composerFixture(directory, "small.png", width: 20, height: 10, color: blue)
+
+        // 边界：纵向 40×30，蓝图在 x 10–29、y 20–29；两侧空白透明。
+        let vertical = try ScreenshotComposer.stitch(paths: [wide, small], vertical: true)
+        let verticalRep = try XCTUnwrap(NSBitmapImageRep(data: vertical))
+        XCTAssertEqual([verticalRep.pixelsWide, verticalRep.pixelsHigh], [40, 30])
+        XCTAssertEqual(try composedPixel(vertical, 39, 19), [255, 0, 0, 255])
+        XCTAssertEqual(try composedPixel(vertical, 10, 20), [0, 0, 255, 255])
+        XCTAssertEqual(try composedPixel(vertical, 29, 29), [0, 0, 255, 255])
+        XCTAssertEqual(try composedPixel(vertical, 9, 25)[3], 0)
+        XCTAssertEqual(try composedPixel(vertical, 30, 25)[3], 0)
+        // 边界：横向 60×20，蓝图在 x 40–59、y 5–14。
+        let horizontal = try ScreenshotComposer.stitch(paths: [wide, small], vertical: false)
+        let horizontalRep = try XCTUnwrap(NSBitmapImageRep(data: horizontal))
+        XCTAssertEqual([horizontalRep.pixelsWide, horizontalRep.pixelsHigh], [60, 20])
+        XCTAssertEqual(try composedPixel(horizontal, 40, 5), [0, 0, 255, 255])
+        XCTAssertEqual(try composedPixel(horizontal, 59, 14), [0, 0, 255, 255])
+        XCTAssertEqual(try composedPixel(horizontal, 45, 4)[3], 0)
+        XCTAssertEqual(try composedPixel(horizontal, 45, 15)[3], 0)
+
+        // 边界：20×50（上 20 行红、下 30 行蓝）分 3 段为 16、16、18；第二段第 4 行起变蓝。
+        let tall = try composerFixture(directory, "tall-top.png", width: 20, height: 20, color: red)
+        let tallBottom = try composerFixture(directory, "tall-bottom.png", width: 20, height: 30, color: blue)
+        let column = directory.appendingPathComponent("column.png")
+        try ScreenshotComposer.stitch(paths: [tall, tallBottom], vertical: true).write(to: column)
+        let pieces = try ScreenshotComposer.split(path: column.path, parts: 3)
+        XCTAssertEqual(try pieces.map { try XCTUnwrap(NSBitmapImageRep(data: $0)).pixelsHigh }, [16, 16, 18])
+        XCTAssertEqual(try composedPixel(pieces[1], 0, 3), [255, 0, 0, 255])
+        XCTAssertEqual(try composedPixel(pieces[1], 0, 4), [0, 0, 255, 255])
+        XCTAssertEqual(try composedPixel(pieces[2], 19, 17), [0, 0, 255, 255])
+        let line = try composerFixture(directory, "line.png", width: 4, height: 1, color: red)
+        XCTAssertThrowsError(try ScreenshotComposer.split(path: line, parts: 2))
+        XCTAssertThrowsError(try ScreenshotComposer.split(path: column.path, parts: 11))
+        XCTAssertThrowsError(try ScreenshotComposer.stitch(paths: [wide, directory.appendingPathComponent("missing.png").path], vertical: true))
+
+        // 边界：同图差异 0；40×20 红与 40×30 红只差多出的 10 行；红与蓝全部不同；蒙版在差异处为 60% 红色。
+        let same = try ScreenshotComposer.compare(first: wide, second: wide)
+        XCTAssertEqual([same.different, same.total], [0, 800])
+        let taller = try composerFixture(directory, "taller.png", width: 40, height: 30, color: red)
+        let grown = try ScreenshotComposer.compare(first: wide, second: taller)
+        XCTAssertEqual([grown.different, grown.total], [400, 1200])
+        XCTAssertEqual(try composedPixel(grown.mask, 0, 0)[3], 0)
+        XCTAssertEqual(try composedPixel(grown.mask, 0, 25)[3], 153)
+        let recolored = try composerFixture(directory, "blue.png", width: 40, height: 20, color: blue)
+        XCTAssertEqual(try ScreenshotComposer.compare(first: wide, second: recolored).different, 800)
+    }
+
     /// 无参数；本进程已有录屏授权时 requestAccess 必须立刻 true，不再走申请框。
     @MainActor
     func testRequestAccessReusesExistingGrant() async throws {

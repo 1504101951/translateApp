@@ -859,16 +859,18 @@ class _NativeGlassSwitchState extends State<NativeGlassSwitch> {
 
 /// 服务配置等模态表单的玻璃容器；内容不重复折射，长表单由内容自身滚动。
 class NativeGlassDialog extends StatelessWidget {
-  /// title/content/actions 为标题、表单及操作列表；创建保持键盘和弹窗语义的对话框。
+  /// title/content/actions 为标题、表单及操作列表，maxWidth 为最大宽度（点，默认表单宽度 568）；创建保持键盘和弹窗语义的对话框。
   const NativeGlassDialog({
     super.key,
     required this.title,
     required this.content,
     required this.actions,
+    this.maxWidth = 568,
   });
   final Widget title;
   final Widget content;
   final List<Widget> actions;
+  final double maxWidth;
 
   /// context 提供主题；返回宽度受限、可容纳长表单的独立玻璃弹窗。
   @override
@@ -877,7 +879,7 @@ class NativeGlassDialog extends StatelessWidget {
     backgroundColor: Theme.of(context).dialogTheme.backgroundColor,
     insetPadding: const EdgeInsets.all(24),
     child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 568),
+      constraints: BoxConstraints(maxWidth: maxWidth),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(

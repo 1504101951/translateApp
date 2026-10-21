@@ -9,4 +9,5 @@
 5. [vocabulary.dart](vocabulary.dart)：定义生词条目，管理生词本表的增改删、CSV 导出与历史窗口请求。
 6. [vocabulary_page.dart](vocabulary_page.dart)：历史窗口的生词本分段，展示、删除生词并经保存面板导出 CSV。
 7. [screenshot_history.dart](screenshot_history.dart)：定义截图历史记录，管理历史图片目录与SQLite元数据的写入、清理、删除及请求处理。
-8. [screenshot_history_page.dart](screenshot_history_page.dart)：历史窗口的截图历史分段，展示缩略图并提供开关、打开、复制、在 Finder 中显示与删除。
+8. [screenshot_history_page.dart](screenshot_history_page.dart)：历史窗口的截图历史分段，展示缩略图并提供开关、勾选、打开、复制、在 Finder 中显示、删除及拼接、拆分与比较入口。
+9. [screenshot_compose_dialogs.dart](screenshot_compose_dialogs.dart)：截图拼接方向、拆分段数与并排差异比较的弹窗。

@@ -299,6 +299,16 @@ enum AppConstants {
     static let screenshotHistoryRecordingMethod = "screenshotHistoryRecording"
     /// setScreenshotHistoryRecording 协议值；设置截图历史开关，转发主引擎，与Dart常量同步。
     static let setScreenshotHistoryRecordingMethod = "setScreenshotHistoryRecording"
+    /// addScreenshotHistory 协议值；历史窗口把拼接或拆分结果加入截图历史，转发主引擎（#109），与Dart常量同步。
+    static let addScreenshotHistoryMethod = "addScreenshotHistory"
+    /// stitchScreenshots 协议值；按顺序拼接截图历史图片（#109），与Dart常量同步。
+    static let stitchScreenshotsMethod = "stitchScreenshots"
+    /// splitScreenshot 协议值；按高度等分一张截图历史图片（#109），与Dart常量同步。
+    static let splitScreenshotMethod = "splitScreenshot"
+    /// compareScreenshots 协议值；逐像素比较两张截图历史图片（#109），与Dart常量同步。
+    static let compareScreenshotsMethod = "compareScreenshots"
+    /// compose_failed 协议值；拼接、拆分或比较失败（#109），与Dart常量同步。
+    static let composeFailedError = "compose_failed"
     /// openFile 协议值；用系统默认应用打开文件，与Dart常量同步。
     static let openFileMethod = "openFile"
     /// copyImageFile 协议值；把 PNG 文件复制到剪贴板，与Dart常量同步。

@@ -30,9 +30,10 @@ macOS应用生命周期、系统能力与窗口控制器。
 26. [MediaCaptureService.swift](MediaCaptureService.swift)：管理屏幕流、录制会话、手动滚动采集及临时资源生命周期。
 27. [GIFExporter.swift](GIFExporter.swift)：按设置逐帧解码完整MP4并生成有界、等比缩小的GIF。
 28. [ScrollStitcher.swift](ScrollStitcher.swift)：识别垂直位移和上下固定带并生成保持原始像素的长图。
-29. [ApplicationRecorder.swift](ApplicationRecorder.swift)：将所选应用在全部显示器上的可见窗口合成为固定黑底画布并编码视频。
-30. [LiveRegionCapture.swift](LiveRegionCapture.swift)：以未编码画面帧持续识别区域、窗口或全屏文字。
-31. [LiveRegionWindowController.swift](LiveRegionWindowController.swift)：承载不抢焦点的实时翻译结果窗，并连接捕获与主引擎会话。
-32. [MCP/](MCP/index.md)：MCP 截图接口的 JSON-RPC 协议、本地 socket 传输及 App 侧请求处理。
-33. [SystemTranslationService.swift](SystemTranslationService.swift)：按语言对创建无界面系统翻译会话，翻译一组段落、按请求取消并查询语言包状态。
-34. [SpeechService.swift](SpeechService.swift)：用系统离线语音朗读译文卡片的一栏文字，同一段再次请求即停止。
+29. [ScreenshotComposer.swift](ScreenshotComposer.swift)：按原始像素拼接、拆分截图历史图片，并逐像素比较两张图生成差异蒙版。
+30. [ApplicationRecorder.swift](ApplicationRecorder.swift)：将所选应用在全部显示器上的可见窗口合成为固定黑底画布并编码视频。
+31. [LiveRegionCapture.swift](LiveRegionCapture.swift)：以未编码画面帧持续识别区域、窗口或全屏文字。
+32. [LiveRegionWindowController.swift](LiveRegionWindowController.swift)：承载不抢焦点的实时翻译结果窗，并连接捕获与主引擎会话。
+33. [MCP/](MCP/index.md)：MCP 截图接口的 JSON-RPC 协议、本地 socket 传输及 App 侧请求处理。
+34. [SystemTranslationService.swift](SystemTranslationService.swift)：按语言对创建无界面系统翻译会话，翻译一组段落、按请求取消并查询语言包状态。
+35. [SpeechService.swift](SpeechService.swift)：用系统离线语音朗读译文卡片的一栏文字，同一段再次请求即停止。
