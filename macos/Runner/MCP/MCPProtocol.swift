@@ -74,8 +74,8 @@ indirect enum MCPOrderedJSON: Equatable {
     var data: Data {
         switch self {
         case .string(let value):
-            // 字符串交给 JSONSerialization 转义，避免手写转义遗漏控制字符。
-            return try! JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
+            // 字符串交给 JSONSerialization 转义，避免手写转义遗漏控制字符；Swift 字符串总是合法 Unicode，片段一定可序列化。
+            return MCPProtocol.fragment(value)!
         case .integer(let value):
             return Data(String(value).utf8)
         case .boolean(let value):
@@ -141,6 +141,7 @@ enum MCPProtocol {
     static let invalidRequest = -32600
     static let methodNotFound = -32601
     static let invalidParams = -32602
+    static let internalError = -32603
 
     /// 作用：生成 initialize 结果。
     /// 参数 params：客户端 initialize 参数，读取 protocolVersion；version：serverInfo.version。
@@ -311,6 +312,32 @@ enum MCPProtocol {
     /// 作用：生成 JSON-RPC 成功响应。参数 id：请求 id；result：结果对象。返回：响应对象。
     static func response(id: Any, result: [String: Any]) -> [String: Any] {
         ["jsonrpc": "2.0", "id": id, "result": result]
+    }
+
+    /// 作用：序列化 JSON 片段（字符串、数字等）。参数 value：片段值。
+    /// 返回：JSON 数据；值不能表示为 JSON（如 NaN、Infinity）时为 nil（#121）。
+    /// JSONSerialization 遇到这类值抛出的是 Objective-C 异常而非 Swift 错误，必须先用 isValidJSONObject 校验；片段包成数组校验。
+    static func fragment(_ value: Any) -> Data? {
+        guard JSONSerialization.isValidJSONObject([value]) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
+    }
+
+    /// 作用：序列化一条 JSON-RPC 消息（#121）。参数 object：消息对象。
+    /// 返回：消息的 JSON 数据；含不可表示的值时改为同一 id 的内部错误响应，进程不崩溃。
+    static func encode(_ object: [String: Any]) -> Data {
+        if JSONSerialization.isValidJSONObject(object),
+           let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) {
+            return data
+        }
+        return internalErrorData(id: object["id"])
+    }
+
+    /// 作用：生成内部错误响应的 JSON 数据。参数 id：原消息 id，缺省或不可表示时输出 null。
+    /// 返回：JSON 数据；手工拼接，不再经过可能失败的序列化。
+    static func internalErrorData(id: Any?) -> Data {
+        let idJSON = id.flatMap(fragment) ?? Data("null".utf8)
+        return Data(#"{"jsonrpc":"2.0","id":"#.utf8) + idJSON
+            + Data(#","error":{"code":\#(internalError),"message":"Internal error: response is not JSON-serializable."}}"#.utf8)
     }
 
     /// 作用：生成 JSON-RPC 错误响应。参数 id：请求 id，无法解析时为 NSNull；code、message：错误码与说明。
@@ -545,8 +572,13 @@ final class MCPHelperSession {
     /// 作用：写出结果已编码为 JSON 的成功响应，保留结果内的键顺序。
     /// 参数 id：请求 id；result：结果对象的 JSON 数据。
     private func emitRaw(id: Any, result: Data) {
-        // id 为字符串或数字，作为 JSON 片段序列化不会失败。
-        let idJSON = try! JSONSerialization.data(withJSONObject: id, options: [.fragmentsAllowed])
+        // fragment 校验 id；不可表示时改为内部错误响应。
+        guard let idJSON = MCPProtocol.fragment(id) else {
+            lock.lock()
+            defer { lock.unlock() }
+            write(MCPProtocol.internalErrorData(id: nil))
+            return
+        }
         var data = Data(#"{"jsonrpc":"2.0","id":"#.utf8)
         data.append(idJSON)
         data.append(Data(#","result":"#.utf8))
@@ -559,8 +591,8 @@ final class MCPHelperSession {
 
     /// 作用：串行化并写出一条消息。参数 object：JSON-RPC 消息对象。
     private func emit(_ object: [String: Any]) {
-        // 消息由本文件构造，只含 JSON 可表示的值，序列化不会失败。
-        let data = try! JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
+        // encode 校验后序列化；结果含 NaN 等不可表示的值时改为同一 id 的内部错误响应。
+        let data = MCPProtocol.encode(object)
         lock.lock()
         defer { lock.unlock() }
         write(data)

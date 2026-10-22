@@ -120,6 +120,22 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual((messages[2]["error"] as? [String: Any])?["code"] as? Int, MCPProtocol.methodNotFound)
     }
 
+    /// 无参数；结果含 NaN、Infinity 时序列化为同一 id 的 -32603 内部错误，合法消息与 JSONSerialization 输出一致（#121）。
+    /// 边界：NaN 与 Infinity 是 JSONSerialization 会抛出 Objective-C 异常的两类数值；字符串 id 与数字 id 都需原样保留，缺省 id 输出 null。
+    func testUnserializableResultBecomesInternalError() throws {
+        for (id, value) in [(7 as Any, Double.nan), ("a" as Any, Double.infinity)] {
+            let data = MCPProtocol.encode(MCPProtocol.response(id: id, result: ["value": value]))
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual((object["error"] as? [String: Any])?["code"] as? Int, MCPProtocol.internalError)
+            XCTAssertEqual(object["id"] as? NSObject, id as? NSObject)
+            XCTAssertNil(object["result"])
+        }
+        let missing = try XCTUnwrap(JSONSerialization.jsonObject(with: MCPProtocol.internalErrorData(id: nil)) as? [String: Any])
+        XCTAssertTrue(missing["id"] is NSNull)
+        let valid = MCPProtocol.response(id: 1, result: ["text": "a/b"])
+        XCTAssertEqual(MCPProtocol.encode(valid), try JSONSerialization.data(withJSONObject: valid, options: [.withoutEscapingSlashes]))
+    }
+
     /// initialize 原样回应支持的版本，不支持的版本回应最新版本；ping 返回空结果。
     /// 边界依据：MCP 生命周期规范的版本协商规则。
     func testInitializeNegotiatesVersionAndPingAnswersEmpty() async {
