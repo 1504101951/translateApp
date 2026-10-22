@@ -272,7 +272,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             for id in ids {
                 let query: [String: Any] = [
                     kSecClass as String: kSecClassGenericPassword,
-                    kSecAttrService as String: "com.coolyang.translateApp.credentials",
+                    kSecAttrService as String: AppConstants.credentialsKeychainService,
                     kSecAttrAccount as String: id,
                     kSecReturnAttributes as String: true,
                     // 常规设置只查询存在状态；授权留给用户主动读取或修改凭据时处理。
@@ -573,7 +573,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     static func readCredentials(id: String) throws -> [String: String]? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.coolyang.translateApp.credentials",
+            kSecAttrService as String: AppConstants.credentialsKeychainService,
             kSecAttrAccount as String: id,
             kSecReturnData as String: true,
         ]
@@ -593,7 +593,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     static func storeCredentials(id: String, value: [String: String]?) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.coolyang.translateApp.credentials",
+            kSecAttrService as String: AppConstants.credentialsKeychainService,
             kSecAttrAccount as String: id,
         ]
         var status: OSStatus

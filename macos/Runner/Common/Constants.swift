@@ -213,6 +213,8 @@ enum AppConstants {
     static let isCurrentScreenshotMethod = "isCurrentScreenshot"
     /// keychain_failed 协议值；与Dart常量及持久化调用方同步。
     static let keychainFailedError = "keychain_failed"
+    /// 凭据在钥匙串中的服务名；凭据列举、读取与写入共用，改动会使已存凭据读不到（#122）。
+    static let credentialsKeychainService = "com.coolyang.translateApp.credentials"
     /// launchAtLogin 协议值；与Dart常量及持久化调用方同步。
     static let launchAtLoginKey = "launchAtLogin"
     /// loadSettings 协议值；与Dart常量及持久化调用方同步。
