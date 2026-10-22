@@ -138,9 +138,9 @@ void main() {
     expect(UnofficialGoogleProvider().id, 'unofficial-google');
   });
 
-  test('批量翻译按换行拆回各段，行数对不上时不给出译文，限流为服务级错误', () async {
+  test('批量翻译按换行拆回各段，行数对不上时不给出译文，限流按频率受限重试（#118）', () async {
     // 作用：多个段落合成一次请求后仍能一一对应。
-    // 边界：返回 2 行对 2 段时逐段给出；返回 1 行对 2 段时全部缺失但整批完成；HTTP 429 不可重试。
+    // 边界：返回 2 行对 2 段时逐段给出；返回 1 行对 2 段时全部缺失但整批完成；HTTP 429 为频率受限并带回 Retry-After。
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
     final client = HttpClient();
@@ -171,6 +171,7 @@ void main() {
           );
         default:
           incoming.response.statusCode = 429;
+          incoming.response.headers.set('retry-after', '5');
       }
       await incoming.response.close();
     });
@@ -200,9 +201,8 @@ void main() {
     final limited = await provider
         .translateBatch(batch, client: client)
         .toList();
-    expect(
-      (limited.single as BatchFailure).kind,
-      TranslationFailureKind.service,
-    );
+    final failure = limited.single as BatchFailure;
+    expect(failure.kind, TranslationFailureKind.rateLimited);
+    expect(failure.retryAfter, const Duration(seconds: 5));
   });
 }

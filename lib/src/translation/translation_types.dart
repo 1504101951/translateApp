@@ -137,8 +137,11 @@ class BatchTranslationRequest {
 
 /// 批量翻译失败的类别；会话据此决定停止发送、放弃该段落或重试。
 enum TranslationFailureKind {
-  /// 认证失败、额度或频率受限、服务拒绝配置。
+  /// 认证失败、额度或余额不足、服务拒绝配置。
   service,
+
+  /// 请求频率受限；稍后可恢复，会话按退避间隔重试（#118）。
+  rateLimited,
 
   /// 模型拒绝翻译或输出达到长度上限，只与本次原文有关。
   paragraph,
@@ -169,10 +172,11 @@ final class BatchCompleted extends BatchTranslationEvent {
 
 /// 整批失败的终态；本批次已收到的译文不作为结果。
 final class BatchFailure extends BatchTranslationEvent {
-  /// message 为用户可读原因，kind 为错误类别。
-  const BatchFailure(this.message, this.kind);
+  /// message 为用户可读原因，kind 为错误类别，retryAfter 为服务要求的最短重试等待（频率受限时可能提供）。
+  const BatchFailure(this.message, this.kind, {this.retryAfter});
   final String message;
   final TranslationFailureKind kind;
+  final Duration? retryAfter;
 }
 
 /// 支持一次请求翻译一批段落的服务；实时翻译使用这一契约。
@@ -186,4 +190,10 @@ abstract class BatchTranslationProvider implements TranslationProvider {
     BatchTranslationRequest request, {
     required HttpClient client,
   });
+}
+
+/// value 为 HTTP Retry-After 头；返回秒数形式的等待时长，缺省、日期格式或不合法时为 null（#118）。
+Duration? parseRetryAfter(String? value) {
+  final seconds = int.tryParse(value?.trim() ?? '');
+  return seconds == null || seconds < 0 ? null : Duration(seconds: seconds);
 }

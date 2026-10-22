@@ -17,7 +17,9 @@ import 'translation_types.dart';
 /// maxInflightBatches 是同时在途的批次上限；不允许并行的服务固定为 1。
 /// maxBatchBlocks 与 maxBatchChars 是单个批次的段落块数与字符数上限，先到为准。
 /// cacheBudgetBytes 是段落块缓存的内存预算，单位字节。
-/// transientRetryLimit 是同一段落原文在一次会话内临时错误后的重试上限。
+/// transientRetryLimit 是同一段落原文在一次会话内临时错误或频率受限后的重试上限。
+/// rateLimitBackoff 是频率受限且服务未给出 Retry-After 时依次等待的时长，超过三次沿用最后一项；
+/// maxRetryAfter 是采用服务给出的 Retry-After 的上限（#118）。
 abstract final class LiveRegionSchedule {
   static const captureMinInterval = Duration(milliseconds: 200);
   static const candidateCoalescingDelay = Duration(milliseconds: 200);
@@ -27,6 +29,12 @@ abstract final class LiveRegionSchedule {
   static const maxBatchChars = 2000;
   static const cacheBudgetBytes = 100 * 1024 * 1024;
   static const transientRetryLimit = 3;
+  static const rateLimitBackoff = [
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+  ];
+  static const maxRetryAfter = Duration(seconds: 60);
 }
 
 /// 调度使用的时钟。now 在同一次会话内单调；schedule 只保留一个截止点。
@@ -244,6 +252,10 @@ class LiveRegionSession {
   HttpClient? _client;
   var _firstNonEmpty = true;
   DateTime? _lastBatchStart;
+
+  /// 频率受限的退避截止时刻与连续受限次数；成功完成一批后次数清零，新会话全部重置（#118）。
+  DateTime? _rateLimitedUntil;
+  var _rateLimitStreak = 0;
   var _epoch = 0;
   var _pending = 0;
   final List<Completer<void>> _waiters = [];
@@ -268,6 +280,8 @@ class LiveRegionSession {
     _paragraphs = {};
     _firstNonEmpty = true;
     _lastBatchStart = null;
+    _rateLimitedUntil = null;
+    _rateLimitStreak = 0;
     _halt = null;
     _lastError = null;
     _notice = '正在识别';
@@ -481,6 +495,12 @@ class LiveRegionSession {
       clock.cancelSchedule();
       return;
     }
+    // 频率受限的退避期内不发送新批次，到期后再评估（#118）。
+    final limitedUntil = _rateLimitedUntil;
+    if (limitedUntil != null && now.isBefore(limitedUntil)) {
+      clock.schedule(limitedUntil.difference(now), _evaluate);
+      return;
+    }
     final lastStart = _lastBatchStart;
     if (lastStart != null) {
       final allowed = lastStart.add(LiveRegionSchedule.requestStartInterval);
@@ -609,13 +629,15 @@ class LiveRegionSession {
         _publish();
       case BatchCompleted():
         _complete(batch);
-      case BatchFailure(:final message, :final kind):
-        _fail(batch, message, kind);
+      case BatchFailure(:final message, :final kind, :final retryAfter):
+        _fail(batch, message, kind, retryAfter: retryAfter);
     }
   }
 
   /// batch 为已完整结束的批次。译文写入缓存；没有译文的段落块单独补发一次。
   void _complete(_Batch batch) {
+    // 一批成功后频率受限的退避从 2 秒重新计（#118）。
+    _rateLimitStreak = 0;
     for (final (index, text) in batch.texts.indexed) {
       final translation = batch.partial[index].toString().trim();
       final paragraph = _paragraphs[text];
@@ -641,8 +663,13 @@ class LiveRegionSession {
     _finish(batch);
   }
 
-  /// batch 为失败的批次，message/kind 为原因与类别。本批次已收到的译文不作为结果。
-  void _fail(_Batch batch, String message, TranslationFailureKind kind) {
+  /// batch 为失败的批次，message/kind 为原因与类别，retryAfter 为服务要求的重试等待。本批次已收到的译文不作为结果。
+  void _fail(
+    _Batch batch,
+    String message,
+    TranslationFailureKind kind, {
+    Duration? retryAfter,
+  }) {
     for (final text in batch.texts) {
       final paragraph = _paragraphs[text];
       if (paragraph != null && !paragraph.done) paragraph.shown = '';
@@ -661,6 +688,20 @@ class LiveRegionSession {
             _paragraphs[text]?.alone = true;
           }
         }
+      case TranslationFailureKind.rateLimited:
+        // 频率受限计入重试次数；按 Retry-After（不超过 60 秒）或 2/4/8 秒退避后才再发送（#118）。
+        batch.keys.forEach(_cache.noteFailure);
+        _lastError = message;
+        const backoff = LiveRegionSchedule.rateLimitBackoff;
+        final wait = retryAfter == null
+            ? _rateLimitStreak < backoff.length
+                  ? backoff[_rateLimitStreak]
+                  : backoff.last
+            : retryAfter > LiveRegionSchedule.maxRetryAfter
+            ? LiveRegionSchedule.maxRetryAfter
+            : retryAfter;
+        _rateLimitStreak++;
+        _rateLimitedUntil = clock.now().add(wait);
       case TranslationFailureKind.transient:
         batch.keys.forEach(_cache.noteFailure);
         _lastError = message;

@@ -530,21 +530,39 @@ void main() {
     await serving;
   });
 
-  test('批量失败带错误类别：认证与限流为服务级，服务端错误为临时，输出截断为段落级', () async {
-    // 作用：会话依据类别决定停止发送、放弃该段或重试。
-    // 边界：499 仍为服务级，500 起为临时错误；finish_reason 为 length 时为段落级。
+  test('批量失败带错误类别：认证、额度与配置拒绝为服务级，频率受限可重试，服务端错误为临时，输出截断为段落级（#118）', () async {
+    // 作用：会话依据类别决定停止发送、退避重试、放弃该段或重试。
+    // 边界：429 无额度错误码为频率受限并带回 Retry-After；429 带 insufficient_quota 与 402 为额度不足；
+    // 403 按 Google 的 reason 区分频率受限与日配额；499 仍为服务级，500 起为临时错误；finish_reason 为 length 时为段落级。
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
     final client = HttpClient();
     addTearDown(() => client.close(force: true));
-    const statuses = [401, 429, 499, 500];
+    const responses = <(int, String, String?)>[
+      (401, 'secret upstream body', null),
+      (429, 'secret upstream body', '7'),
+      (
+        429,
+        '{"error":{"type":"insufficient_quota","code":"insufficient_quota","message":"secret"}}',
+        null,
+      ),
+      (402, '{"error":{"message":"secret"}}', null),
+      (403, '{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}', null),
+      (403, '{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}', null),
+      (499, 'secret upstream body', null),
+      (500, 'secret upstream body', null),
+    ];
     final serving = () async {
       var count = 0;
       await for (final incoming in server) {
         await incoming.drain<void>();
-        if (count < statuses.length) {
-          incoming.response.statusCode = statuses[count];
-          incoming.response.write('secret upstream body');
+        if (count < responses.length) {
+          final (status, body, retryAfter) = responses[count];
+          incoming.response.statusCode = status;
+          if (retryAfter != null) {
+            incoming.response.headers.set('retry-after', retryAfter);
+          }
+          incoming.response.write(body);
         } else {
           incoming.response.headers.contentType = ContentType(
             'text',
@@ -556,29 +574,72 @@ void main() {
           );
         }
         await incoming.response.close();
-        if (++count == statuses.length + 1) break;
+        if (++count == responses.length + 1) break;
       }
     }();
-    final kinds = <TranslationFailureKind>[];
-    for (var i = 0; i < statuses.length + 1; i++) {
+    final failures = <BatchFailure>[];
+    for (var i = 0; i < responses.length + 1; i++) {
       final events = await provider(
         'openai',
         server,
       ).translateBatch(batch, client: client).toList();
       final failure = events.last as BatchFailure;
-      expect(failure.message.contains('secret upstream body'), isFalse);
+      expect(failure.message.contains('secret'), isFalse);
       expect(events.whereType<BatchCompleted>(), isEmpty);
-      kinds.add(failure.kind);
+      failures.add(failure);
     }
-    expect(kinds, [
+    expect(failures.map((failure) => failure.kind), [
       TranslationFailureKind.service,
+      TranslationFailureKind.rateLimited,
+      TranslationFailureKind.service,
+      TranslationFailureKind.service,
+      TranslationFailureKind.rateLimited,
       TranslationFailureKind.service,
       TranslationFailureKind.service,
       TranslationFailureKind.transient,
       TranslationFailureKind.paragraph,
     ]);
+    expect(failures[1].retryAfter, const Duration(seconds: 7));
+    expect(failures[1].message, '请求过于频繁，请稍后重试。');
+    expect(failures[2].message, '额度或余额不足，请检查服务账户。');
+    expect(failures[3].message, '额度或余额不足，请检查服务账户。');
+    expect(failures[4].retryAfter, isNull);
     await serving;
   });
+
+  test('百度错误码：54003 频率受限可重试，54004 余额不足停止（#118）', () async {
+    // 边界：两种错误码都以 HTTP 200 的 JSON 返回；54003 为频率受限，54004 为服务级额度不足。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    final serving = () async {
+      var count = 0;
+      await for (final incoming in server) {
+        await incoming.drain<void>();
+        incoming.response.headers.contentType = ContentType.json;
+        incoming.response.write(
+          '{"error_code":"${count == 0 ? '54003' : '54004'}","error_msg":"secret"}',
+        );
+        await incoming.response.close();
+        if (++count == 2) break;
+      }
+    }();
+    final failures = [
+      for (var i = 0; i < 2; i++)
+        (await provider(
+              'baidu',
+              server,
+            ).translateBatch(batch, client: client).toList()).last
+            as BatchFailure,
+    ];
+    expect(failures.map((failure) => (failure.kind, failure.message)), [
+      (TranslationFailureKind.rateLimited, '请求过于频繁，请稍后重试。'),
+      (TranslationFailureKind.service, '额度或余额不足，请检查服务账户。'),
+    ]);
+    await serving;
+  });
+
   test('术语表：模型请求只携带命中且目标语言一致的术语，未命中时请求与无术语表完全一致', () async {
     // 作用：单篇与批量请求都按原文筛选术语写入用户消息，并在系统提示词说明 glossary。
     // 边界：法语条目即使原文命中也不进入中文请求；保留原文的条目以原词作为译法；

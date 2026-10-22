@@ -174,7 +174,12 @@ class ApiTranslationProvider implements BatchTranslationProvider {
       }
       final response = await http.close();
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw _statusFailure(response.statusCode);
+        // 正文只用于读取错误码，区分频率受限与额度不足，不回显（#118）。
+        throw _statusFailure(
+          response.statusCode,
+          await utf8.decoder.bind(response).join(),
+          response.headers.value('retry-after'),
+        );
       }
       if (!config.isModel) {
         final data =
@@ -332,9 +337,12 @@ class ApiTranslationProvider implements BatchTranslationProvider {
         return;
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        // 读完响应体，连接才能回到连接池复用。
-        await response.drain<void>();
-        throw _statusFailure(response.statusCode);
+        // 读完响应体，连接才能回到连接池复用；正文只用于读取错误码，不回显（#118）。
+        throw _statusFailure(
+          response.statusCode,
+          await utf8.decoder.bind(response).join(),
+          response.headers.value('retry-after'),
+        );
       }
       if (!config.isModel) {
         final data =
@@ -363,7 +371,9 @@ class ApiTranslationProvider implements BatchTranslationProvider {
       try {
         await run().timeout(_requestTimeout);
       } on _ApiFailure catch (error) {
-        emit(BatchFailure(error.message, error.kind));
+        emit(
+          BatchFailure(error.message, error.kind, retryAfter: error.retryAfter),
+        );
       } on TimeoutException {
         emit(
           const BatchFailure(
@@ -524,31 +534,98 @@ class ApiTranslationProvider implements BatchTranslationProvider {
     http.add(utf8.encode(jsonEncode(body)));
   }
 
-  /// status 为非 2xx 的 HTTP 状态码；返回带错误类别的用户可读失败。
-  /// 服务端错误（5xx）属于临时错误，其余为服务级明确错误。
-  _ApiFailure _statusFailure(int status) => _ApiFailure(
-    switch (status) {
-      401 || 403 => '认证失败，请检查 API 凭据和服务权限。',
-      429 => '请求过于频繁或额度不足，请稍后重试。',
-      400 => '服务拒绝请求，请检查模型名称、语言与配置。',
-      _ => '翻译服务请求失败（HTTP $status）。',
-    },
-    kind: status >= 500
-        ? TranslationFailureKind.transient
-        : TranslationFailureKind.service,
-  );
+  /// 额度或余额不足的错误码：OpenAI 兼容的 error.code/type 与 Google 的 errors[].reason（#118）。
+  static const _quotaCodes = {
+    'insufficient_quota',
+    'dailyLimitExceeded',
+    'quotaExceeded',
+  };
+
+  /// 频率受限的错误码：OpenAI、Anthropic 的 error.code/type 与 Google 的 errors[].reason（#118）。
+  static const _rateLimitCodes = {
+    'rate_limit_exceeded',
+    'rate_limit_error',
+    'userRateLimitExceeded',
+    'rateLimitExceeded',
+  };
+  static const _quotaMessage = '额度或余额不足，请检查服务账户。';
+  static const _rateLimitMessage = '请求过于频繁，请稍后重试。';
+
+  /// status 为非 2xx 的 HTTP 状态码，body 为响应正文（只读错误码，不回显），retryAfter 为 Retry-After 头；
+  /// 返回带错误类别的用户可读失败：额度或余额不足（402 或额度错误码）、认证失败与配置拒绝为服务级，
+  /// 频率受限（429 或限流错误码）稍后重试，服务端错误（5xx）为临时错误（#118）。
+  _ApiFailure _statusFailure(int status, String body, String? retryAfter) {
+    // _errorCodes 从 JSON 错误正文取出 error.code、error.type 与 error.errors[].reason。
+    final codes = _errorCodes(body);
+    if (status == 402 || codes.any(_quotaCodes.contains)) {
+      return const _ApiFailure(
+        _quotaMessage,
+        kind: TranslationFailureKind.service,
+      );
+    }
+    if (status == 429 || codes.any(_rateLimitCodes.contains)) {
+      return _ApiFailure(
+        _rateLimitMessage,
+        kind: TranslationFailureKind.rateLimited,
+        retryAfter: parseRetryAfter(retryAfter),
+      );
+    }
+    return _ApiFailure(
+      switch (status) {
+        401 || 403 => '认证失败，请检查 API 凭据和服务权限。',
+        400 => '服务拒绝请求，请检查模型名称、语言与配置。',
+        _ => '翻译服务请求失败（HTTP $status）。',
+      },
+      kind: status >= 500
+          ? TranslationFailureKind.transient
+          : TranslationFailureKind.service,
+    );
+  }
+
+  /// body 为错误响应正文；返回其中的 error.code、error.type 与 error.errors[].reason，正文不是 JSON 时为空。
+  static Set<String> _errorCodes(String body) {
+    final Object? data;
+    try {
+      data = jsonDecode(body);
+    } on FormatException {
+      return const {};
+    }
+    final error = data is Map ? data['error'] : null;
+    if (error is! Map) return const {};
+    final errors = error['errors'];
+    return {
+      for (final key in ['code', 'type'])
+        if (error[key] is String) error[key] as String,
+      if (errors is List)
+        for (final item in errors)
+          if (item is Map && item['reason'] is String) item['reason'] as String,
+    };
+  }
 
   /// data 为百度响应。返回按原文行顺序排列的译文；服务返回错误码时抛失败。
-  /// 52001（超时）与 52002（系统错误）属于临时错误，其余错误码为服务级明确错误。
+  /// 52001（超时）与 52002（系统错误）属于临时错误，54003（访问频率受限）稍后重试，
+  /// 54004（账户余额不足）与其余错误码为服务级明确错误（#118）。
   List<String> _baiduTranslations(Map data) {
     final code = data['error_code']?.toString();
     if (code != null && code != '52000') {
-      throw _ApiFailure(
-        '百度翻译请求失败，请检查凭据、语种权限、额度和选区长度。',
-        kind: code == '52001' || code == '52002'
-            ? TranslationFailureKind.transient
-            : TranslationFailureKind.service,
-      );
+      throw switch (code) {
+        '52001' || '52002' => const _ApiFailure(
+          '百度翻译请求失败，请稍后重试。',
+          kind: TranslationFailureKind.transient,
+        ),
+        '54003' => const _ApiFailure(
+          _rateLimitMessage,
+          kind: TranslationFailureKind.rateLimited,
+        ),
+        '54004' => const _ApiFailure(
+          _quotaMessage,
+          kind: TranslationFailureKind.service,
+        ),
+        _ => const _ApiFailure(
+          '百度翻译请求失败，请检查凭据、语种权限、额度和选区长度。',
+          kind: TranslationFailureKind.service,
+        ),
+      };
     }
     return [
       for (final item in data['trans_result'] as List) item['dst'] as String,
@@ -651,11 +728,13 @@ class ApiTranslationProvider implements BatchTranslationProvider {
 
 /// 仅承载由本应用定义的安全提示，区别于可能包含响应正文的解析异常。
 class _ApiFailure implements Exception {
-  /// message 为用户可读原因；kind 为错误类别，未指明时按临时错误处理。
+  /// message 为用户可读原因；kind 为错误类别，未指明时按临时错误处理；retryAfter 为服务要求的重试等待。
   const _ApiFailure(
     this.message, {
     this.kind = TranslationFailureKind.transient,
+    this.retryAfter,
   });
   final String message;
   final TranslationFailureKind kind;
+  final Duration? retryAfter;
 }

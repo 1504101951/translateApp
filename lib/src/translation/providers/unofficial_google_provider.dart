@@ -143,10 +143,13 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
         emit(
           BatchFailure(
             'Unofficial Google Provider 请求失败（HTTP $status）。',
-            // 服务端错误（5xx）可重试；限流与其余拒绝不会因重试而改变。
-            status >= 500
+            // 限流（429）按退避重试，服务端错误（5xx）可重试；其余拒绝不会因重试而改变（#118）。
+            status == 429
+                ? TranslationFailureKind.rateLimited
+                : status >= 500
                 ? TranslationFailureKind.transient
                 : TranslationFailureKind.service,
+            retryAfter: parseRetryAfter(response.headers.value('retry-after')),
           ),
         );
         return;

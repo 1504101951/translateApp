@@ -107,9 +107,15 @@ final class ScriptedProvider implements BatchTranslationProvider {
   }
 
   /// index 为请求下标，kind/message 为失败类别与原因。
-  void fail(int index, TranslationFailureKind kind, [String message = '失败']) {
+  /// index 为请求序号，kind/message 为失败类别与原因，retryAfter 为服务要求的重试等待；让该请求失败。
+  void fail(
+    int index,
+    TranslationFailureKind kind, [
+    String message = '失败',
+    Duration? retryAfter,
+  ]) {
     _settled.add(index);
-    controllers[index].add(BatchFailure(message, kind));
+    controllers[index].add(BatchFailure(message, kind, retryAfter: retryAfter));
   }
 
   /// 无参数；返回每条请求携带的段落原文。
@@ -389,6 +395,50 @@ void main() {
       ['A'],
     ]);
     expect(session.view.status, '正在翻译');
+  });
+
+  test('频率受限按 2/4 秒或 Retry-After 退避后重试，成功一批后退避从 2 秒重新计（#118）', () async {
+    // 作用：限流不再停止会话，而是等待后再发送。
+    // 边界：连续两次无 Retry-After 依次等 2 秒、4 秒，第三次带 Retry-After 3 秒时等 3 秒（各差 1ms 不发）；
+    // 成功完成一批后新段落再受限时重新等 2 秒。
+    final clock = ManualClock();
+    final provider = ScriptedProvider();
+    final session = _session(provider, clock);
+    session.start(_settings(), 1);
+    await session.onOcr(_frame(1, ['A']));
+    const limited = TranslationFailureKind.rateLimited;
+    const millisecond = Duration(milliseconds: 1);
+
+    /// index 为受限的请求序号，retryAfter 为服务给出的等待，wait 为预期退避；断言到期前不发、到期即发。
+    Future<void> limitAndWait(
+      int index,
+      Duration wait, [
+      Duration? retryAfter,
+    ]) async {
+      provider.fail(index, limited, '请求过于频繁', retryAfter);
+      await _delivered(session);
+      clock.elapse(wait - millisecond);
+      await _delivered(session);
+      expect(provider.requests, hasLength(index + 1));
+      clock.elapse(millisecond);
+      await _delivered(session);
+      expect(provider.requests, hasLength(index + 2));
+    }
+
+    await limitAndWait(0, const Duration(seconds: 2));
+    await limitAndWait(1, const Duration(seconds: 4));
+    await limitAndWait(
+      2,
+      const Duration(seconds: 3),
+      const Duration(seconds: 3),
+    );
+    provider.complete(3, ['甲']);
+    await _delivered(session);
+    await session.onOcr(_frame(1, ['A', 'B']));
+    clock.elapse(const Duration(seconds: 1));
+    await _delivered(session);
+    expect(provider.sent.last, ['B']);
+    await limitAndWait(4, const Duration(seconds: 2));
   });
 
   test('服务级明确错误后本次会话不再发送，新会话恢复发送', () async {
