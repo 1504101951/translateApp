@@ -33,9 +33,10 @@ macOS应用生命周期、系统能力与窗口控制器。
 29. [ScreenshotComposer.swift](ScreenshotComposer.swift)：按原始像素拼接、拆分截图历史图片，并逐像素比较两张图生成差异蒙版。
 30. [ApplicationRecorder.swift](ApplicationRecorder.swift)：将所选应用在全部显示器上的可见窗口合成为固定黑底画布并编码视频。
 31. [LiveRegionCapture.swift](LiveRegionCapture.swift)：以未编码画面帧持续识别区域、窗口或全屏文字。
-32. [LiveRegionWindowController.swift](LiveRegionWindowController.swift)：承载不抢焦点的实时翻译结果窗，并连接捕获与主引擎会话。
+32. [LiveRegionCoordinator.swift](LiveRegionCoordinator.swift)：在选区上绘制实时翻译盖层，并连接捕获与主引擎会话。
 33. [MCP/](MCP/index.md)：MCP 截图接口的 JSON-RPC 协议、本地 socket 传输及 App 侧请求处理。
 34. [SystemTranslationService.swift](SystemTranslationService.swift)：按语言对创建无界面系统翻译会话，翻译一组段落、按请求取消并查询语言包状态。
 35. [SpeechService.swift](SpeechService.swift)：用系统离线语音朗读译文卡片的一栏文字，同一段再次请求即停止。
 36. [WebMExporter.swift](WebMExporter.swift)：按裁剪区间读取录制的NV12帧并转为BT.601矩阵，经不挂窗口的WebKit编码VP8并写成保持原分辨率与原帧时间的WebM，编码器丢帧时报错。
 37. [AutoScroll.swift](AutoScroll.swift)：长截图自动滚动的步进状态机，以及经辅助功能接口读写选区中心来源窗口纵向滚动条的目标。
+38. [WindowEngine.swift](WindowEngine.swift)：附属窗口共用的 Flutter 引擎装配：建引擎与通道、运行入口、注册插件与原生玻璃。

@@ -601,26 +601,20 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     private func show(compact: Bool) -> Bool {
         let overlay = compact || displaysFrozenScreen
         if engine == nil {
-            let engine = FlutterEngine(name: "screenshot", project: nil, allowHeadlessExecution: false)
-            self.engine = engine
-            let channel = FlutterMethodChannel(name: AppConstants.screenshotChannel, binaryMessenger: engine.binaryMessenger)
-            self.channel = channel
-            channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
-            let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
-            guard engine.run(withEntrypoint: AppConstants.screenshotEntrypoint) else {
-                channel.setMethodCallHandler(nil)
-                engine.shutDownEngine()
-                self.engine = nil
-                self.channel = nil
+            // WindowEngine 统一装配附属窗口引擎（#120）。
+            guard let started = WindowEngine.start(
+                name: AppConstants.screenshotEngineName, entrypoint: AppConstants.screenshotEntrypoint,
+                channel: AppConstants.screenshotChannel,
+                handler: { [weak self] call, result in self?.handle(call, result: result) }) else {
                 let alert = NSAlert()
                 alert.messageText = "截图预览启动失败"
                 alert.informativeText = "请退出并重新打开 TranslateApp。"
                 alert.runModal()
                 return false
             }
-            RegisterGeneratedPlugins(registry: flutter)
-            // 平台视图工厂按引擎注册，编辑窗只服务冻结选区。
-            NativeGlassFactory.register(with: flutter)
+            engine = started.engine
+            channel = started.channel
+            let flutter = started.flutter
             flutter.view.wantsLayer = true
             flutter.view.layer?.isOpaque = false
             flutter.view.layer?.backgroundColor = CGColor.clear

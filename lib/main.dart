@@ -22,7 +22,6 @@ import 'src/settings/app_settings.dart';
 import 'src/settings/permission_wizard_app.dart';
 import 'src/settings/settings_app.dart';
 import 'src/settings/settings_controller.dart';
-import 'src/capture/live_region_app.dart';
 import 'src/translation/live_region_session.dart';
 import 'src/translation/provider_selection.dart';
 import 'src/common/constants/preference_keys.dart';
@@ -219,13 +218,6 @@ void settingsMain() {
 void screenshotMain() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ScreenshotApp());
-}
-
-/// 无参数；实时翻译结果窗只渲染快照，翻译会话留在主引擎。
-@pragma('vm:entry-point')
-void liveRegionMain() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const LiveRegionApp());
 }
 
 /// 无参数；采集引擎只管理录制、GIF 与长截图界面，原生持有媒体资源。

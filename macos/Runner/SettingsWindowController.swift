@@ -18,36 +18,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let engine = FlutterEngine(name: "settings", project: nil, allowHeadlessExecution: false)
-        self.engine = engine
-        let channel = FlutterMethodChannel(name: AppConstants.settingsChannel, binaryMessenger: engine.binaryMessenger)
-        self.channel = channel
-        channel.setMethodCallHandler { [weak self] call, result in
-            let bridge = MacPlatformBridge.Shared.instance!
-            switch call.method {
-            case AppConstants.recordShortcutMethod:
-                self?.recordShortcut(result: result)
-            default:
-                // routeWindowRequest统一区分主引擎业务和系统操作，窗口仅保留快捷键录制。
-                bridge.routeWindowRequest(call, result: result)
-            }
-        }
-        let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
-        // 非 headless 引擎必须先绑定控制器，否则 Flutter 会拒绝启动。
-        guard engine.run(withEntrypoint: AppConstants.settingsEntrypoint) else {
-            channel.setMethodCallHandler(nil)
-            engine.shutDownEngine()
-            self.engine = nil
-            self.channel = nil
+        // WindowEngine 统一装配附属窗口引擎（#120）。
+        guard let started = WindowEngine.start(
+            name: AppConstants.settingsEngineName, entrypoint: AppConstants.settingsEntrypoint,
+            channel: AppConstants.settingsChannel, handler: { [weak self] call, result in
+                let bridge = MacPlatformBridge.Shared.instance!
+                switch call.method {
+                case AppConstants.recordShortcutMethod:
+                    self?.recordShortcut(result: result)
+                default:
+                    // routeWindowRequest统一区分主引擎业务和系统操作，窗口仅保留快捷键录制。
+                    bridge.routeWindowRequest(call, result: result)
+                }
+            }) else {
             let alert = NSAlert()
             alert.messageText = "设置窗口启动失败"
             alert.informativeText = "请退出并重新打开 TranslateApp。"
             alert.runModal()
             return
         }
-        RegisterGeneratedPlugins(registry: flutter)
-        // 平台视图工厂按引擎注册，避免独立窗口缺少原生玻璃材料。
-        NativeGlassFactory.register(with: flutter)
+        engine = started.engine
+        channel = started.channel
+        let flutter = started.flutter
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],

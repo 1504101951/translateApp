@@ -27,18 +27,13 @@ enum AppConstants {
     /// 连续采集独立通道与多引擎入口，和Dart常量一致。
     static let captureChannel = "translateapp/capture"
     static let captureEntrypoint = "captureMain"
-    /// 实时翻译结果窗。画面不进入录屏编码器。
-    static let liveRegionChannel = "translateapp/live_region"
-    static let liveRegionEntrypoint = "liveRegionMain"
     /// 已批准的初始供帧间隔，单位毫秒。须与 Dart LiveRegionSchedule.captureMinInterval 一致。
     static let liveCaptureMinIntervalMs = 200
     static let previewLiveRegionMethod = "previewLiveRegion"
     static let cancelLivePreviewMethod = "cancelLivePreview"
     static let liveRegionCommandMethod = "liveRegionCommand"
     static let liveRegionOcrMethod = "liveRegionOcr"
-    static let liveRegionStateMethod = "liveRegionState"
     static let publishLiveRegionMethod = "publishLiveRegion"
-    static let getLiveRegionStateMethod = "getLiveRegionState"
     static let captureVideoPreview = "translateapp/capture_video_preview"
     /// Spec #67中的采集工具尺寸，单位为屏幕逻辑点。
     static let captureControlSize = NSSize(width: 320, height: 84)
@@ -118,6 +113,9 @@ enum AppConstants {
     static let screenshotChannel = "translateapp/screenshot"
     /// screenshotEntrypoint 的平台约定；调用方共享同一协议或硬件定义。
     static let screenshotEntrypoint = "screenshotMain"
+    /// 截图与设置窗口的 Flutter 引擎名，经 WindowEngine 创建时使用（#120）。
+    static let screenshotEngineName = "screenshot"
+    static let settingsEngineName = "settings"
     /// permissionWizardFinishedKey 的平台约定；调用方共享同一协议或硬件定义。
     static let permissionWizardFinishedKey = "permissionWizardFinished"
     /// screenshotSaveDirectoryKey 的平台约定；调用方共享同一协议或硬件定义。

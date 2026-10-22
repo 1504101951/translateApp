@@ -156,21 +156,14 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         let started = ContinuousClock.now
         // 记录真实采集引擎初始化，便于区分界面准备与ScreenCaptureKit启动耗时。
         defer { CaptureStartupLog.record("capture-ui-create-sync", since: started) }
-        let engine = FlutterEngine(name: AppConstants.captureEntrypoint, project: nil, allowHeadlessExecution: false)
-        let channel = FlutterMethodChannel(name: AppConstants.captureChannel, binaryMessenger: engine.binaryMessenger)
-        self.engine = engine
-        self.channel = channel
-        channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
-        let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
-        guard engine.run(withEntrypoint: AppConstants.captureEntrypoint) else {
-            channel.setMethodCallHandler(nil)
-            engine.shutDownEngine()
-            self.engine = nil
-            self.channel = nil
-            return
-        }
-        RegisterGeneratedPlugins(registry: flutter)
-        NativeGlassFactory.register(with: flutter)
+        // WindowEngine 统一装配附属窗口引擎（#120）；采集窗口另行注册视频预览平台视图。
+        guard let started = WindowEngine.start(
+            name: AppConstants.captureEntrypoint, entrypoint: AppConstants.captureEntrypoint,
+            channel: AppConstants.captureChannel,
+            handler: { [weak self] call, result in self?.handle(call, result: result) }) else { return }
+        engine = started.engine
+        channel = started.channel
+        let flutter = started.flutter
         flutter.registrar(forPlugin: "CaptureVideoPreview").register(
             CapturePreviewFactory(owner: self), withId: AppConstants.captureVideoPreview)
         // makeWindow从创建时就明确是否非激活，避免结果窗口继承采集控制条的焦点约束。

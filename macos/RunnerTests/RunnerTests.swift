@@ -376,6 +376,36 @@ class RunnerTests: XCTestCase {
         }
     }
 
+    /// 无参数；附属窗口请求先交本地处理，本地未实现的方法转到主引擎并返回主引擎的结果（#120）。
+    /// 边界：vocabularyList 只在主引擎处理，得到假主引擎的回复；systemStatus 由本地返回权限状态，不得到主引擎回复。
+    @MainActor
+    func testWindowRequestsRouteLocalFirstThenToApplication() throws {
+        /// 假主引擎：对每次方法调用回复字符串 "from-main"。
+        final class Messenger: NSObject, FlutterBinaryMessenger {
+            func send(onChannel channel: String, message: Data?) {}
+            func send(onChannel channel: String, message: Data?, binaryReply callback: FlutterBinaryReply?) {
+                callback?(FlutterStandardMethodCodec.sharedInstance().encodeSuccessEnvelope("from-main"))
+            }
+            func setMessageHandlerOnChannel(_ channel: String,
+                                            binaryMessageHandler handler: FlutterBinaryMessageHandler?) -> FlutterBinaryMessengerConnection { 0 }
+            func cleanUpConnection(_ connection: FlutterBinaryMessengerConnection) {}
+        }
+        let previous = MacPlatformBridge.Shared.instance
+        defer { MacPlatformBridge.Shared.instance = previous }
+        let bridge = MacPlatformBridge.register(with: Messenger(), overlay: OverlayPanelController(),
+                                                selectionMonitor: SelectionMonitor())
+        var forwarded: Any?
+        bridge.routeWindowRequest(FlutterMethodCall(methodName: AppConstants.vocabularyListMethod, arguments: nil)) {
+            forwarded = $0
+        }
+        XCTAssertEqual(forwarded as? String, "from-main")
+        var local: Any?
+        bridge.routeWindowRequest(FlutterMethodCall(methodName: AppConstants.systemStatusMethod, arguments: nil)) {
+            local = $0
+        }
+        XCTAssertNotNil((local as? [String: Any])?["accessibility"])
+    }
+
 
     /// 无参数；真实 Keychain 往返与失败回滚，UUID 隔离用户凭据，空字典与不存在是两个边界。
     @MainActor

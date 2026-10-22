@@ -40,26 +40,17 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let engine = FlutterEngine(name: engineName, project: nil, allowHeadlessExecution: false)
-        self.engine = engine
-        let channel = FlutterMethodChannel(name: AppConstants.settingsChannel, binaryMessenger: engine.binaryMessenger)
-        self.channel = channel
-        channel.setMethodCallHandler { call, result in
-            let bridge = MacPlatformBridge.Shared.instance!
-            // routeWindowRequest负责跨引擎分发，辅助窗口不保存业务方法表。
-            bridge.routeWindowRequest(call, result: result)
-        }
-        let flutter = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
-        guard engine.run(withEntrypoint: entrypoint) else {
-            channel.setMethodCallHandler(nil)
-            engine.shutDownEngine()
-            self.engine = nil
-            self.channel = nil
-            return
-        }
-        RegisterGeneratedPlugins(registry: flutter)
-        // 平台视图工厂按引擎注册，避免独立窗口缺少原生玻璃材料。
-        NativeGlassFactory.register(with: flutter)
+        // WindowEngine 统一装配附属窗口引擎（#120）；启动失败时不显示窗口。
+        guard let started = WindowEngine.start(
+            name: engineName, entrypoint: entrypoint, channel: AppConstants.settingsChannel,
+            handler: { call, result in
+                let bridge = MacPlatformBridge.Shared.instance!
+                // routeWindowRequest负责跨引擎分发，辅助窗口不保存业务方法表。
+                bridge.routeWindowRequest(call, result: result)
+            }) else { return }
+        engine = started.engine
+        channel = started.channel
+        let flutter = started.flutter
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],

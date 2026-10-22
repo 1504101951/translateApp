@@ -6,9 +6,7 @@ abstract final class MethodNames {
   static const cancelLivePreview = 'cancelLivePreview';
   static const liveRegionCommand = 'liveRegionCommand';
   static const liveRegionOcr = 'liveRegionOcr';
-  static const liveRegionState = 'liveRegionState';
   static const publishLiveRegion = 'publishLiveRegion';
-  static const getLiveRegionState = 'getLiveRegionState';
   static const captureStateChanged = 'captureStateChanged';
   static const prepareCapture = 'prepareCapture';
   static const previewCaptureTarget = 'previewCaptureTarget';

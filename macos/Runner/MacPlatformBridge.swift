@@ -627,22 +627,17 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         }
     }
 
-    /// call为附属窗口请求；业务转发主Dart引擎，系统操作交给原生处理，通过result返回结果。
+    /// call为附属窗口请求；先交给本进程的系统能力（handle），handle 未实现的方法转主Dart引擎，通过result返回结果（#120）。
+    /// 跨引擎业务方法表只在主引擎的 lib/main.dart 维护一份；系统能力与业务方法不能同名，否则会在本地处理。
     func routeWindowRequest(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        switch call.method {
-        case AppConstants.getSettingsMethod, AppConstants.saveSettingsMethod, AppConstants.testServiceMethod,
-             AppConstants.saveDrawingPreferencesMethod, AppConstants.toggleAutomaticMethod,
-             AppConstants.historyPageMethod, AppConstants.historyRecordingMethod,
-             AppConstants.setHistoryRecordingMethod, AppConstants.translatePlainTextMethod,
-             AppConstants.vocabularyListMethod, AppConstants.deleteVocabularyMethod, AppConstants.vocabularyCsvMethod,
-             AppConstants.screenshotHistoryListMethod, AppConstants.deleteScreenshotHistoryMethod,
-             AppConstants.clearScreenshotHistoryMethod, AppConstants.screenshotHistoryRecordingMethod,
-             AppConstants.setScreenshotHistoryRecordingMethod, AppConstants.addScreenshotHistoryMethod:
+        handle(call) { [weak self] value in
+            // FlutterMethodNotImplemented 是哨兵对象，按身份比较。
+            guard let self, (value as? NSObject) === FlutterMethodNotImplemented else {
+                result(value)
+                return
+            }
             // requestApplication只跨越引擎边界；业务状态由主引擎所属模块管理。
-            requestApplication(call.method, arguments: call.arguments, result: result)
-        default:
-            // handle仅处理本进程的系统能力，不创建附属引擎的业务状态。
-            handle(call, result: result)
+            self.requestApplication(call.method, arguments: call.arguments, result: result)
         }
     }
 
