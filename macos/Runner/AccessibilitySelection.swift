@@ -252,6 +252,9 @@ enum AccessibilitySelection {
     }
 
     /// pasteboard 为剪贴板，copy 发起复制，accepts 确认文本仍属于当前选区；返回文字，失败或取消为 nil。
+    /// 观察到复制结果后，只要剪贴板仍是该结果就还原复制前的内容，无论文字是否被接受（#117）。
+    /// 已知限制：观察到变化之前就取消、或复制结果晚于 250ms 才写入时，无法区分变化来自本次复制还是用户操作，
+    /// 因此不还原；来源应用需要更久才写入剪贴板时重新评估等待时长。
     static func readByCopyingSelection(
         pasteboard: NSPasteboard, copy: () -> Void, accepts: (String) -> Bool
     ) async -> String? {
@@ -265,9 +268,13 @@ enum AccessibilitySelection {
             guard !Task.isCancelled else { return nil }
             if pasteboard.changeCount != changeCount {
                 let copiedChangeCount = pasteboard.changeCount
-                guard let text = pasteboard.string(forType: .string), isUsable(text), accepts(text),
-                      !Task.isCancelled, pasteboard.changeCount == copiedChangeCount else { return nil }
+                let text = pasteboard.string(forType: .string)
+                let accepted = text.map { isUsable($0) && accepts($0) } ?? false
+                // 读取期间用户又复制了新内容（changeCount 再变）时不还原，也不采用。
+                guard pasteboard.changeCount == copiedChangeCount else { return nil }
+                // 剪贴板仍是本次复制的结果：被拒绝或已取消时同样还原，不留下复制内容。
                 snapshot.restore(pasteboard)
+                guard accepted, !Task.isCancelled else { return nil }
                 return text
             }
             do { try await Task.sleep(for: .milliseconds(20)) } catch { return nil }

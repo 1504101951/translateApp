@@ -300,7 +300,8 @@ class RunnerTests: XCTestCase {
     }
 
 
-    /// 无参数；成功读取保留段落并恢复原内容，取消或非选区文本均须保留用户的新内容。
+    /// 无参数；成功读取保留段落并恢复原内容；取消先于新写入、读取期间用户写入时保留用户的新内容；
+    /// 复制结果不属于选区时剪贴板仍是本次复制的结果，还原为复制前的内容（#117）。
     @MainActor
     func testCopyReadPreservesClipboardAfterCancellation() async {
         let board = NSPasteboard.withUniqueName()
@@ -329,13 +330,25 @@ class RunnerTests: XCTestCase {
         XCTAssertNil(cancelled)
         XCTAssertEqual(board.string(forType: .string), "new user clipboard")
 
-        // 新复制先于取消信号到达时，不属于选区的文本也不能被恢复操作覆盖。
+        // 复制结果不属于选区：不采用，剪贴板还原为复制前的内容（#117）。
         let unrelated = await AccessibilitySelection.readByCopyingSelection(pasteboard: board, copy: {
             board.clearContents()
-            board.setString("another user copy", forType: .string)
+            board.setString("not the selection", forType: .string)
         }, accepts: { $0 == selection })
         XCTAssertNil(unrelated)
-        XCTAssertEqual(board.string(forType: .string), "another user copy")
+        XCTAssertEqual(board.string(forType: .string), "new user clipboard")
+
+        // 边界：读取期间（确认文本时）用户又复制了新内容，changeCount 再变，不还原也不采用。
+        let overtaken = await AccessibilitySelection.readByCopyingSelection(pasteboard: board, copy: {
+            board.clearContents()
+            board.setString(selection, forType: .string)
+        }, accepts: { _ in
+            board.clearContents()
+            board.setString("copied while reading", forType: .string)
+            return true
+        })
+        XCTAssertNil(overtaken)
+        XCTAssertEqual(board.string(forType: .string), "copied while reading")
     }
 
     /// 无参数；来源的浮动窗口重新置前时，触发态与结果态都不能被覆盖，且不取得焦点。
