@@ -592,12 +592,13 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertThrowsError(try oversized.append(frame(width: 32769, height: 64, offset: 0, top: 0, bottom: 0)))
     }
 
-    /// url为本用例私有路径；写入30帧64×48无声H264，三段颜色用于核验时间顺序。
-    private func writeMovie(_ url: URL) async throws {
+    /// url为本用例私有路径，indices为写入的帧号（第 n 帧呈现于 n/30 秒，缺省为 0–29 连续帧），
+    /// colorProperties为可选的 AVVideoColorPropertiesKey 色彩标注；写入1秒64×48无声H264，三段颜色用于核验时间顺序。
+    private func writeMovie(_ url: URL, indices: [Int] = Array(0..<30), colorProperties: [String: String]? = nil) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 48,
-        ])
+        var settings: [String: Any] = [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 48]
+        settings[AVVideoColorPropertiesKey] = colorProperties
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         let adapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: 64, kCVPixelBufferHeightKey as String: 48,
@@ -606,7 +607,7 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertTrue(writer.startWriting())
         writer.startSession(atSourceTime: .zero)
         let deadline = Date().addingTimeInterval(10)
-        for index in 0..<30 {
+        for index in indices {
             while !input.isReadyForMoreMediaData {
                 guard Date() < deadline else { throw GIFExporter.ExportError(message: "测试视频写入超时。") }
                 try await Task.sleep(for: .milliseconds(10))
@@ -769,6 +770,208 @@ final class CaptureMediaTests: XCTestCase {
         }
         XCTAssertEqual(colors, [1, 2])
         XCTAssertEqual(try Data(contentsOf: video), original)
+    }
+
+    /// 无参数；源为 0–9、15–29 帧的变帧率视频，裁剪 0.35–0.9 秒导出 WebM（#110）。
+    /// 边界：0.35 秒落在 10–14 帧的空档内，跨过起点的第 9 帧从 0 计时；其后第 15–26 帧按源时间减起点取整到毫秒，
+    /// 第 27 帧恰在 0.9 秒终点上不进入；总时长 550ms，最后一帧时长补到终点；矩阵转为 BT.601 写成代码 6，BT.709 色域与传递特性写成代码 1。
+    func testWebMExportKeepsSourceFrameTimesWithinTrimRange() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureWebMTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let video = directory.appendingPathComponent("source.mp4")
+        try await writeMovie(video, indices: Array(0..<10) + Array(15..<30), colorProperties: [
+            AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+            AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+            AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+        ])
+        let original = try Data(contentsOf: video)
+        let output = directory.appendingPathComponent("result.webm")
+        let range = CMTimeRange(start: CMTime(value: 7, timescale: 20), end: CMTime(value: 9, timescale: 10))
+        let count = try await WebMExporter.export(source: video, destination: output, range: range) { _ in }
+        let webm = try parseWebM(Data(contentsOf: output))
+        XCTAssertEqual(count, 13)
+        XCTAssertEqual(webm.docType, "webm")
+        XCTAssertEqual(webm.timecodeScale, 1_000_000)
+        XCTAssertEqual(webm.duration, 550)
+        XCTAssertEqual(webm.codec, "V_VP8")
+        XCTAssertEqual([webm.width, webm.height], [64, 48])
+        XCTAssertEqual(webm.colour, [6, 1, 1, 1])
+        XCTAssertEqual(webm.frames.map { $0.time }, [0] + (15...26).map { Int64((Double($0) / 30 - 0.35) * 1000 + 0.5) })
+        XCTAssertTrue(webm.frames[0].key)
+        XCTAssertEqual(webm.frames.last?.duration, 550 - 517)
+        // VP8 帧标签首位 0 为关键帧，关键帧在第 3–5 字节带起始码 9D 01 2A。
+        XCTAssertTrue(webm.frames.allSatisfy { ($0.data[0] & 1 == 0) == $0.key })
+        XCTAssertTrue(webm.frames.filter { $0.key }.allSatisfy { $0.data[3..<6] == Data([0x9D, 0x01, 0x2A]) })
+        XCTAssertEqual(webm.cues.map { $0.time }, webm.clusters.filter { $0.key }.map { $0.time })
+        XCTAssertEqual(try Data(contentsOf: video), original)
+    }
+
+    /// 无参数；首个进度回报后取消导出：抛出 CancellationError，已创建的 WebM 被删除，源视频不变（#110）。
+    func testWebMCancellationDuringExportRemovesOutput() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureWebMCancel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let video = directory.appendingPathComponent("source.mp4")
+        try await writeMovie(video)
+        let original = try Data(contentsOf: video)
+        let output = directory.appendingPathComponent("cancelled.webm")
+        let started = AsyncStream<Void>.makeStream()
+        let task = Task {
+            try await WebMExporter.export(source: video, destination: output, range: nil) { _ in started.continuation.yield() }
+        }
+        // 第一帧已写入编码会话、输出文件已创建后才取消。
+        for await _ in started.stream { break }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+        task.cancel()
+        do { _ = try await task.value; XCTFail("取消任务不能成功") } catch is CancellationError { }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertEqual(try Data(contentsOf: video), original)
+    }
+
+    /// 无参数；写出器按关键帧与 Int16 相对时间码切分 Cluster，并回填 Segment 大小与索引位置（#110）。
+    /// 边界：66667µs 进位为 67ms，2000499µs 舍为 2000ms、2000500µs 进为 2001ms；相对 Cluster 起点 32767ms
+    /// 的帧留在原 Cluster，32768ms 的帧开新 Cluster 但不建索引；最后一帧为非关键帧时用 -1ms 的 ReferenceBlock 指向上一帧。
+    func testWebMWriterSplitsClustersAndPatchesIndex() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("WebMWriter-\(UUID().uuidString).webm")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = try WebMWriter(url: url, width: 1280, height: 720, duration: 35_000_000,
+                                    colour: .init(matrix: 6, transfer: 13, primaries: 5))
+        let inputs: [(Int64, Bool)] = [(0, true), (33_333, false), (66_667, false), (2_000_000, true),
+                                       (2_000_499, false), (2_000_500, false), (34_767_000, false), (34_768_000, false)]
+        for (index, (timestamp, key)) in inputs.enumerated() {
+            try writer.append(.init(timestamp: timestamp, key: key, data: Data([0x80, UInt8(index)])))
+        }
+        try writer.finish(expectedFrames: inputs.count)
+        let webm = try parseWebM(Data(contentsOf: url))
+        XCTAssertEqual(webm.duration, 35_000)
+        XCTAssertEqual([webm.width, webm.height], [1280, 720])
+        XCTAssertEqual(webm.colour, [6, 1, 13, 5])
+        XCTAssertEqual(webm.frames.map { $0.time }, [0, 33, 67, 2000, 2000, 2001, 34_767, 34_768])
+        XCTAssertEqual(webm.frames.map { $0.key }, [true, false, false, true, false, false, false, false])
+        XCTAssertEqual(webm.frames.map { $0.data }, (0..<8).map { Data([0x80, UInt8($0)]) })
+        XCTAssertEqual(webm.clusters.map { $0.time }, [0, 2000, 34_768])
+        XCTAssertEqual(webm.cues.map { $0.time }, [0, 2000])
+        XCTAssertEqual(webm.frames.last?.duration, 232)
+        XCTAssertEqual(webm.frames.last?.reference, -1)
+        XCTAssertNil(webm.frames[6].duration)
+    }
+
+    /// 无参数；收到的编码帧少于读入帧数（编码器丢帧）时 finish 报错（#110）。
+    /// 边界：读入 3 帧只收到 2 帧即差 1 帧，必须失败；收到帧数与读入帧数相等的成功路径由 Cluster 切分用例覆盖。
+    func testWebMWriterRejectsDroppedFrames() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("WebMWriterDrop-\(UUID().uuidString).webm")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = try WebMWriter(url: url, width: 64, height: 48, duration: 100_000,
+                                    colour: .init(matrix: 6, transfer: 1, primaries: 1))
+        try writer.append(.init(timestamp: 0, key: true, data: Data([0x80])))
+        try writer.append(.init(timestamp: 33_333, key: false, data: Data([0x81])))
+        XCTAssertThrowsError(try writer.finish(expectedFrames: 3)) { error in
+            XCTAssertEqual(error.localizedDescription, "WebM 编码器丢弃了 1 帧，帧时间无法与源一致，未保存结果。")
+        }
+    }
+
+    /// 解析后的 WebM：头部类型、Info、视频轨与 Colour（矩阵、范围、传递特性、色域），Cluster 与其中按时间顺序的帧，以及 Cues。
+    private struct ParsedWebM {
+        var docType = ""
+        var timecodeScale: UInt64 = 0
+        var duration = 0.0
+        var codec = ""
+        var width: UInt64 = 0
+        var height: UInt64 = 0
+        var colour: [UInt64] = []
+        var clusters: [(time: Int64, key: Bool)] = []
+        var frames: [(time: Int64, key: Bool, data: Data, duration: UInt64?, reference: Int64?)] = []
+        var cues: [(time: Int64, position: Int)] = []
+    }
+
+    /// data为EBML字节，range为父元素数据范围；返回直接子元素的ID、元素起点与数据范围。
+    private func ebmlChildren(_ data: Data, _ range: Range<Int>) -> [(id: UInt32, start: Int, payload: Range<Int>)] {
+        var items: [(id: UInt32, start: Int, payload: Range<Int>)] = []
+        var offset = range.lowerBound
+        while offset < range.upperBound {
+            let start = offset
+            // ID 与尺寸的长度都由首字节前导零个数决定；ID 保留长度标记位，尺寸去掉标记位。
+            let idLength = data[offset].leadingZeroBitCount + 1
+            let id = data[offset..<offset + idLength].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            offset += idLength
+            let sizeLength = data[offset].leadingZeroBitCount + 1
+            let size = data[offset + 1..<offset + sizeLength].reduce(UInt64(data[offset] & (0xFF >> sizeLength))) { $0 << 8 | UInt64($1) }
+            offset += sizeLength
+            items.append((id, start, offset..<offset + Int(size)))
+            offset += Int(size)
+        }
+        return items
+    }
+
+    /// data为WebM文件；返回 [ParsedWebM]。同时断言 Segment 大小等于文件剩余长度、SeekHead 指向 Cues、每个 CuePoint 指向 Cluster。
+    private func parseWebM(_ data: Data) throws -> ParsedWebM {
+        let uint = { (range: Range<Int>) in data[range].reduce(UInt64(0)) { $0 << 8 | UInt64($1) } }
+        var result = ParsedWebM()
+        let top = ebmlChildren(data, 0..<data.count)
+        XCTAssertEqual(top.map { $0.id }, [0x1A45_DFA3, 0x1853_8067])
+        for child in ebmlChildren(data, top[0].payload) where child.id == 0x4282 {
+            result.docType = String(decoding: data[child.payload], as: UTF8.self)
+        }
+        let segment = top[1].payload
+        XCTAssertEqual(segment.upperBound, data.count)
+        var clusterStarts: Set<Int> = []
+        var seekCues = -1, cuesStart = -2
+        for element in ebmlChildren(data, segment) {
+            switch element.id {
+            case 0x114D_9B74:
+                let seek = try XCTUnwrap(ebmlChildren(data, element.payload).first)
+                let entries = ebmlChildren(data, seek.payload)
+                XCTAssertEqual(Data(data[entries[0].payload]), Data([0x1C, 0x53, 0xBB, 0x6B]))
+                seekCues = Int(uint(entries[1].payload))
+            case 0x1549_A966:
+                for child in ebmlChildren(data, element.payload) {
+                    if child.id == 0x2A_D7B1 { result.timecodeScale = uint(child.payload) }
+                    if child.id == 0x4489 { result.duration = Double(bitPattern: uint(child.payload)) }
+                }
+            case 0x1654_AE6B:
+                let entry = try XCTUnwrap(ebmlChildren(data, element.payload).first)
+                for child in ebmlChildren(data, entry.payload) {
+                    if child.id == 0x86 { result.codec = String(decoding: data[child.payload], as: UTF8.self) }
+                    guard child.id == 0xE0 else { continue }
+                    for field in ebmlChildren(data, child.payload) {
+                        if field.id == 0xB0 { result.width = uint(field.payload) }
+                        if field.id == 0xBA { result.height = uint(field.payload) }
+                        if field.id == 0x55B0 { result.colour = ebmlChildren(data, field.payload).map { uint($0.payload) } }
+                    }
+                }
+            case 0x1F43_B675:
+                clusterStarts.insert(element.start - segment.lowerBound)
+                var clusterTime: Int64 = 0
+                var first = true
+                for child in ebmlChildren(data, element.payload) {
+                    if child.id == 0xE7 { clusterTime = Int64(uint(child.payload)); continue }
+                    // SimpleBlock 直接是块；BlockGroup 内含 Block、BlockDuration 与可选 ReferenceBlock。
+                    let parts = child.id == 0xA0 ? ebmlChildren(data, child.payload) : [child]
+                    let block = try XCTUnwrap(parts.first { $0.id == 0xA1 || $0.id == 0xA3 }).payload
+                    let relative = Int16(bitPattern: UInt16(data[block.lowerBound + 1]) << 8 | UInt16(data[block.lowerBound + 2]))
+                    let reference = parts.first { $0.id == 0xFB }.map { field in
+                        data[field.payload].dropFirst().reduce(Int64(Int8(bitPattern: data[field.payload.lowerBound]))) { $0 << 8 | Int64($1) }
+                    }
+                    let key = child.id == 0xA3 ? data[block.lowerBound + 3] & 0x80 != 0 : reference == nil
+                    result.frames.append((clusterTime + Int64(relative), key, Data(data[block.lowerBound + 4..<block.upperBound]),
+                                          parts.first { $0.id == 0x9B }.map { uint($0.payload) }, reference))
+                    if first { result.clusters.append((clusterTime, key)); first = false }
+                }
+            case 0x1C53_BB6B:
+                cuesStart = element.start - segment.lowerBound
+                for point in ebmlChildren(data, element.payload) {
+                    let fields = ebmlChildren(data, point.payload)
+                    let position = try XCTUnwrap(ebmlChildren(data, fields[1].payload).first { $0.id == 0xF1 })
+                    result.cues.append((Int64(uint(fields[0].payload)), Int(uint(position.payload))))
+                }
+            default:
+                break
+            }
+        }
+        XCTAssertEqual(seekCues, cuesStart)
+        XCTAssertTrue(result.cues.allSatisfy { clusterStarts.contains($0.position) })
+        return result
     }
 
     /// 无参数；预先取消不留下输出；无效元数据/设置与1801帧拒绝，1800帧边界允许。

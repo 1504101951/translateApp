@@ -18,7 +18,7 @@ macOS应用生命周期、系统能力与窗口控制器。
 14. [PinOverlayController.swift](PinOverlayController.swift)：管理独立置顶贴图的选择、拖动和关闭。
 15. [Release.entitlements](Release.entitlements)：声明发布构建所需的系统授权能力。
 16. [ScreenCaptureService.swift](ScreenCaptureService.swift)：通过系统屏幕捕获能力获取图像并执行设备OCR。
-17. [ScreenshotStorage.swift](ScreenshotStorage.swift)：统一采集根目录、分类日期路径与PNG/MP4/GIF/APNG防覆盖写入。
+17. [ScreenshotStorage.swift](ScreenshotStorage.swift)：统一采集根目录、分类日期路径与PNG/MP4/GIF/APNG/WebM防覆盖写入。
 18. [ScreenshotWindowController.swift](ScreenshotWindowController.swift)：管理截图窗口、捕获会话、键盘路由及原生导出操作。
 19. [SelectionGestureDetector.swift](SelectionGestureDetector.swift)：识别鼠标和键盘产生的文本选区手势。
 20. [SelectionMonitor.swift](SelectionMonitor.swift)：监听全局选区变化并协调采集、热键和会话失效。
@@ -37,3 +37,4 @@ macOS应用生命周期、系统能力与窗口控制器。
 33. [MCP/](MCP/index.md)：MCP 截图接口的 JSON-RPC 协议、本地 socket 传输及 App 侧请求处理。
 34. [SystemTranslationService.swift](SystemTranslationService.swift)：按语言对创建无界面系统翻译会话，翻译一组段落、按请求取消并查询语言包状态。
 35. [SpeechService.swift](SpeechService.swift)：用系统离线语音朗读译文卡片的一栏文字，同一段再次请求即停止。
+36. [WebMExporter.swift](WebMExporter.swift)：按裁剪区间读取录制的NV12帧并转为BT.601矩阵，经不挂窗口的WebKit编码VP8并写成保持原分辨率与原帧时间的WebM，编码器丢帧时报错。

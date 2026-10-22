@@ -81,6 +81,9 @@ class _CaptureAppState extends State<CaptureApp> {
     } else if (state['apngPath'] != null &&
         state['apngPath'] != previous['apngPath']) {
       _showFeedback('已保存 APNG');
+    } else if (state['webmPath'] != null &&
+        state['webmPath'] != previous['webmPath']) {
+      _showFeedback('已保存 WebM');
     } else if (state['savedPath'] != null &&
         state['savedPath'] != previous['savedPath']) {
       final path = state['savedPath'] as String;
@@ -261,7 +264,7 @@ class _CaptureAppState extends State<CaptureApp> {
     final exporting = converting
         ? RecordingExport.parse(_state['exporting'] as String)
         : null;
-    // 三种导出共用同一位置规则：类型、文字、图标与发起方法。
+    // 四种导出共用同一位置规则：类型、文字、图标与发起方法。
     const exports = [
       (
         RecordingExport.mp4,
@@ -281,8 +284,14 @@ class _CaptureAppState extends State<CaptureApp> {
         Icons.animation,
         MethodNames.exportRecordingAPNG,
       ),
+      (
+        RecordingExport.webm,
+        '导出 WebM',
+        Icons.video_file_outlined,
+        MethodNames.exportRecordingWebM,
+      ),
     ];
-    // 六个操作保持固定位置；转换时对应导出按钮直接提供取消，不展开参数表单。
+    // 七个操作保持固定位置；转换时对应导出按钮直接提供取消，不展开参数表单。
     final actions = <(String, IconData, VoidCallback?)>[
       (
         '播放视频',

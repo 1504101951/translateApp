@@ -25,10 +25,13 @@ abstract final class MethodNames {
   /// 按 GIF 设置导出 APNG（#110）。
   static const exportRecordingAPNG = 'exportRecordingAPNG';
 
+  /// 按原分辨率与原帧时间导出 VP8 WebM（#110）。
+  static const exportRecordingWebM = 'exportRecordingWebM';
+
   /// 结果页播放器进入系统裁剪模式；用户点「裁剪」或「取消」后返回（#110）。
   static const trimRecording = 'trimRecording';
 
-  /// 取消正在进行的 MP4/GIF/APNG 转换。
+  /// 取消正在进行的 MP4/GIF/APNG/WebM 转换。
   static const cancelRecordingExport = 'cancelRecordingExport';
 
   /// 历史写入完成及窗口重开时通知历史引擎刷新。

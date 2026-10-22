@@ -214,7 +214,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         let inset = AppConstants.captureControlGap
         // 系统标题栏和边框占用真实窗口空间，Flutter只布局标题栏下方的可用内容。
         let available = NSWindow.contentRect(forFrameRect: visible, styleMask: AppConstants.captureResultWindowStyle).size
-        // 右侧48pt工具栏、8pt间隔和左右各8pt外边距；纵向六个按钮含padding共268pt。
+        // 右侧48pt工具栏、8pt间隔和左右各8pt外边距；纵向七个按钮含padding共312pt。
         let reservedWidth = AppConstants.captureResultToolbarWidth + inset * 3
         let fit = min(1, min((available.width - reservedWidth) / logical.width,
                              (available.height - inset * 2) / logical.height))
@@ -635,6 +635,10 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                     _ = try options.validate(duration: service.trim?.duration.seconds ?? info.duration, sourceWidth: info.width)
                     let target = try outputURL(format.kind, date: requestedAt)
                     try service.exportAnimation(format, options: options, to: target)
+                case AppConstants.exportRecordingWebMMethod:
+                    // WebM 保持原分辨率与原帧时间，不读取GIF设置（#110）。
+                    let target = try outputURL(.webm, date: Date())
+                    try service.exportWebM(to: target)
                 case AppConstants.cancelRecordingExportMethod:
                     service.cancelExport()
                 case AppConstants.copyScreenshotMethod:
@@ -668,7 +672,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// kind为导出类型，date为点击操作时刻；返回分类日期路径，文件名与目录共用同一日期，扩展名按类型（APNG为png）。
+    /// kind为导出类型，date为点击操作时刻；返回分类日期路径，文件名与目录共用同一日期，扩展名按类型（APNG为png，WebM为webm）。
     private func outputURL(_ kind: RecordingExport, date: Date) throws -> URL {
         // datedDirectory统一创建媒体分类和日期目录，最终发布再处理同名冲突。
         let directory = try ScreenshotStorage.datedDirectory(

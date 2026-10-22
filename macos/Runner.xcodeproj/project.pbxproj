@@ -39,6 +39,7 @@
 		A28000000000000000000004 /* GIFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000003 /* GIFExporter.swift */; };
 		A28000000000000000000002 /* ScrollStitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28000000000000000000001 /* ScrollStitcher.swift */; };
 		A10900000000000000000002 /* ScreenshotComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10900000000000000000001 /* ScreenshotComposer.swift */; };
+		A11000000000000000000002 /* WebMExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11000000000000000000001 /* WebMExporter.swift */; };
 		A98T00000000000000000002 /* SystemTranslationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98T00000000000000000001 /* SystemTranslationService.swift */; };
 		A98U00000000000000000002 /* SpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98U00000000000000000001 /* SpeechService.swift */; };
 		A15P00000000000000000002 /* PinOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15P00000000000000000001 /* PinOverlayController.swift */; };
@@ -139,6 +140,7 @@
 		A28000000000000000000003 /* GIFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GIFExporter.swift; sourceTree = "<group>"; };
 		A28000000000000000000001 /* ScrollStitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollStitcher.swift; sourceTree = "<group>"; };
 		A10900000000000000000001 /* ScreenshotComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotComposer.swift; sourceTree = "<group>"; };
+		A11000000000000000000001 /* WebMExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMExporter.swift; sourceTree = "<group>"; };
 		A98T00000000000000000001 /* SystemTranslationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTranslationService.swift; sourceTree = "<group>"; };
 		A98U00000000000000000001 /* SpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechService.swift; sourceTree = "<group>"; };
 		A15P00000000000000000001 /* PinOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinOverlayController.swift; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 				A24D00000000000000000001 /* LiveRegionWindowController.swift */,
 				A79000000000000000000001 /* ApplicationRecorder.swift */,
 				A28000000000000000000003 /* GIFExporter.swift */,
+				A11000000000000000000001 /* WebMExporter.swift */,
 				A28000000000000000000001 /* ScrollStitcher.swift */,
 				A10900000000000000000001 /* ScreenshotComposer.swift */,
 				A98T00000000000000000001 /* SystemTranslationService.swift */,
@@ -544,6 +547,7 @@
 				A24D00000000000000000002 /* LiveRegionWindowController.swift in Sources */,
 				A79000000000000000000002 /* ApplicationRecorder.swift in Sources */,
 				A28000000000000000000004 /* GIFExporter.swift in Sources */,
+				A11000000000000000000002 /* WebMExporter.swift in Sources */,
 				A28000000000000000000002 /* ScrollStitcher.swift in Sources */,
 				A10900000000000000000002 /* ScreenshotComposer.swift in Sources */,
 				A98T00000000000000000002 /* SystemTranslationService.swift in Sources */,

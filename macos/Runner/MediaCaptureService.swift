@@ -175,7 +175,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         guard width >= 32, height >= 64 else { throw GIFExporter.ExportError(message: "选区至少需要32×64像素。") }
         config.width = width
         config.height = height
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: AppConstants.recordingFramesPerSecond)
         config.showsCursor = video
         // 「录制时显示鼠标点击」由设置页写入偏好字典，默认关闭；静帧截图不绘制点击（#110）。
         config.showMouseClicks = video && UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)?[
@@ -846,6 +846,17 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         }
     }
 
+    /// target为分类日期路径；后台按裁剪区间（未裁剪为完整视频）把源视频编码为保持原分辨率与原帧时间的 VP8 WebM，
+    /// 源MP4保持只读（#110）。
+    func exportWebM(to target: URL) throws {
+        let source = try recordingURL()
+        let range = trim
+        try convert(.webm, to: target, pathKey: "webmPath") { destination, progress in
+            // WebMExporter 把帧转为 BT.601 矩阵，经不挂窗口的 WebKit 编码 VP8 并写成 WebM。
+            _ = try await WebMExporter.export(source: source, destination: destination, range: range, progress: progress)
+        }
+    }
+
     /// kind为导出类型，target为分类日期路径，pathKey为成功后公开保存路径的详情键；
     /// work在后台把结果写入给定临时路径并回报0–1进度。转换期间公开exporting与progress，结束后回到视频结果。
     private func convert(_ kind: RecordingExport, to target: URL, pathKey: String,
@@ -880,6 +891,6 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         }
     }
 
-    /// 无参数；取消正在进行的MP4/GIF/APNG转换，保持当前MP4和已保存文件。
+    /// 无参数；取消正在进行的MP4/GIF/APNG/WebM转换，保持当前MP4和已保存文件。
     func cancelExport() { exportTask?.cancel() }
 }

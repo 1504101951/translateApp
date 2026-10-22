@@ -20,7 +20,8 @@ enum CapturePhase {
 enum RecordingExport {
   mp4,
   gif,
-  apng;
+  apng,
+  webm;
 
   /// wire为原生协议值；返回对应导出类型，未知值直接抛错。
   static RecordingExport parse(String wire) => values.byName(wire);

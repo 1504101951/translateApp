@@ -11,7 +11,7 @@ enum CapturePhase: String {
 
 /// 录制结果的导出类型；rawValue 是 converting 阶段 exporting 详情值与保存分类，与Dart RecordingExport.name逐项对应（#110）。
 enum RecordingExport: String {
-    case mp4, gif, apng
+    case mp4, gif, apng, webm
 
     /// 无参数；返回保存文件的扩展名，APNG 的标准扩展名为 png。
     var fileExtension: String { self == .apng ? "png" : rawValue }
@@ -50,9 +50,13 @@ enum AppConstants {
     static let scrollPreviewMaxImageHeight: CGFloat = 240
     static let scrollPreviewImageRadius: CGFloat = 4
     static let scrollPreviewTargetLine: CGFloat = 2
-    /// 右侧六个32pt按钮、12pt间距和8pt内边距（6×32+5×12+16）；与Dart工具栏尺寸一致。
+    /// 右侧七个32pt按钮、12pt间距和8pt内边距（7×32+6×12+16）；与Dart工具栏尺寸一致。
     static let captureResultToolbarWidth: CGFloat = 48
-    static let captureResultToolbarHeight: CGFloat = 268
+    static let captureResultToolbarHeight: CGFloat = 312
+    /// 录制最高帧率：ScreenCaptureKit 最小帧间隔为其倒数；WebM 编码以此作为码率分配的帧率提示（#110）。
+    static let recordingFramesPerSecond: Int32 = 30
+    /// WebM 编码页面的自定义 URL 协议名；编码页面与待编码帧都经此协议交给不挂窗口的 WKWebView（#110）。
+    static let webMEncoderScheme = "translateapp-webm"
     /// 录制结果使用系统窗口控制；标题栏尺寸由AppKit按此样式实际计算。
     static let captureResultWindowStyle: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
     static let getCaptureStateMethod = "getCaptureState"
@@ -69,9 +73,11 @@ enum AppConstants {
     static let exportRecordingGIFMethod = "exportRecordingGIF"
     /// exportRecordingAPNG 协议值；按 GIF 设置导出 APNG（#110），与Dart常量同步。
     static let exportRecordingAPNGMethod = "exportRecordingAPNG"
+    /// exportRecordingWebM 协议值；按原分辨率与原帧时间导出 VP8 WebM（#110），与Dart常量同步。
+    static let exportRecordingWebMMethod = "exportRecordingWebM"
     /// trimRecording 协议值；结果页播放器进入系统裁剪模式，确认后记录区间（#110），与Dart常量同步。
     static let trimRecordingMethod = "trimRecording"
-    /// cancelRecordingExport 协议值；取消正在进行的 MP4/GIF/APNG 转换，与Dart常量同步。
+    /// cancelRecordingExport 协议值；取消正在进行的 MP4/GIF/APNG/WebM 转换，与Dart常量同步。
     static let cancelRecordingExportMethod = "cancelRecordingExport"
     static let captureFailedError = "capture_failed"
     static let saveDrawingPreferencesMethod = "saveDrawingPreferences"
