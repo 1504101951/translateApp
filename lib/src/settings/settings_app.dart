@@ -935,6 +935,26 @@ class _SettingsPageState extends State<_SettingsPage>
                       ),
                     ],
                   ),
+                  // 长截图默认手动滚动；自动时由 App 滚动来源窗口，用户在选区内滚动即接管（#112）。
+                  NativeGlassGroup(
+                    children: [
+                      const Text(
+                        '长截图',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      NativeGlassDropdown<ScrollCaptureMode>(
+                        label: '滚动方式',
+                        value: settings.scrollCaptureMode,
+                        items: const {
+                          ScrollCaptureMode.manual: '手动滚动',
+                          ScrollCaptureMode.automatic: '自动滚动',
+                        },
+                        onChanged: (mode) =>
+                            _edit(() => settings.scrollCaptureMode = mode),
+                      ),
+                    ],
+                  ),
                   // S3 兼容上传目标；编辑在弹窗中完成，密钥不逐键写入钥匙串（#111）。
                   NativeGlassGroup(
                     children: [

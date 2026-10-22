@@ -72,5 +72,15 @@ enum ScreenshotConfirmAction {
       wire == null ? copy : values.byName(wire);
 }
 
+/// 长截图滚动方式；name 为偏好值，与原生 ScrollCaptureMode 逐项对应，缺省为手动滚动（#112）。
+enum ScrollCaptureMode {
+  manual,
+  automatic;
+
+  /// wire为偏好原文；返回对应方式，缺省按手动滚动处理，未知值直接抛错。
+  static ScrollCaptureMode parse(String? wire) =>
+      wire == null ? manual : values.byName(wire);
+}
+
 /// 录制目标协议；name与原生CaptureTarget逐项对应，应用包含全部可见窗口。
 enum CaptureTarget { region, application, display }

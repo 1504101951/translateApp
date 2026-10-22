@@ -411,10 +411,10 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     }
 
     /// 无参数；长截图的新过程提示画在选区中心所在显示器的遮罩里。遮罩属于本应用，已排除在屏幕采集之外，
-    /// 且不接收鼠标，提示不会进入长图，滚动仍交给来源应用。
+    /// 且不接收鼠标，提示不会进入长图，滚动仍交给来源应用。自动滚动到底的提示随暂停发布，暂停时也显示（#112）。
     private func showScrollHintIfNeeded() {
         let state = service.snapshot()
-        guard service.phase == .scrolling, let serial = state["hintSerial"] as? Int,
+        guard [.scrolling, .paused].contains(service.phase), let serial = state["hintSerial"] as? Int,
               let text = state["hint"] as? String, let frame = service.captureFrame else { return }
         let key = "\(state["id"] as? String ?? "")#\(serial)"
         guard key != shownScrollHint else { return }

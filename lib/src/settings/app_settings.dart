@@ -29,6 +29,7 @@ class AppSettings {
     this.screenshotIncludesCursor = false,
     this.recordingShowsClicks = false,
     this.screenshotConfirmAction = ScreenshotConfirmAction.copy,
+    this.scrollCaptureMode = ScrollCaptureMode.manual,
     this.uploadEndpoint = '',
     this.uploadRegion = '',
     this.uploadBucket = '',
@@ -86,6 +87,9 @@ class AppSettings {
 
   /// 确认截图（回车或双击）时的动作；上传仍先提示目标（#111）。
   ScreenshotConfirmAction screenshotConfirmAction;
+
+  /// 长截图滚动方式；默认手动，自动时由 App 经辅助功能接口滚动来源窗口（#112）。
+  ScrollCaptureMode scrollCaptureMode;
 
   /// S3 兼容上传目标；地址、区域与存储桶为空时视为未配置，访问密钥另存钥匙串（#111）。
   String uploadEndpoint;
@@ -187,6 +191,9 @@ class AppSettings {
           map[PreferenceKeys.recordingShowsClicks] as bool? ?? false,
       screenshotConfirmAction: ScreenshotConfirmAction.parse(
         map[PreferenceKeys.screenshotConfirmAction] as String?,
+      ),
+      scrollCaptureMode: ScrollCaptureMode.parse(
+        map[PreferenceKeys.scrollCaptureMode] as String?,
       ),
       uploadEndpoint: map[PreferenceKeys.uploadEndpoint] as String? ?? '',
       uploadRegion: map[PreferenceKeys.uploadRegion] as String? ?? '',
@@ -301,6 +308,7 @@ class AppSettings {
     PreferenceKeys.screenshotIncludesCursor: screenshotIncludesCursor,
     PreferenceKeys.recordingShowsClicks: recordingShowsClicks,
     PreferenceKeys.screenshotConfirmAction: screenshotConfirmAction.name,
+    PreferenceKeys.scrollCaptureMode: scrollCaptureMode.name,
     PreferenceKeys.uploadEndpoint: uploadEndpoint,
     PreferenceKeys.uploadRegion: uploadRegion,
     PreferenceKeys.uploadBucket: uploadBucket,

@@ -26,6 +26,14 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     private var scrollTask: Task<Void, Never>?
     private var exportTask: Task<Void, Never>?
     private var finishScroll = false
+    /// 长截图自动滚动（#112）：available 为本次会话仍可自动滚动（设置为自动且未改为手动），active 为当前由 App 滚动；
+    /// 用户在选区内滚动时关闭 active，来源不支持或无辅助功能权限时同时关闭两者。
+    private var autoScrollAvailable = false
+    private var autoScrollActive = false
+    /// 自动滚动期间的只读全局滚轮监听，用于判定用户接管。
+    private var scrollWheelMonitor: Any?
+    /// 长截图过程提示序号；采集循环与接管监听共用，同一提示只显示一次。
+    private var scrollHintSerial = 0
     private var discardRecording = false
     private var recordingFailure: String?
     private var recordingSegments: [URL] = []
@@ -394,7 +402,12 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             return
         }
         if !paused, phase == .paused {
-            if details["kind"] as? String == "scrolling" { update(.scrolling); return }
+            if details["kind"] as? String == "scrolling" {
+                // 「继续」恢复自动滚动；本次已改为手动时保持手动（#112）。
+                autoScrollActive = autoScrollAvailable
+                update(.scrolling)
+                return
+            }
             try await startRecordingSegment()
             return
         }
@@ -491,6 +504,9 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
 
     /// 无参数；释放计时器与本会话文件，保留用户的选区和已保存文件。
     func clear() {
+        stopWatchingScrollTakeover()
+        autoScrollAvailable = false
+        autoScrollActive = false
         let waiters = recordingCompletionWaiters
         recordingCompletionWaiters = []
         timer?.invalidate()
@@ -659,6 +675,16 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             }
             let stitcher = ScrollStitcher(edges: edges)
             finishScroll = false
+            // 自动滚动只在设置为自动时启用；选区中心是辅助功能命中测试的位置（#112）。
+            let automatic = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)?[
+                AppConstants.scrollCaptureModeKey
+            ] as? String == ScrollCaptureMode.automatic.rawValue
+            autoScrollAvailable = automatic
+            autoScrollActive = automatic
+            scrollHintSerial = 0
+            if automatic { watchScrollTakeover() }
+            // configuration 已按实际采集范围设置 captureFrame。
+            let center = CaptureGeometry.cgPoint(fromAppKitPoint: NSPoint(x: captureFrame!.midX, y: captureFrame!.midY))
             update(.scrolling, ["height": config.height, "width": config.width, "frames": 0])
             scrollTask = Task.detached { [weak self] in
                 guard let self else { return }
@@ -666,7 +692,12 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                 // 最近一次移动接不上时的原因；之后接上或回到参照画面即清除，结束时仍未接上则随结果说明。
                 var unmatched: String?
                 var lastHint: ContinuousClock.Instant?
-                var hints = 0
+                // 自动滚动：plan 计算步进，target 在首次开始时按选区中心解析，driving 为本轮是否正由 App 滚动，
+                // previousValue 为最近一步之前的滚动条值，供接缝失败时退回。
+                var plan = AutoScrollPlan(height: config.height)
+                var target: AutoScrollTarget?
+                var driving = false
+                var previousValue: Double?
                 // 缩略图只在确认帧数或回退目标状态变化时重绘。
                 var previewFrames = 0
                 var previewMarked = false
@@ -675,9 +706,11 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                     while !Task.isCancelled {
                         let state = await MainActor.run {
                             if self.phase == .pausing { self.update(.paused) }
-                            return (self.finishScroll, self.phase == .paused)
+                            return (self.finishScroll, self.phase == .paused, self.autoScrollActive)
                         }
                         if state.0 { break }
+                        // 暂停或用户接管都结束本轮自动滚动；恢复后重新开始一轮。
+                        if state.1 || !state.2 { driving = false }
                         if state.1 {
                             try await Task.sleep(for: .milliseconds(100))
                             continue
@@ -690,25 +723,27 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                         if accept {
                             // CPU拼接留在工作线程；下一轮边界确认暂停，保留当前已接受帧。
                             var hint: (text: String, isError: Bool)?
+                            var action = AutoScrollPlan.Action.wait
+                            let heightBefore = stitcher.height
+                            let framesBefore = stitcher.acceptedFrames
                             do {
-                                // 单帧位移超过允许最大值的60%即预警，在接不上之前提醒放慢。
-                                if try stitcher.append(image), stitcher.lastShiftRatio > 0.6 {
+                                // 单帧位移超过允许最大值的60%即预警，在接不上之前提醒放慢；自动滚动由步进控制，不提示。
+                                if try stitcher.append(image), !driving, stitcher.lastShiftRatio > 0.6 {
                                     hint = ("滚动较快，请放慢", false)
                                 }
                                 unmatched = nil
+                                // 首帧之后新增的长图高度即本帧正文位移。
+                                if driving { action = plan.frame(shift: framesBefore > 0 ? stitcher.height - heightBefore : 0, now: clock.now) }
                             } catch let failure as ScrollStitcher.Failure where failure.recoverable {
-                                // 本帧丢弃，参照帧仍是最后一张已确认画面；用户回滚到重叠范围即可继续。
+                                // 本帧丢弃，参照帧仍是最后一张已确认画面；用户回滚到重叠范围即可继续，自动滚动退回上一位置后减半重试。
                                 unmatched = failure.message
-                                hint = ("请往回滚，直到右下角红框里的内容回到选区", true)
+                                if driving { action = plan.mismatch(now: clock.now) }
+                                else { hint = ("请往回滚，直到右下角红框里的内容回到选区", true) }
                             }
                             // 提示显示1000ms，同一会话至少间隔1000ms再提示，避免每帧刷新文字。
                             if hint != nil, let last = lastHint, clock.now - last < .milliseconds(1000) { hint = nil }
-                            if hint != nil {
-                                lastHint = clock.now
-                                hints += 1
-                            }
+                            if hint != nil { lastHint = clock.now }
                             let shown = hint
-                            let serial = hints
                             var preview: ScrollStitcher.Preview?
                             if stitcher.acceptedFrames != previewFrames || (unmatched != nil) != previewMarked {
                                 previewFrames = stitcher.acceptedFrames
@@ -724,13 +759,47 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                                 guard self.id == token else { return }
                                 var values: [String: Any] = ["height": stitcher.height, "frames": stitcher.acceptedFrames]
                                 if let shown {
+                                    self.scrollHintSerial += 1
                                     values["hint"] = shown.text
                                     values["hintIsError"] = shown.isError
-                                    values["hintSerial"] = serial
+                                    values["hintSerial"] = self.scrollHintSerial
                                 }
                                 // 缩略图先就位，提示避让时才能读取它的位置。
                                 if let thumbnail { self.onScrollPreview?(thumbnail, pointScale) }
                                 self.update(self.phase, values)
+                            }
+                            // 自动滚动在首帧之后开始；首次开始时确认权限并解析选区中心的滚动条（#112）。
+                            if state.2, !driving, stitcher.acceptedFrames > 0 {
+                                let trusted = AXIsProcessTrusted()
+                                // AutoScrollTarget 在选区中心命中来源窗口并找到可设置的纵向滚动条。
+                                if target == nil, trusted { target = AutoScrollTarget(point: center) }
+                                if let target {
+                                    driving = true
+                                    // 已在底部时直接按到底处理，不误报不支持。
+                                    action = (target.value ?? 0) >= 0.999 ? .bottom : plan.start(now: clock.now)
+                                } else {
+                                    await self.endAutoScroll(token: token, hint: trusted
+                                        ? "该区域无法自动滚动，已改为手动滚动" : "自动滚动需要辅助功能权限，已改为手动滚动")
+                                }
+                            }
+                            switch action {
+                            case .wait:
+                                break
+                            case .scroll(let step):
+                                // 记住本步之前的位置供退回，再写入新的滚动条值。
+                                previousValue = target?.value
+                                if let target, let previousValue { target.set(previousValue + step) }
+                            case .rewind:
+                                if let target, let previousValue { target.set(previousValue) }
+                            case .bottom:
+                                driving = false
+                                await MainActor.run {
+                                    guard self.id == token, self.phase == .scrolling else { return }
+                                    self.showScrollHint("已到底部，已暂停", isError: false, phase: .paused)
+                                }
+                            case .unsupported:
+                                driving = false
+                                await self.endAutoScroll(token: token, hint: "该区域无法自动滚动，已改为手动滚动")
                             }
                         }
                         if clock.now < nextCapture { try await clock.sleep(until: nextCapture) }
@@ -763,6 +832,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     /// 有图像时进入可保存结果并保留原因；没有图像时只记录失败，不交出空图。
     func publishFinishedScroll(png: Data?, width: Int, height: Int, frames: Int, failure: String?, token: String) {
         guard id == token else { return }
+        stopWatchingScrollTakeover()
         onActiveChanged?(false)
         guard let png else {
             update(.failed, ["error": failure ?? "无法完成长截图。"])
@@ -772,6 +842,41 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             "width": width, "height": height, "frames": frames, "kind": "scrolling"]
         if let failure { values["warning"] = failure }
         update(.imageReady, values)
+    }
+
+    /// text为提示文字，isError为错误样式，phase为发布的阶段（缺省保持当前）；递增提示序号并发布，由采集窗口显示 1000ms。
+    private func showScrollHint(_ text: String, isError: Bool, phase target: CapturePhase? = nil) {
+        scrollHintSerial += 1
+        update(target ?? phase, ["hint": text, "hintIsError": isError, "hintSerial": scrollHintSerial])
+    }
+
+    /// token为会话身份，hint为改为手动的原因；本次会话改为手动滚动并显示错误提示，移除接管监听，无返回值（#112）。
+    private func endAutoScroll(token: String, hint: String) {
+        guard id == token else { return }
+        autoScrollAvailable = false
+        autoScrollActive = false
+        stopWatchingScrollTakeover()
+        showScrollHint(hint, isError: true)
+    }
+
+    /// 无参数；自动滚动期间安装只读全局滚轮监听：用户在采集选区内滚动时本次改为手动并提示，选区外滚动不影响（#112）。
+    /// 自动滚动只写滚动条值、不产生滚轮事件，监听到的都是用户操作；监听不消费事件。
+    private func watchScrollTakeover() {
+        scrollWheelMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] _ in
+            let location = NSEvent.mouseLocation
+            Task { @MainActor in
+                guard let self, self.autoScrollActive, self.phase == .scrolling,
+                      self.captureFrame?.contains(location) == true else { return }
+                self.autoScrollActive = false
+                self.showScrollHint("已切换为手动滚动", isError: false)
+            }
+        }
+    }
+
+    /// 无参数；移除接管监听，无返回值。
+    private func stopWatchingScrollTakeover() {
+        if let scrollWheelMonitor { NSEvent.removeMonitor(scrollWheelMonitor) }
+        scrollWheelMonitor = nil
     }
 
     /// path为已经写入日期目录的PNG；保留当前长图，只公开保存路径。

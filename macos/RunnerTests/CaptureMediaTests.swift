@@ -871,6 +871,67 @@ final class CaptureMediaTests: XCTestCase {
         }
     }
 
+    /// 无参数；自动滚动步进：画面移动后连续 2 帧静止才滚下一步，按实测位移校准增量且最多放大 4 倍（#112）。
+    /// 边界：选区高 1000px 目标 500px；首步 0.01 移动 100px，只静止 1 帧时仍等待，第 2 帧静止才按 0.01×500/100=0.05
+    /// 截到 4 倍即 0.04；第二步移动 400px 后按 0.04×500/400=0.05 滚动（未超 4 倍上限 0.16）。
+    func testAutoScrollPlanCalibratesStepAfterSettling() {
+        let start = ContinuousClock.now
+        let at = { (ms: Int) in start.advanced(by: .milliseconds(ms)) }
+        var plan = AutoScrollPlan(height: 1000)
+        XCTAssertEqual(plan.start(now: at(0)), .scroll(by: 0.01))
+        XCTAssertEqual(plan.frame(shift: 100, now: at(100)), .wait)
+        XCTAssertEqual(plan.frame(shift: 0, now: at(200)), .wait)
+        XCTAssertEqual(plan.frame(shift: 0, now: at(300)), .scroll(by: 0.04))
+        XCTAssertEqual(plan.frame(shift: 400, now: at(400)), .wait)
+        XCTAssertEqual(plan.frame(shift: 0, now: at(500)), .wait)
+        guard case .scroll(let step) = plan.frame(shift: 0, now: at(600)) else { return XCTFail("停稳后应滚动下一步") }
+        XCTAssertEqual(step, 0.05, accuracy: 1e-9)
+    }
+
+    /// 无参数；画面持续移动时单步最多等 1000ms 再滚下一步（#112）。
+    /// 边界：每 100ms 移动 10px，第 900ms 仍等待，第 1000ms 开始下一步；累计 100px 按 0.05 截到 4 倍 0.04。
+    func testAutoScrollPlanStepsAfterMaximumWaitWhileMoving() {
+        let start = ContinuousClock.now
+        let at = { (ms: Int) in start.advanced(by: .milliseconds(ms)) }
+        var plan = AutoScrollPlan(height: 1000)
+        _ = plan.start(now: at(0))
+        for ms in stride(from: 100, through: 900, by: 100) { XCTAssertEqual(plan.frame(shift: 10, now: at(ms)), .wait) }
+        XCTAssertEqual(plan.frame(shift: 10, now: at(1000)), .scroll(by: 0.04))
+    }
+
+    /// 无参数；滚动后 1500ms 无移动：从未移动过为不支持，移动过为到底；到底后不再出动作，重新开始即恢复滚动（#112）。
+    /// 边界：第 1400ms 仍等待、第 1500ms 判定；到底判定后的帧返回等待。
+    func testAutoScrollPlanSeparatesUnsupportedFromBottom() {
+        let start = ContinuousClock.now
+        let at = { (ms: Int) in start.advanced(by: .milliseconds(ms)) }
+        var unsupported = AutoScrollPlan(height: 1000)
+        _ = unsupported.start(now: at(0))
+        for ms in stride(from: 100, through: 1400, by: 100) { XCTAssertEqual(unsupported.frame(shift: 0, now: at(ms)), .wait) }
+        XCTAssertEqual(unsupported.frame(shift: 0, now: at(1500)), .unsupported)
+
+        var bottom = AutoScrollPlan(height: 1000)
+        _ = bottom.start(now: at(0))
+        _ = bottom.frame(shift: 200, now: at(100))
+        _ = bottom.frame(shift: 0, now: at(200))
+        guard case .scroll = bottom.frame(shift: 0, now: at(300)) else { return XCTFail("停稳后应滚动下一步") }
+        XCTAssertEqual(bottom.frame(shift: 0, now: at(1700)), .wait)
+        XCTAssertEqual(bottom.frame(shift: 0, now: at(1800)), .bottom)
+        XCTAssertEqual(bottom.frame(shift: 0, now: at(1900)), .wait)
+        guard case .scroll = bottom.start(now: at(5000)) else { return XCTFail("继续后应重新开始滚动") }
+    }
+
+    /// 无参数；接缝失败时退回并把步长减半，退回后的画面连续 2 帧静止才按新步长重试（#112）。
+    /// 边界：首步 0.01 失配后为 0.005；退回后第 1 帧静止仍等待，第 2 帧重试。
+    func testAutoScrollPlanRewindsAndRetriesWithHalfStep() {
+        let start = ContinuousClock.now
+        let at = { (ms: Int) in start.advanced(by: .milliseconds(ms)) }
+        var plan = AutoScrollPlan(height: 1000)
+        _ = plan.start(now: at(0))
+        XCTAssertEqual(plan.mismatch(now: at(100)), .rewind)
+        XCTAssertEqual(plan.frame(shift: 0, now: at(200)), .wait)
+        XCTAssertEqual(plan.frame(shift: 0, now: at(300)), .scroll(by: 0.005))
+    }
+
     /// 解析后的 WebM：头部类型、Info、视频轨与 Colour（矩阵、范围、传递特性、色域），Cluster 与其中按时间顺序的帧，以及 Cues。
     private struct ParsedWebM {
         var docType = ""

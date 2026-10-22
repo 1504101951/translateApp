@@ -20,7 +20,7 @@ Dart业务逻辑和Flutter界面行为回归测试。
 16. [screenshot_translation_test.dart](screenshot_translation_test.dart)：验证截图文本翻译、捕获失效与历史写入。
 17. [selection_history_test.dart](selection_history_test.dart)：验证选区翻译成功、失败和取消时的历史记录边界。
 18. [selection_session_test.dart](selection_session_test.dart)：验证选区翻译生命周期、取消和状态变化。
-19. [settings_app_test.dart](settings_app_test.dart)：验证设置页面交互、服务显示、术语表增删改、确认截图动作与上传分享编辑及配置更新。
+19. [settings_app_test.dart](settings_app_test.dart)：验证设置页面交互、服务显示、术语表增删改、确认截图动作与上传分享编辑、长截图滚动方式及配置更新。
 20. [settings_autosave_test.dart](settings_autosave_test.dart)：验证后台自动保存的串行、冲突和失败处理。
 21. [settings_spec_test.dart](settings_spec_test.dart)：验证设置界面是否符合数值、密度与交互规格。
 22. [settings_test.dart](settings_test.dart)：验证设置数据往返与配置校验。

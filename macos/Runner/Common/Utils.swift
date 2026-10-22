@@ -39,6 +39,12 @@ enum CaptureGeometry {
         )
     }
 
+    /// point 为 AppKit 底左原点的屏幕点；返回 CG 顶左原点的全局点，辅助功能命中测试使用（#112）。
+    static func cgPoint(fromAppKitPoint point: NSPoint) -> CGPoint {
+        let primary = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
+        return CGPoint(x: point.x, y: (primary?.frame.maxY ?? point.y) - point.y)
+    }
+
     /// window 为 AppKit 窗口矩形，displayFrame 为当前屏，pixelWidth/Height 为冻结帧像素。
     /// 返回相对图像左上原点的裁剪矩形；不相交时为 nil。
     static func pixelCrop(

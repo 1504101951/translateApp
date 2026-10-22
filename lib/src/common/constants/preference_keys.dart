@@ -24,6 +24,9 @@ abstract final class PreferenceKeys {
   /// 区域与显示器录制是否由系统绘制鼠标点击高亮；Swift 开始录制时读取（#110）。
   static const recordingShowsClicks = 'recordingShowsClicks';
 
+  /// 长截图滚动方式：manual 或 automatic；Swift 开始长截图时读取（#112）。
+  static const scrollCaptureMode = 'scrollCaptureMode';
+
   /// 确认截图时的动作：copy、copyAndSave 或 upload；仅 Dart 读取（#111）。
   static const screenshotConfirmAction = 'screenshotConfirmAction';
 

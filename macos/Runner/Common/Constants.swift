@@ -17,6 +17,11 @@ enum RecordingExport: String {
     var fileExtension: String { self == .apng ? "png" : rawValue }
 }
 
+/// 长截图滚动方式偏好值；rawValue 与 Dart ScrollCaptureMode.name 逐项对应，缺省为手动（#112）。
+enum ScrollCaptureMode: String {
+    case manual, automatic
+}
+
 /// 原生侧通道名、方法名与偏好键；与 Dart `ChannelNames` / `MethodNames` 对齐。
 enum AppConstants {
     /// 连续采集独立通道与多引擎入口，和Dart常量一致。
@@ -125,6 +130,8 @@ enum AppConstants {
     static let screenshotIncludesCursorKey = "screenshotIncludesCursor"
     /// recordingShowsClicks 协议值；区域与显示器录制是否由系统绘制鼠标点击高亮，Dart 设置写入、开始录制时读取（#110）。与Dart常量同步。
     static let recordingShowsClicksKey = "recordingShowsClicks"
+    /// scrollCaptureMode 偏好键；长截图滚动方式 manual/automatic，开始长截图时读取（#112），与Dart常量同步。
+    static let scrollCaptureModeKey = "scrollCaptureMode"
     /// 上次导出的截图选区（显示器 ID、显示器像素尺寸与选区像素矩形），只由原生读写（#105）。
     static let lastScreenshotRegionKey = "lastScreenshotRegion"
     /// 菜单栏「延时截图」子菜单的可选秒数（#105）。
