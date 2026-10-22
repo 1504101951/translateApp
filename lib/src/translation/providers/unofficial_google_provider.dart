@@ -7,9 +7,11 @@ import '../paragraph_translation.dart';
 
 /// 零配置翻译源。单篇翻译每个流独占 HTTP 连接；批量翻译使用调用方传入的连接。
 class UnofficialGoogleProvider implements BatchTranslationProvider {
-  /// endpoint 为翻译接口 URL；构造可取消的 Google Provider。
+  /// endpoint 为翻译接口 URL，requestTimeout 为单篇与批量请求共用的整次时限（默认 30 秒，#114）；
+  /// 构造可取消的 Google Provider。
   UnofficialGoogleProvider({
     this.endpoint = 'https://translate.googleapis.com/translate_a/single',
+    this.requestTimeout = const Duration(seconds: 30),
   });
 
   @override
@@ -21,7 +23,10 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
   @override
   bool get allowsParallelBatches => false;
   final String endpoint;
-  static const _batchTimeout = Duration(seconds: 30);
+  final Duration requestTimeout;
+
+  /// 单篇请求建立连接的时限，与 API 服务一致。
+  static const _connectionTimeout = Duration(seconds: 10);
 
   /// request 包含原文和语言方向；返回可取消的译文、完成或失败事件流。
   @override
@@ -36,8 +41,10 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
     late final StreamController<TranslationEvent> events;
     events = StreamController<TranslationEvent>(
       onListen: () async {
-        client = HttpClient();
-        try {
+        client = HttpClient()..connectionTimeout = _connectionTimeout;
+
+        /// 无参数；发送单段请求并发布译文或失败，整次受 requestTimeout 限时。
+        Future<void> run() async {
           // _open 写好表单并返回尚未发送的请求。
           final connection = await _open(
             client,
@@ -59,6 +66,15 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
           // 消费端共享同一译文事件契约，HTTP 解析不进入会话或界面层。
           events.add(TranslationUpdate(parseTranslatedText(body)));
           events.add(const TranslationCompleted());
+        }
+
+        try {
+          // 网络挂起时按时限失败，卡片进入失败态并可重试（#114）。
+          await run().timeout(requestTimeout);
+        } on TimeoutException {
+          if (!events.isClosed) {
+            events.add(const TranslationFailure(translationTimeoutMessage));
+          }
         } on FormatException {
           if (!events.isClosed) {
             events.add(
@@ -149,7 +165,7 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
 
     events.onListen = () async {
       try {
-        await run().timeout(_batchTimeout);
+        await run().timeout(requestTimeout);
       } on FormatException {
         emit(
           const BatchFailure(

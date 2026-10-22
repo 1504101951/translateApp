@@ -48,6 +48,41 @@ void main() {
     expect(session.snapshot.phase, TranslationPhase.idle);
   });
 
+  test('单篇请求挂起时按时限失败，显示超时文案且不标记完成（#114）', () async {
+    // 边界：本地服务接受连接但从不响应；时限缩短为 200ms，超时后只得到一条超时失败，没有译文与完成事件。
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final sockets = <Socket>[];
+    server.listen((socket) {
+      sockets.add(socket);
+      socket.listen((_) {});
+    });
+    addTearDown(() async {
+      for (final socket in sockets) {
+        socket.destroy();
+      }
+      await server.close();
+    });
+    final provider = UnofficialGoogleProvider(
+      endpoint: 'http://127.0.0.1:${server.port}/translate',
+      requestTimeout: const Duration(milliseconds: 200),
+    );
+    final events = await provider
+        .translate(
+          const TranslationRequest(
+            sourceText: 'Hello',
+            detectedLanguage: 'en',
+            targetLanguage: 'zh-CN',
+          ),
+        )
+        .toList()
+        .timeout(const Duration(seconds: 5));
+    expect(events, hasLength(1));
+    expect(
+      (events.single as TranslationFailure).message,
+      translationTimeoutMessage,
+    );
+  });
+
   test('parses single sentence fixture', () {
     const body = r'''[[["你好","Hello",null,null,10]],null,"en"]''';
     expect(UnofficialGoogleProvider.parseTranslatedText(body), '你好');

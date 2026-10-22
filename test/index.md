@@ -27,7 +27,7 @@ Dart业务逻辑和Flutter界面行为回归测试。
 23. [translation_history_test.dart](translation_history_test.dart)：验证翻译历史存储、分页及记录开关。
 24. [translation_overlay_test.dart](translation_overlay_test.dart)：验证翻译按钮、双语结果与失败界面行为。
 25. [translation_resume_test.dart](translation_resume_test.dart)：验证分片失败恢复、进度保留及取消边界。
-26. [unofficial_google_provider_test.dart](unofficial_google_provider_test.dart)：验证零配置Google翻译的解析与失败处理。
+26. [unofficial_google_provider_test.dart](unofficial_google_provider_test.dart)：验证零配置Google翻译的解析、失败处理与单篇请求超时。
 
 27. [drawing_style_test.dart](drawing_style_test.dart)：验证马赛克像素、样式隔离、撤销及调色盘与粗细的提交边界。
 28. [capture_app_test.dart](capture_app_test.dart)：验证录制目标与应用图标动态行、安全区域布局和选择状态、长截图直启选区、四气泡暂停恢复与立即放弃、长图等比预览和原尺寸导出、视频内容区六个操作的布局、裁剪等待、GIF/APNG导出与按类型取消转换及工具栏外的一秒响应。

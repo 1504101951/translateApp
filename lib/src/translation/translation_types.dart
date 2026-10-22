@@ -100,6 +100,9 @@ final class TranslationCompleted extends TranslationEvent {
   final List<TranslationPair> pairs;
 }
 
+/// 请求超过时限时的用户可读原因；各翻译服务共用（#114）。
+const translationTimeoutMessage = '翻译请求超时，请重试。';
+
 /// 无法继续翻译的终态；用户可读错误与已完成片的恢复状态分别管理。
 final class TranslationFailure extends TranslationEvent {
   /// message为用户可读失败原因；构造停止事件，由会话决定是否可重试。
@@ -114,6 +117,7 @@ abstract class TranslationProvider {
 
   /// 模型后续片携带滑动上下文；Google 系为 false。
   bool get usesSlidingContext => false;
+
   /// request提供文本、语言方向及前片上下文；返回有序增量、完成或失败事件流。
   Stream<TranslationEvent> translate(TranslationRequest request);
 }
