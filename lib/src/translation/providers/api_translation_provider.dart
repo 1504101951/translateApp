@@ -96,10 +96,16 @@ class ApiTranslationProvider implements BatchTranslationProvider {
 
     /// 无参数；读取内存凭据后执行单次协议请求，结束时发布完成事件。
     Future<void> run() async {
-      config.validate();
-      final secret = await credentials();
+      final Map<String, String> secret;
+      try {
+        config.validate();
+        secret = await credentials();
+        config.validateCredentials(secret);
+      } on FormatException catch (error) {
+        // 配置或凭据校验的提示原样显示，不替换成通用失败（#123）。
+        throw _ApiFailure(error.message, kind: TranslationFailureKind.service);
+      }
       if (!active) return;
-      config.validateCredentials(secret);
       final http = await client.postUrl(_endpoint());
       if (!active) return;
       // 不随重定向把凭据或原文发送到另一个地址。
@@ -479,8 +485,12 @@ class ApiTranslationProvider implements BatchTranslationProvider {
     required bool jsonObject,
   }) {
     final Object body;
+    // 模型服务的 API Key 可留空；留空时不发送认证头（#123）。
+    final apiKey = secret['apiKey'] ?? '';
     if (config.kind != 'anthropic') {
-      http.headers.set('Authorization', 'Bearer ${secret['apiKey']}');
+      if (apiKey.isNotEmpty) {
+        http.headers.set('Authorization', 'Bearer $apiKey');
+      }
       // 服务类型或官方地址均可识别DeepSeek协议，两个请求选项使用同一判定。
       final isDeepSeek =
           config.kind == 'deepseek' ||
@@ -498,7 +508,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
         ],
       };
     } else {
-      http.headers.set('x-api-key', secret['apiKey']!);
+      if (apiKey.isNotEmpty) http.headers.set('x-api-key', apiKey);
       http.headers.set('anthropic-version', '2023-06-01');
       body = {
         'model': config.model,

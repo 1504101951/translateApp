@@ -213,8 +213,11 @@ class _ServiceEditorState extends State<ServiceEditor> {
                 if (!isSystem)
                   NativeGlassField(
                     label: _kind == 'baidu' ? '百度密钥' : 'API Key',
+                    // 模型服务的 API Key 可留空（#123）。
                     helper: widget.hasCredentials
                         ? '已保存，留空保留；凭据保存在 macOS 钥匙串。'
+                        : isModel
+                        ? '可留空；凭据保存在 macOS 钥匙串。'
                         : '凭据保存在 macOS 钥匙串。',
                     child: TextField(
                       key: ValueKey(_kind == 'baidu' ? '百度密钥' : 'API Key'),

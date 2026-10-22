@@ -163,7 +163,8 @@ void main() {
   });
 
   test('Apple 系统翻译无端点、无凭据即为完整配置，同样为空的远程服务仍被拒绝', () async {
-    // 边界：地址与凭据都为空；系统翻译必须通过，远程服务必须失败，证明豁免只作用于系统类型。
+    // 边界：地址与凭据都为空；系统翻译必须通过，远程服务的地址校验与 Google 的凭据校验必须失败，
+    // 证明地址与凭据的豁免只作用于系统类型（模型服务凭据可留空见 #123 用例）。
     const apple = ServiceConfig(
       id: 'apple-local',
       kind: 'apple',
@@ -180,7 +181,13 @@ void main() {
       model: 'gpt-test',
     );
     expect(remote.validate, throwsFormatException);
-    expect(() => remote.validateCredentials(const {}), throwsFormatException);
+    const google = ServiceConfig(
+      id: 'google',
+      kind: 'google',
+      name: 'Google',
+      baseUrl: 'https://translation.googleapis.com',
+    );
+    expect(() => google.validateCredentials(const {}), throwsFormatException);
     // 新增系统翻译不产生钥匙串变更；读取钥匙串即视为错误。
     final changes = await prepareCredentialChanges(
       previous: const [],
@@ -189,6 +196,35 @@ void main() {
       readCredentials: (_) async => throw StateError('系统翻译不得读取钥匙串'),
     );
     expect(changes, isEmpty);
+  });
+
+  test('模型服务允许 API Key 留空，Google 与百度仍须填写（#123）', () {
+    // 边界：三种模型协议的空凭据都通过；Google 空凭据、百度缺 App ID 仍被拒绝。
+    for (final kind in ['openai', 'deepseek', 'anthropic']) {
+      final model = ServiceConfig(
+        id: kind,
+        kind: kind,
+        name: kind,
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'local-model',
+      );
+      expect(() => model.validateCredentials(const {}), returnsNormally);
+    }
+    for (final (kind, credentials) in [
+      ('google', const <String, String>{}),
+      ('baidu', const {'apiKey': 'k'}),
+    ]) {
+      final service = ServiceConfig(
+        id: kind,
+        kind: kind,
+        name: kind,
+        baseUrl: 'https://example.com',
+      );
+      expect(
+        () => service.validateCredentials(credentials),
+        throwsFormatException,
+      );
+    }
   });
 
   test('主次语言方向支持多语言、繁体中文以及无法识别的文本', () {

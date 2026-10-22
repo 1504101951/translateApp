@@ -157,6 +157,63 @@ void main() {
     await serving;
   });
 
+  test('模型服务未填 API Key 时不发送认证头，Google 缺凭据时显示校验提示（#123）', () async {
+    // 边界：OpenAI 协议不带 Authorization、Anthropic 协议不带 x-api-key，且都正常完成；
+    // Google 空凭据不发请求，失败文案就是凭据校验原文，而不是通用失败。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final serving = () async {
+      var count = 0;
+      await for (final incoming in server) {
+        await utf8.decoder.bind(incoming).join();
+        expect(incoming.headers.value('authorization'), isNull);
+        expect(incoming.headers.value('x-api-key'), isNull);
+        incoming.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+          charset: 'utf-8',
+        );
+        if (count++ == 0) {
+          incoming.response.write(
+            'data: {"choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+          );
+        } else {
+          incoming.response.write(
+            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"你好"}}\n\n',
+          );
+          incoming.response.write(
+            'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\ndata: {"type":"message_stop"}\n\n',
+          );
+        }
+        await incoming.response.close();
+        if (count == 2) break;
+      }
+    }();
+    // 服务端处理完两个模型请求后停止监听，地址在发请求前取好。
+    final baseUrl = 'http://127.0.0.1:${server.port}';
+    for (final kind in ['openai', 'anthropic', 'google']) {
+      final events = await ApiTranslationProvider(
+        config: ServiceConfig(
+          id: 'keyless',
+          kind: kind,
+          name: 'Keyless',
+          baseUrl: baseUrl,
+          model: 'local-model',
+        ),
+        credentials: () async => const {},
+      ).translate(request).toList();
+      if (kind == 'google') {
+        expect(
+          (events.single as TranslationFailure).message,
+          '请填写 API Key／密钥，百度翻译还需要 App ID。',
+        );
+      } else {
+        expect(events.last, isA<TranslationCompleted>());
+      }
+    }
+    await serving;
+  });
+
   test('截断、缺少完成标记和响应错误都不被标记完成，也不回显服务正文', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));

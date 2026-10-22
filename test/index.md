@@ -2,7 +2,7 @@
 
 Dart业务逻辑和Flutter界面行为回归测试。
 
-1. [api_translation_provider_test.dart](api_translation_provider_test.dart)：验证官方翻译服务和模型适配的请求与响应契约，以及术语表命中与未命中时的请求内容。
+1. [api_translation_provider_test.dart](api_translation_provider_test.dart)：验证官方翻译服务和模型适配的请求与响应契约、模型服务未填 API Key 时不带认证头，以及术语表命中与未命中时的请求内容。
 2. [flutter_test_config.dart](flutter_test_config.dart)：统一初始化Flutter测试所需的运行配置。
 3. [glass_appearance_test.dart](glass_appearance_test.dart)：验证玻璃主题和跨窗口外观设置。
 4. [history_app_test.dart](history_app_test.dart)：验证历史卡片内容、分页与记录设置交互。
@@ -23,7 +23,7 @@ Dart业务逻辑和Flutter界面行为回归测试。
 19. [settings_app_test.dart](settings_app_test.dart)：验证设置页面交互、服务显示、术语表增删改、确认截图动作与上传分享编辑、长截图滚动方式及配置更新。
 20. [settings_autosave_test.dart](settings_autosave_test.dart)：验证后台自动保存的串行、冲突和失败处理。
 21. [settings_spec_test.dart](settings_spec_test.dart)：验证设置界面是否符合数值、密度与交互规格。
-22. [settings_test.dart](settings_test.dart)：验证设置数据往返与配置校验。
+22. [settings_test.dart](settings_test.dart)：验证设置数据往返与配置校验，含模型服务 API Key 可留空。
 23. [translation_history_test.dart](translation_history_test.dart)：验证翻译历史存储、分页及记录开关。
 24. [translation_overlay_test.dart](translation_overlay_test.dart)：验证翻译按钮、双语结果与失败界面行为。
 25. [translation_resume_test.dart](translation_resume_test.dart)：验证分片失败恢复、进度保留及取消边界。

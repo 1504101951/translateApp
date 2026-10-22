@@ -119,9 +119,10 @@ class ServiceConfig {
   }
 
   /// credentials 为内存中的 Keychain 凭据；缺少协议必需字段时抛用户可读错误。
+  /// 模型服务的 API Key 可留空（本机服务等不校验密钥），Google 与百度仍须填写（#123）。
   void validateCredentials(Map<String, String> credentials) {
-    // 系统翻译不使用凭据，空凭据即为完整配置。
-    if (isSystem) return;
+    // 系统翻译不使用凭据，空凭据即为完整配置；模型服务留空时请求不带认证头。
+    if (isSystem || isModel) return;
     if ((credentials['apiKey'] ?? '').trim().isEmpty ||
         kind == 'baidu' && (credentials['appId'] ?? '').trim().isEmpty) {
       throw const FormatException('请填写 API Key／密钥，百度翻译还需要 App ID。');
