@@ -11,7 +11,7 @@ Dart业务逻辑和Flutter界面行为回归测试。
 7. [language_direction_test.dart](language_direction_test.dart)：验证主要语言、次要语言及未知检测结果的翻译方向。
 8. [macos_bridge_event_test.dart](macos_bridge_event_test.dart)：验证原生选区事件的解析与字段传递。
 9. [native_glass_controls_test.dart](native_glass_controls_test.dart)：验证共享玻璃控件的输入、布局与命中行为。
-10. [paragraph_translation_test.dart](paragraph_translation_test.dart)：验证段落结构、翻译配对与失败边界。
+10. [paragraph_translation_test.dart](paragraph_translation_test.dart)：验证段落结构、翻译配对与失败边界，以及按段落分批的上限、整片失败与同语言直通。
 11. [permission_wizard_app_test.dart](permission_wizard_app_test.dart)：验证权限向导显示、状态刷新与完成行为。
 12. [permission_wizard_test.dart](permission_wizard_test.dart)：验证两项权限齐备后的进入条件。
 13. [screenshot_app_test.dart](screenshot_app_test.dart)：验证截图编辑、标注、导出与识别结果中的二维码、条码及链接打开行为。

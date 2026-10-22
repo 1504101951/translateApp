@@ -5,7 +5,7 @@ import 'dart:io';
 import '../translation_types.dart';
 import '../paragraph_translation.dart';
 
-/// 零配置翻译源。单篇翻译每个流独占 HTTP 连接；批量翻译使用调用方传入的连接。
+/// 零配置翻译源。单篇翻译按段落分批调用批量接口并独占一个 HTTP 连接；实时翻译的批量请求使用会话传入的连接。
 class UnofficialGoogleProvider implements BatchTranslationProvider {
   /// endpoint 为翻译接口 URL，requestTimeout 为单篇与批量请求共用的整次时限（默认 30 秒，#114）；
   /// 构造可取消的 Google Provider。
@@ -25,83 +25,16 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
   final String endpoint;
   final Duration requestTimeout;
 
-  /// 单篇请求建立连接的时限，与 API 服务一致。
-  static const _connectionTimeout = Duration(seconds: 10);
-
   /// request 包含原文和语言方向；返回可取消的译文、完成或失败事件流。
   @override
   Stream<TranslationEvent> translate(TranslationRequest request) {
-    // 以原文段落为边界翻译，原文与译文的映射不依赖远端句子数量。
-    return translateParagraphs(_translate, request);
-  }
-
-  /// request 为一个段落的原文与方向；返回可取消的 HTTP 翻译结果。
-  Stream<TranslationEvent> _translate(TranslationRequest request) {
-    late final HttpClient client;
-    late final StreamController<TranslationEvent> events;
-    events = StreamController<TranslationEvent>(
-      onListen: () async {
-        client = HttpClient()..connectionTimeout = _connectionTimeout;
-
-        /// 无参数；发送单段请求并发布译文或失败，整次受 requestTimeout 限时。
-        Future<void> run() async {
-          // _open 写好表单并返回尚未发送的请求。
-          final connection = await _open(
-            client,
-            q: request.sourceText,
-            detected: request.detectedLanguage,
-            target: request.targetLanguage,
-          );
-          final response = await connection.close();
-          final body = await utf8.decodeStream(response);
-          if (events.isClosed) return;
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            events.add(
-              TranslationFailure(
-                'Unofficial Google Provider 请求失败（HTTP ${response.statusCode}）。',
-              ),
-            );
-            return;
-          }
-          // 消费端共享同一译文事件契约，HTTP 解析不进入会话或界面层。
-          events.add(TranslationUpdate(parseTranslatedText(body)));
-          events.add(const TranslationCompleted());
-        }
-
-        try {
-          // 网络挂起时按时限失败，卡片进入失败态并可重试（#114）。
-          await run().timeout(requestTimeout);
-        } on TimeoutException {
-          if (!events.isClosed) {
-            events.add(const TranslationFailure(translationTimeoutMessage));
-          }
-        } on FormatException {
-          if (!events.isClosed) {
-            events.add(
-              const TranslationFailure(
-                'Unofficial Google Provider 返回了无法解析的响应。',
-              ),
-            );
-          }
-        } catch (_) {
-          // 取消导致的断连不向已经结束的会话发送失败消息。
-          if (!events.isClosed) {
-            events.add(
-              const TranslationFailure('Unofficial Google Provider 请求失败。'),
-            );
-          }
-        } finally {
-          client.close(force: true);
-          if (!events.isClosed) await events.close();
-        }
-      },
-      onCancel: () {
-        // Stream 的取消直接关闭当前请求，无需另建取消令牌或共享客户端。
-        client.close(force: true);
-        if (!events.isClosed) unawaited(events.close());
-      },
+    // 以原文段落为边界分批翻译，原文与译文的映射不依赖远端句子数量；每批 20 段、2000 字符，与实时翻译一致（#113）。
+    return translateParagraphBatches(
+      this,
+      request,
+      maxItems: 20,
+      maxChars: 2000,
     );
-    return events.stream;
   }
 
   /// request 为一批段落与语言方向，client 为会话持有的连接。
@@ -169,6 +102,14 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
     events.onListen = () async {
       try {
         await run().timeout(requestTimeout);
+      } on TimeoutException {
+        // 网络挂起时按时限失败，单篇翻译卡片显示超时并可重试（#114）。
+        emit(
+          const BatchFailure(
+            translationTimeoutMessage,
+            TranslationFailureKind.transient,
+          ),
+        );
       } on FormatException {
         emit(
           const BatchFailure(

@@ -72,8 +72,9 @@ void main() {
         } else {
           expect(incoming.uri.path, '/language/translate/v2');
           expect(incoming.headers.value('x-goog-api-key'), secrets['apiKey']);
+          // 单篇翻译按段落分批调用批量接口，q 为段落数组（#113）。
           expect(jsonDecode(body), {
-            'q': request.sourceText,
+            'q': [request.sourceText],
             'target': 'zh-CN',
             'source': 'en',
             'format': 'text',
@@ -119,12 +120,13 @@ void main() {
         if (count++ == 0) {
           expect(incoming.uri.path, '/chat/completions');
           expect(incoming.headers.value('authorization'), 'Bearer test-secret');
+          // 未开双语对照的模型按编号分批发送（#113）。
           expect(
-            jsonDecode(body['messages'][1]['content'])['text'],
-            request.sourceText,
+            jsonDecode(body['messages'][1]['content'])['paragraphs'],
+            '[1] ${request.sourceText}',
           );
           incoming.response.write(
-            'data: {"choices":\ndata: [{"index":0,"delta":{"content":"你好🌍"},"finish_reason":null}]}\n\n',
+            'data: {"choices":\ndata: [{"index":0,"delta":{"content":"[1] 你好🌍"},"finish_reason":null}]}\n\n',
           );
           await incoming.response.flush();
           incoming.response.write(
@@ -136,7 +138,7 @@ void main() {
           expect(incoming.headers.value('anthropic-version'), '2023-06-01');
           expect(body['max_tokens'], 4096);
           incoming.response.write(
-            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"你好🌍"}}\n\n',
+            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"[1] 你好🌍"}}\n\n',
           );
           incoming.response.write(
             'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\ndata: {"type":"message_stop"}\n\n',
@@ -175,11 +177,11 @@ void main() {
         );
         if (count++ == 0) {
           incoming.response.write(
-            'data: {"choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+            'data: {"choices":[{"index":0,"delta":{"content":"[1] 你好"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
           );
         } else {
           incoming.response.write(
-            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"你好"}}\n\n',
+            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"[1] 你好"}}\n\n',
           );
           incoming.response.write(
             'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\ndata: {"type":"message_stop"}\n\n',

@@ -124,15 +124,20 @@ abstract class TranslationProvider {
 
 /// 批量翻译请求；texts 为同一批次的段落原文，下标即批次内编号。
 class BatchTranslationRequest {
-  /// texts 为待译段落；detectedLanguage 为整批的识别语言，可为空；targetLanguage 为目标语言。
+  /// texts 为待译段落；detectedLanguage 为整批的识别语言，可为空；targetLanguage 为目标语言；
+  /// previousSourceTail/previousTranslationTail 为模型前一片的原文与译文尾部，单篇分批翻译时携带，实时翻译为空（#113）。
   const BatchTranslationRequest({
     required this.texts,
     required this.targetLanguage,
     this.detectedLanguage,
+    this.previousSourceTail,
+    this.previousTranslationTail,
   });
   final List<String> texts;
   final String? detectedLanguage;
   final String targetLanguage;
+  final String? previousSourceTail;
+  final String? previousTranslationTail;
 }
 
 /// 批量翻译失败的类别；会话据此决定停止发送、放弃该段落或重试。

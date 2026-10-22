@@ -35,7 +35,8 @@ void main() {
             'choices': [
               {
                 'index': 0,
-                'delta': {'content': inputs.length == 1 ? '译' * 1200 : '续译'},
+                // 未开双语对照的模型按编号分批，译文行首带段落编号（#113）。
+                'delta': {'content': inputs.length == 1 ? '[1] ${'译' * 1200}' : '[1] 续译'},
               },
             ],
           })}\n\n',
@@ -82,7 +83,7 @@ void main() {
       'source_tail': 'A' * 1000,
       'translation_tail': '译' * 1000,
     });
-    expect(inputs.last['text'], 'B' * 4000);
+    expect(inputs.last['paragraphs'], '[1] ${'B' * 4000}');
     expect(session.canRetry, isFalse);
   });
 }

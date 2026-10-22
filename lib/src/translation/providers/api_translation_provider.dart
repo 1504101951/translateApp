@@ -42,13 +42,29 @@ class ApiTranslationProvider implements BatchTranslationProvider {
   Stream<TranslationEvent> translate(TranslationRequest request) {
     // 润色、纠错与解释的输出不与原文段落对应，整片直接交给模型，也不走「已是目标语言」的直通。
     if (mode != TextMode.translate) return _translate(request);
-    // 语义模型需要整篇上下文；其他服务按原文段落建立可验证的一一对应。
-    return translateParagraphs(
-      _translate,
+    // 语义模型需要整篇上下文，整片发送并校验配对。
+    if (config.isModel && config.semanticPairs) {
+      return translateParagraphs(_translate, request, keepWholeSource: true);
+    }
+    // 其他服务按原文段落建立一一对应，分批调用批量接口，不再逐行串行请求（#113）。
+    final (:items, :chars) = switch (config.kind) {
+      'google' => _googleBatchLimits,
+      'baidu' => _baiduBatchLimits,
+      _ => _modelBatchLimits,
+    };
+    return translateParagraphBatches(
+      this,
       request,
-      keepWholeSource: config.isModel && config.semanticPairs,
+      maxItems: items,
+      maxChars: chars,
     );
   }
+
+  /// 单篇分批的上限：谷歌翻译 v2 每次最多 128 条、推荐每次不超过 5000 字符（官方文档）；
+  /// 百度按字符计，官方上限本次未能读取，取保守值 2000；模型沿用实时翻译批量上限 20 段、2000 字符（#113）。
+  static const _googleBatchLimits = (items: 128, chars: 5000);
+  static const _baiduBatchLimits = (items: null, chars: 2000);
+  static const _modelBatchLimits = (items: 20, chars: 2000);
 
   /// 润色、纠错与解释的内置系统提示词；不使用服务配置中的翻译提示词。
   static const _assistPrompts = {
@@ -326,6 +342,13 @@ class ApiTranslationProvider implements BatchTranslationProvider {
               if (terms.isNotEmpty) 'glossary': terms,
               // numberedBatchText 给每个段落加上“[编号]”行首。
               'paragraphs': numberedBatchText(request.texts),
+              // 单篇分批翻译携带上一片的尾部，与逐段请求时的上下文一致（#113）。
+              if (request.previousSourceTail != null ||
+                  request.previousTranslationTail != null)
+                'previous_context': {
+                  'source_tail': request.previousSourceTail,
+                  'translation_tail': request.previousTranslationTail,
+                },
             }),
             jsonObject: false,
           );
