@@ -1192,6 +1192,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         MethodNames.recognizeBlocks,
         {'id': id, 'bytes': bytes},
       );
+      // OCR 等待期间可能关闭或替换截图，迟到的识别结果不生成覆盖层、不开始翻译（#115）。
+      if (!mounted || _capture['id'] != id) return;
       final blocks = [
         for (final item in raw ?? const [])
           if (item is Map)
@@ -1207,17 +1209,13 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             ),
       ].where((item) => item.source.trim().isNotEmpty).toList();
       if (blocks.isEmpty) {
-        if (mounted && _capture['id'] == id) {
-          setState(() {
-            _ocrOverlays = [];
-            _message = '画面中没有可识别的文字';
-            _failed = true;
-          });
-        }
+        setState(() {
+          _ocrOverlays = [];
+          _message = '画面中没有可识别的文字';
+          _failed = true;
+        });
         return;
       }
-      // OCR 等待期间可能关闭或替换截图，旧结果不能开始翻译。
-      if (!mounted || _capture['id'] != id) return;
       final joined = blocks.map((item) => item.source).join('\n');
       final translated = await widget.channel.invokeMethod<String>(
         MethodNames.translatePlainText,

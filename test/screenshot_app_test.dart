@@ -1,6 +1,7 @@
 import 'package:translate_app/src/common/constants/method_names.dart';
 import 'package:translate_app/src/common/constants/error_codes.dart';
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -620,6 +621,81 @@ void main() {
     await _tapExport(tester, const Key('screenshot-ocr-translate'));
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('已在图上显示译文'), findsOneWidget);
+  });
+
+  testWidgets('截图翻译的迟到识别结果不在替换后的截图上显示，也不发起翻译（#115）', (tester) async {
+    // 边界：识别请求已发出、结果到达前截图被替换；迟到结果不生成覆盖层、不调用翻译、不显示成功反馈。
+    tester.view.physicalSize = const Size(960, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = await tester.runAsync(_pngCheckerboard);
+    const channel = MethodChannel('test/screenshot-ocr-stale');
+    const codec = StandardMethodCodec();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final snapshot = <String, Object?>{
+      'id': 'first',
+      'bytes': bytes,
+      'capturedAt': 1788662400000,
+      'width': 8,
+      'height': 8,
+      'directory': '',
+    };
+    final requested = Completer<void>();
+    final reply = Completer<List<Object?>>();
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      switch (call.method) {
+        case MethodNames.getScreenshot:
+          return snapshot;
+        case MethodNames.recognizeBlocks:
+          requested.complete();
+          return reply.future;
+        case MethodNames.translatePlainText:
+          return '你好';
+        default:
+          return null;
+      }
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(const ScreenshotApp(channel: channel));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('screenshot-ocr-translate')),
+    );
+    // 截图编码使用真实图像线程，识别请求在编码完成后才发出：交替让出真实时间与推进帧，最多 5 秒。
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('screenshot-ocr-translate')));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    for (var i = 0; i < 50 && !requested.isCompleted; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+    }
+    expect(requested.isCompleted, isTrue);
+    await messenger.handlePlatformMessage(
+      channel.name,
+      codec.encodeMethodCall(
+        MethodCall(MethodNames.screenshotChanged, {
+          ...snapshot,
+          'id': 'second',
+        }),
+      ),
+      (_) {},
+    );
+    await tester.pump();
+    reply.complete([
+      {'text': 'Hello', 'x': 0, 'y': 0, 'width': 4, 'height': 2},
+    ]);
+    await tester.pumpAndSettle();
+    expect(calls, isNot(contains(MethodNames.translatePlainText)));
+    expect(find.text('你好'), findsNothing);
+    expect(find.text('已在图上显示译文'), findsNothing);
   });
 
   testWidgets('Esc 关闭会话不复制；文字输入按 Esc 写入标注', (tester) async {

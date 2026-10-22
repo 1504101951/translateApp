@@ -410,10 +410,19 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
                 return
             }
-            do {
-                result(try ScreenCaptureService.recognizeBlocks(png: payload))
-            } catch {
-                result(FlutterError(code: AppConstants.ocrFailedError, message: error.localizedDescription, details: nil))
+            // recognizeBlocks 是同步的 Vision 调用，放到后台任务执行，识别期间主线程不阻塞（#115）。
+            Task { @MainActor in
+                do {
+                    let blocks = try await Task.detached { try ScreenCaptureService.recognizeBlocks(png: payload) }.value
+                    // 识别期间截图可能被关闭或替换，迟到结果按过期处理。
+                    guard id == self.captureId else {
+                        result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                        return
+                    }
+                    result(blocks)
+                } catch {
+                    result(FlutterError(code: AppConstants.ocrFailedError, message: error.localizedDescription, details: nil))
+                }
             }
         case AppConstants.recognizeTextMethod:
             guard let id = args["id"] as? String, id == captureId else {
