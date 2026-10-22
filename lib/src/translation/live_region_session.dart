@@ -580,6 +580,15 @@ class LiveRegionSession {
                 );
               },
             );
+      } catch (_) {
+        // 语言识别或创建请求抛错时按临时失败收口：移出在途集合并交给重试逻辑，
+        // 不让批次一直占用名额、界面停在「正在翻译」（#116）。
+        if (epoch != _epoch) return;
+        if (batch.cancelled) {
+          _inflight.remove(batch);
+          return;
+        }
+        _fail(batch, '翻译准备失败，将自动重试。', TranslationFailureKind.transient);
       } finally {
         if (epoch == _epoch) _evaluate();
         _endWork(epoch);

@@ -359,6 +359,38 @@ void main() {
     expect(provider.requests, hasLength(5));
   });
 
+  test('语言识别抛错时批次按临时失败结束，按请求间隔重试并继续调度（#116）', () async {
+    // 作用：识别异常不再让批次一直占用在途名额、界面停在「正在翻译」。
+    // 边界：第 1 次识别抛错后没有发出请求、状态为「等待翻译」；499ms 不重试，500ms 重试并发出请求。
+    final clock = ManualClock();
+    final provider = ScriptedProvider();
+    var calls = 0;
+    final session = LiveRegionSession(
+      providerFor: (settings) =>
+          provider..model = settings.services.single.model,
+      detectLanguage: (_) async {
+        calls++;
+        if (calls == 1) throw StateError('识别失败');
+        return 'en';
+      },
+      clock: clock,
+    );
+    session.start(_settings(), 1);
+    await session.onOcr(_frame(1, ['A']));
+    await _delivered(session);
+    expect(provider.requests, isEmpty);
+    expect(session.view.status, '等待翻译');
+    clock.elapse(const Duration(milliseconds: 499));
+    await _delivered(session);
+    expect(provider.requests, isEmpty);
+    clock.elapse(const Duration(milliseconds: 1));
+    await _delivered(session);
+    expect(provider.sent, [
+      ['A'],
+    ]);
+    expect(session.view.status, '正在翻译');
+  });
+
   test('服务级明确错误后本次会话不再发送，新会话恢复发送', () async {
     // 作用：密钥或额度错误不重试，也不为新段落继续发请求。
     // 边界：错误之后出现的新段落块同样不发送；重新开始会话后才恢复。
