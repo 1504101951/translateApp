@@ -69,6 +69,8 @@ final class ScrollStitcher {
     /// 首帧保留顶部固定区域，末帧提供底部固定区域。
     private var first: Frame?
     private var previous: Frame?
+    /// 参照帧（previous）的缩略探针；首帧与追加正文成功时更新（#119）。
+    private var previousProbe: [Double]?
     private var strips: [CGImage] = []
     private(set) var acceptedFrames = 0
     /// 已确认图像的总高度，包含固定首顶末底；每次追加正文成功后递增。
@@ -85,6 +87,13 @@ final class ScrollStitcher {
     /// frame 为新的同倍率截图；返回是否追加正文，静止帧返回false，失配抛错并保留已确认结果。
     @discardableResult
     func append(_ image: CGImage) throws -> Bool {
+        // probe 把整帧缩成 32×64 采样；与参照帧的探针几乎一致时视为静止，不做整幅解码（#119）。
+        // 已知限制：小于探针分辨率的细微变化在累计变大前被当作静止；需要逐帧捕捉这类变化时重新评估。
+        let probe = try Self.probe(image)
+        if let previousProbe, let old = previous, old.image.width == image.width, old.image.height == image.height,
+           zip(previousProbe, probe).reduce(0, { $0 + abs($1.0 - $1.1) }) / Double(probe.count) < 0.8 {
+            return false
+        }
         // Frame只为本次候选创建采样；校验完成之前不修改已接受的像素。
         let current = try Frame(image)
         guard let old = previous else {
@@ -94,6 +103,7 @@ final class ScrollStitcher {
             }
             first = current
             previous = current
+            previousProbe = probe
             acceptedFrames = 1
             height = image.height
             return false
@@ -200,6 +210,7 @@ final class ScrollStitcher {
         }
         strips.append(try copyStrip(image, y: image.height - selected.bottom - advance, height: advance))
         previous = current
+        previousProbe = probe
         acceptedFrames += 1
         height = nextHeight
         scrolled = estimate
@@ -318,6 +329,25 @@ final class ScrollStitcher {
         context.draw(crop, in: CGRect(x: 0, y: 0, width: image.width, height: height))
         guard let result = context.makeImage() else { throw Failure(message: "无法保存长图条带。") }
         return result
+    }
+
+    /// image为新截图；返回去掉左右各 5% 窄边后缩放到 32 列 × 64 行的 RGB 采样，用于静止判断（#119）。
+    /// 窄边与配准一致地排除，避免滚动条的出现与淡出被当作内容变化。
+    private static func probe(_ image: CGImage) throws -> [Double] {
+        let (width, height) = (32, 64)
+        let inset = max(1, image.width / 20)
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        let rendered = rgba.withUnsafeMutableBytes { buffer -> Bool in
+            guard let body = image.cropping(to: CGRect(x: inset, y: 0, width: image.width - inset * 2, height: image.height)),
+                  let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                      bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(body, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard rendered else { throw Failure(message: "无法读取截图像素。") }
+        return stride(from: 0, to: rgba.count, by: 4).flatMap { [Double(rgba[$0]), Double(rgba[$0 + 1]), Double(rgba[$0 + 2])] }
     }
 
     /// a/b为RGB采样行、column为RGB三元组起始位置；返回该采样点三通道平均绝对误差。
