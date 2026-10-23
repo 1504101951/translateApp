@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../../settings/service_config.dart';
 import '../translation_types.dart';
 import '../paragraph_translation.dart';
 
@@ -15,7 +16,7 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
   });
 
   @override
-  final String id = 'unofficial-google';
+  final String id = ServiceConfig.builtinId;
   @override
   bool get usesSlidingContext => false;
 
@@ -28,12 +29,12 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
   /// request 包含原文和语言方向；返回可取消的译文、完成或失败事件流。
   @override
   Stream<TranslationEvent> translate(TranslationRequest request) {
-    // 以原文段落为边界分批翻译，原文与译文的映射不依赖远端句子数量；每批 20 段、2000 字符，与实时翻译一致（#113）。
+    // 以原文段落为边界分批翻译，原文与译文的映射不依赖远端句子数量；使用段落批量通用上限（#113）。
     return translateParagraphBatches(
       this,
       request,
-      maxItems: 20,
-      maxChars: 2000,
+      maxItems: batchItemLimit,
+      maxChars: batchCharLimit,
     );
   }
 

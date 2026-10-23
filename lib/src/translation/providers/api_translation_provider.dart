@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import '../../common/constants/network_limits.dart';
 import '../../common/constants/text_mode.dart';
 import '../../settings/service_config.dart';
 import '../glossary.dart';
@@ -61,10 +62,13 @@ class ApiTranslationProvider implements BatchTranslationProvider {
   }
 
   /// 单篇分批的上限：谷歌翻译 v2 每次最多 128 条、推荐每次不超过 5000 字符（官方文档）；
-  /// 百度按字符计，官方上限本次未能读取，取保守值 2000；模型沿用实时翻译批量上限 20 段、2000 字符（#113）。
+  /// 百度按字符计，官方上限本次未能读取，取保守值 2000；模型使用段落批量通用上限（#113）。
   static const _googleBatchLimits = (items: 128, chars: 5000);
   static const _baiduBatchLimits = (items: null, chars: 2000);
-  static const _modelBatchLimits = (items: 20, chars: 2000);
+  static const _modelBatchLimits = (
+    items: batchItemLimit,
+    chars: batchCharLimit,
+  );
 
   /// 润色、纠错与解释的内置系统提示词；不使用服务配置中的翻译提示词。
   static const _assistPrompts = {
@@ -101,7 +105,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
     // 段落对照只属于翻译模式；润色、纠错与解释返回整段纯文本。
     final semantic = config.semanticPairs && mode == TextMode.translate;
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
+      ..connectionTimeout = NetworkLimits.connectionTimeout;
     final output = StreamController<TranslationEvent>();
     var active = true;
 

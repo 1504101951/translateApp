@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../common/constants/network_limits.dart';
 import 'language_direction.dart';
 import 'translation_types.dart';
 
@@ -73,7 +74,9 @@ Stream<TranslationEvent> translateParagraphs(
             if (cancelled) return;
             // 外层分片只接受明确完成的段落；网络断流不能升级为全篇成功。
             if (!completed) {
-              output.add(const TranslationFailure('服务未返回完整译文。'));
+              output.add(
+                const TranslationFailure(incompleteTranslationMessage),
+              );
               return;
             }
           }
@@ -161,7 +164,7 @@ Stream<TranslationEvent> translateParagraphBatches(
           }
         } else {
           client = HttpClient()
-            ..connectionTimeout = const Duration(seconds: 10);
+            ..connectionTimeout = NetworkLimits.connectionTimeout;
           var start = 0;
           while (start < paragraphs.length) {
             // 按阅读顺序装满一批：段落数与字符数先到为准，单段超过字符上限时自成一批。
@@ -210,7 +213,7 @@ Stream<TranslationEvent> translateParagraphBatches(
                     }
                   },
                   onError: (Object _) => settle('翻译失败，请重试。'),
-                  onDone: () => settle('服务未返回完整译文。'),
+                  onDone: () => settle(incompleteTranslationMessage),
                 );
             final failure = await done.future;
             await current?.cancel();

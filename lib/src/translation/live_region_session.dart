@@ -14,7 +14,6 @@ import 'translation_types.dart';
 /// candidateCoalescingDelay 按单个段落块计时：段落原文保持不变达到该时长后才可发送。
 /// requestStartInterval 是两个批次开始的最小间隔，不是完成后再等待。
 /// maxInflightBatches 是同时在途的批次上限；不允许并行的服务固定为 1。
-/// maxBatchBlocks 与 maxBatchChars 是单个批次的段落块数与字符数上限，先到为准。
 /// cacheBudgetBytes 是段落块缓存的内存预算，单位字节。
 /// transientRetryLimit 是同一段落原文在一次会话内临时错误或频率受限后的重试上限。
 /// rateLimitBackoff 是频率受限且服务未给出 Retry-After 时依次等待的时长，超过三次沿用最后一项；
@@ -23,8 +22,6 @@ abstract final class LiveRegionSchedule {
   static const candidateCoalescingDelay = Duration(milliseconds: 200);
   static const requestStartInterval = Duration(milliseconds: 500);
   static const maxInflightBatches = 3;
-  static const maxBatchBlocks = 20;
-  static const maxBatchChars = 2000;
   static const cacheBudgetBytes = 100 * 1024 * 1024;
   static const transientRetryLimit = 3;
   static const rateLimitBackoff = [
@@ -491,8 +488,7 @@ class LiveRegionSession {
       }
       final length = paragraph.text.characters.length;
       if (items.isNotEmpty &&
-          (items.length >= LiveRegionSchedule.maxBatchBlocks ||
-              chars + length > LiveRegionSchedule.maxBatchChars)) {
+          (items.length >= batchItemLimit || chars + length > batchCharLimit)) {
         break;
       }
       items.add(paragraph);

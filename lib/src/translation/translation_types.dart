@@ -103,6 +103,14 @@ final class TranslationCompleted extends TranslationEvent {
 /// 请求超过时限时的用户可读原因；各翻译服务共用（#114）。
 const translationTimeoutMessage = '翻译请求超时，请重试。';
 
+/// 服务结束响应却没有给出完成事件时的用户可读原因；各翻译路径共用（#124）。
+const incompleteTranslationMessage = '服务未返回完整译文。';
+
+/// 段落批量请求的通用上限：每批最多 batchItemLimit 段、batchCharLimit 字符，先到为准；
+/// 实时翻译、模型服务单篇分批与非官方 Google 共用（#113、#124）。
+const batchItemLimit = 20;
+const batchCharLimit = 2000;
+
 /// 无法继续翻译的终态；用户可读错误与已完成片的恢复状态分别管理。
 final class TranslationFailure extends TranslationEvent {
   /// message为用户可读失败原因；构造停止事件，由会话决定是否可重试。

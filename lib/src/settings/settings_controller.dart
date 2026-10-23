@@ -181,7 +181,7 @@ class SettingsController {
     if (!completed) {
       throw PlatformException(
         code: ErrorCodes.testFailed,
-        message: '服务未返回完整译文。',
+        message: incompleteTranslationMessage,
       );
     }
     return result.toString();

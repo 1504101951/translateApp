@@ -189,7 +189,7 @@ Stream<TranslationEvent> translateSegmented(
           }
           if (cancelled) return;
           if (!segmentCompleted) {
-            output.add(const TranslationFailure('服务未返回完整译文。'));
+            output.add(const TranslationFailure(incompleteTranslationMessage));
             return;
           }
           if (segmentPairs.isEmpty) {

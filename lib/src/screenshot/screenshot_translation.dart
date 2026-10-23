@@ -61,7 +61,7 @@ Future<String> translateScreenshotText({
   if (!completed) {
     throw PlatformException(
       code: ErrorCodes.translateFailed,
-      message: '服务未返回完整译文。',
+      message: incompleteTranslationMessage,
     );
   }
   // 网络返回后再次核对原生 captureId，阻止已关闭截图的迟到结果写入历史。

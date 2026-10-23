@@ -6,6 +6,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+import '../common/constants/network_limits.dart';
+
 /// S3 兼容存储的上传目标；来自设置「截图 → 上传分享」，访问密钥另存钥匙串（#111）。
 /// 请求使用路径式地址 `endpoint/bucket/key`，兼容 AWS S3、Cloudflare R2、MinIO 等。
 class S3Target {
@@ -200,7 +202,8 @@ Future<String> uploadPng({
     service: 's3',
     time: now,
   );
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  final client = HttpClient()
+    ..connectionTimeout = NetworkLimits.connectionTimeout;
   try {
     final request = await client.putUrl(uri);
     // 不随重定向把签名与图片发送到另一个地址。
