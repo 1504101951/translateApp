@@ -88,6 +88,16 @@ class ApiTranslationProvider implements BatchTranslationProvider {
 
   static const _connectMessage = '无法连接翻译服务，请检查网络与 API 地址。';
   static const _unknownMessage = '翻译失败，请检查服务配置；返回内容可能不符合接口格式。';
+
+  /// error 为单篇或批量请求抛出的异常；返回用户可读原因、错误类别与服务要求的重试等待。
+  /// 业务失败原样返回；超时、无法连接与其他异常均为临时错误，其他异常不回显内容，
+  /// 避免将密钥、原文或选区带入错误信息（#124）。
+  static _ApiFailure _failureOf(Object error) => switch (error) {
+    _ApiFailure() => error,
+    TimeoutException() => const _ApiFailure(translationTimeoutMessage),
+    SocketException() => const _ApiFailure(_connectMessage),
+    _ => const _ApiFailure(_unknownMessage),
+  };
   static const _requestTimeout = Duration(seconds: 90);
 
   /// 本次请求命中术语时追加到系统提示词，说明用户消息中的 glossary。
@@ -240,15 +250,9 @@ class ApiTranslationProvider implements BatchTranslationProvider {
     output.onListen = () async {
       try {
         await run().timeout(_requestTimeout);
-      } on _ApiFailure catch (error) {
-        emit(TranslationFailure(error.message));
-      } on TimeoutException {
-        emit(const TranslationFailure(translationTimeoutMessage));
-      } on SocketException {
-        emit(const TranslationFailure(_connectMessage));
-      } catch (_) {
-        // 不回显响应正文、请求 URL 或底层异常，避免将密钥和选区带入错误信息。
-        emit(const TranslationFailure(_unknownMessage));
+      } catch (error) {
+        // _failureOf 把异常换成用户可读原因，不回显响应正文、请求 URL 或底层异常。
+        emit(TranslationFailure(_failureOf(error).message));
       } finally {
         active = false;
         client.close(force: true);
@@ -397,25 +401,15 @@ class ApiTranslationProvider implements BatchTranslationProvider {
     output.onListen = () async {
       try {
         await run().timeout(_requestTimeout);
-      } on _ApiFailure catch (error) {
+      } catch (error) {
+        // _failureOf 把异常换成用户可读原因与类别，不回显响应正文、请求 URL 或底层异常。
+        final failure = _failureOf(error);
         emit(
-          BatchFailure(error.message, error.kind, retryAfter: error.retryAfter),
-        );
-      } on TimeoutException {
-        emit(
-          const BatchFailure(
-            translationTimeoutMessage,
-            TranslationFailureKind.transient,
+          BatchFailure(
+            failure.message,
+            failure.kind,
+            retryAfter: failure.retryAfter,
           ),
-        );
-      } on SocketException {
-        emit(
-          const BatchFailure(_connectMessage, TranslationFailureKind.transient),
-        );
-      } catch (_) {
-        // 不回显响应正文、请求 URL 或底层异常，避免将密钥和原文带入错误信息。
-        emit(
-          const BatchFailure(_unknownMessage, TranslationFailureKind.transient),
         );
       } finally {
         active = false;
