@@ -167,22 +167,22 @@ void main() {
     await tester.pumpAndSettle();
     final cases = <Offset, MouseCursor>{
       const Offset(280, 220): const NativeResizeCursor(
-        NativeResizeCursor.northWestSouthEast,
+        ResizeCursorAxes.northWestSouthEast,
         channel: channel,
       ),
       const Offset(400, 220): SystemMouseCursors.resizeUpDown,
       const Offset(520, 220): const NativeResizeCursor(
-        NativeResizeCursor.northEastSouthWest,
+        ResizeCursorAxes.northEastSouthWest,
         channel: channel,
       ),
       const Offset(520, 310): SystemMouseCursors.resizeLeftRight,
       const Offset(520, 400): const NativeResizeCursor(
-        NativeResizeCursor.northWestSouthEast,
+        ResizeCursorAxes.northWestSouthEast,
         channel: channel,
       ),
       const Offset(400, 400): SystemMouseCursors.resizeUpDown,
       const Offset(280, 400): const NativeResizeCursor(
-        NativeResizeCursor.northEastSouthWest,
+        ResizeCursorAxes.northEastSouthWest,
         channel: channel,
       ),
       const Offset(280, 310): SystemMouseCursors.resizeLeftRight,
@@ -246,7 +246,7 @@ void main() {
     }
 
     const resize = NativeResizeCursor(
-      NativeResizeCursor.northWestSouthEast,
+      ResizeCursorAxes.northWestSouthEast,
       channel: channel,
     );
     expect(await cursorAt(const Offset(200, 180)), resize);
@@ -564,7 +564,7 @@ void main() {
     expect(
       RendererBinding.instance.mouseTracker.debugDeviceActiveCursor(1),
       const NativeResizeCursor(
-        NativeResizeCursor.northWestSouthEast,
+        ResizeCursorAxes.northWestSouthEast,
         channel: channel,
       ),
     );
@@ -604,10 +604,10 @@ void main() {
     final textMouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await textMouse.addPointer(location: const Offset(40, 40));
     for (final corner in <Offset, String>{
-      const Offset(330, 290): NativeResizeCursor.northWestSouthEast,
-      const Offset(570, 290): NativeResizeCursor.northEastSouthWest,
-      Offset(330, 290 + lineHeight): NativeResizeCursor.northEastSouthWest,
-      Offset(570, 290 + lineHeight): NativeResizeCursor.northWestSouthEast,
+      const Offset(330, 290): ResizeCursorAxes.northWestSouthEast,
+      const Offset(570, 290): ResizeCursorAxes.northEastSouthWest,
+      Offset(330, 290 + lineHeight): ResizeCursorAxes.northEastSouthWest,
+      Offset(570, 290 + lineHeight): ResizeCursorAxes.northWestSouthEast,
     }.entries) {
       await textMouse.moveTo(corner.key);
       await tester.pumpAndSettle();

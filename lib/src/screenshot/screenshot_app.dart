@@ -46,13 +46,13 @@ MouseCursor cursorForEditHandle(
     case 'nw':
     case 'se':
       return NativeResizeCursor(
-        NativeResizeCursor.northWestSouthEast,
+        ResizeCursorAxes.northWestSouthEast,
         channel: channel,
       );
     case 'ne':
     case 'sw':
       return NativeResizeCursor(
-        NativeResizeCursor.northEastSouthWest,
+        ResizeCursorAxes.northEastSouthWest,
         channel: channel,
       );
     case 'move':

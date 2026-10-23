@@ -12,7 +12,7 @@
 8. [platform_view_types.dart](platform_view_types.dart)：定义原生平台视图的注册类型名。
 9. [preference_keys.dart](preference_keys.dart)：集中定义应用偏好与截图工具配置的存储键。
 10. [screenshot_actions.dart](screenshot_actions.dart)：定义截图工具动作及对应的名称和图标。
-11. [screenshot_enums.dart](screenshot_enums.dart)：定义截图工具与采集目标类型、绘制默认值和预设颜色。
+11. [screenshot_enums.dart](screenshot_enums.dart)：定义截图工具与采集目标类型、对角缩放光标轴、绘制默认值和预设颜色。
 12. [selection_gesture_types.dart](selection_gesture_types.dart)：定义触发选区采集的鼠标和键盘手势标识。
 13. [translation_phase.dart](translation_phase.dart)：定义翻译会话的业务阶段。
 

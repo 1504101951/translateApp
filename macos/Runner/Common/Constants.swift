@@ -87,7 +87,7 @@ enum AppConstants {
     static let historyChangedMethod = "historyChanged"
     static let historyChangedNotification = Notification.Name("translateapp.historyChanged")
 
-    /// 截图对角光标的受控协议轴，与Dart NativeResizeCursor一致。
+    /// 截图对角光标的受控协议轴，与Dart ResizeCursorAxes一致。
     static let setResizeCursorMethod = "setResizeCursor"
     static let setBrushCursorMethod = "setBrushCursor"
     static let resizeNorthWestSouthEast = "nwse"
@@ -111,9 +111,11 @@ enum AppConstants {
     static let screenshotChannel = "translateapp/screenshot"
     /// screenshotEntrypoint 的平台约定；调用方共享同一协议或硬件定义。
     static let screenshotEntrypoint = "screenshotMain"
-    /// 截图与设置窗口的 Flutter 引擎名，经 WindowEngine 创建时使用（#120）。
+    /// 附属窗口的 Flutter 引擎名，经 WindowEngine 创建时使用（#120、#124）。
     static let screenshotEngineName = "screenshot"
     static let settingsEngineName = "settings"
+    static let permissionWizardEngineName = "permission-wizard"
+    static let historyEngineName = "history"
     /// permissionWizardFinishedKey 的平台约定；调用方共享同一协议或硬件定义。
     static let permissionWizardFinishedKey = "permissionWizardFinished"
     /// screenshotSaveDirectoryKey 的平台约定；调用方共享同一协议或硬件定义。

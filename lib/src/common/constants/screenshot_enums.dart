@@ -13,6 +13,12 @@ enum ScreenshotTool {
   ruler,
 }
 
+/// 截图对角缩放光标的原生协议轴；与 Swift AppConstants.resizeNorthWestSouthEast / resizeNorthEastSouthWest 一致（#124）。
+abstract final class ResizeCursorAxes {
+  static const northWestSouthEast = 'nwse';
+  static const northEastSouthWest = 'nesw';
+}
+
 /// 标注种类；裁剪不进入此枚举，撤销只覆盖这些标注。step 为步骤编号标记（#107）。
 enum AnnotationKind { rectangle, arrow, text, mask, stroke, step }
 

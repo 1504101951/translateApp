@@ -3,12 +3,10 @@ import 'package:flutter/services.dart';
 import '../constants/method_names.dart';
 
 /// macOS原生对角双向光标；Flutter macOS引擎未映射这两种系统光标。
-/// channel是当前截图引擎的通道，direction只接受下面两个轴常量。
+/// channel是当前截图引擎的通道，direction只接受 ResizeCursorAxes 的两个轴常量。
 class NativeResizeCursor extends MouseCursor {
   const NativeResizeCursor(this.direction, {required this.channel});
 
-  static const northWestSouthEast = 'nwse';
-  static const northEastSouthWest = 'nesw';
   final String direction;
   final MethodChannel channel;
 

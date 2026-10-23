@@ -7,13 +7,13 @@ import FlutterMacOS
 class AppDelegate: FlutterAppDelegate {
   private let settingsWindow = SettingsWindowController()
   private let permissionWizard = AuxiliaryWindowController(
-    engineName: "permission-wizard",
+    engineName: AppConstants.permissionWizardEngineName,
     entrypoint: AppConstants.permissionWizardEntrypoint,
     title: "TranslateApp 权限",
     size: NSSize(width: 480, height: 360)
   )
   private let historyWindow = AuxiliaryWindowController(
-    engineName: "history",
+    engineName: AppConstants.historyEngineName,
     entrypoint: AppConstants.historyEntrypoint,
     title: "翻译历史",
     size: NSSize(width: 520, height: 640)
