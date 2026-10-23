@@ -1,10 +1,10 @@
 import Foundation
 import AppKit
 
-/// 连续采集的公开阶段；原始值与Dart CapturePhase一致。
 /// 采集目标协议；rawValue与Dart CaptureTarget.name逐项对应。
 enum CaptureTarget: String { case region, application, display }
 
+/// 连续采集的公开阶段；原始值与Dart CapturePhase一致。
 enum CapturePhase: String {
     case idle, preparing, recording, pausing, paused, finalizing, videoReady, scrolling, imageReady, converting, failed
 }
