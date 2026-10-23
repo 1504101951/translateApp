@@ -5,27 +5,27 @@ import FlutterMacOS
 @main
 /// 应用启动协调器；持有主引擎、辅助窗口、浮层及选区监听，将AppKit生命周期连接到平台桥。
 class AppDelegate: FlutterAppDelegate {
-  private let settingsWindow = SettingsWindowController()
-  private let permissionWizard = AuxiliaryWindowController(
-    engineName: AppConstants.permissionWizardEngineName,
-    entrypoint: AppConstants.permissionWizardEntrypoint,
-    title: "TranslateApp 权限",
-    size: NSSize(width: 480, height: 360)
-  )
-  private let historyWindow = AuxiliaryWindowController(
-    engineName: AppConstants.historyEngineName,
-    entrypoint: AppConstants.historyEntrypoint,
-    title: "翻译历史",
-    size: NSSize(width: 520, height: 640)
-  )
-  private var launchedAtLogin = false
+    private let settingsWindow = SettingsWindowController()
+    private let permissionWizard = AuxiliaryWindowController(
+        engineName: AppConstants.permissionWizardEngineName,
+        entrypoint: AppConstants.permissionWizardEntrypoint,
+        title: "TranslateApp 权限",
+        size: NSSize(width: 480, height: 360)
+    )
+    private let historyWindow = AuxiliaryWindowController(
+        engineName: AppConstants.historyEngineName,
+        entrypoint: AppConstants.historyEntrypoint,
+        title: "翻译历史",
+        size: NSSize(width: 520, height: 640)
+    )
+    private var launchedAtLogin = false
 
-  /// notification 为应用启动通知；从系统 AppleEvent 识别登录项启动，无返回值。
-  override func applicationWillFinishLaunching(_ notification: Notification) {
-    let event = NSAppleEventManager.shared().currentAppleEvent
-    launchedAtLogin = event?.eventID == kAEOpenApplication &&
-      event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
-  }
+    /// notification 为应用启动通知；从系统 AppleEvent 识别登录项启动，无返回值。
+    override func applicationWillFinishLaunching(_ notification: Notification) {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        launchedAtLogin = event?.eventID == kAEOpenApplication &&
+            event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
     private var flutterViewController: FlutterViewController?
     private let overlay = OverlayPanelController()
     private let selectionMonitor = SelectionMonitor()
