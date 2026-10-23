@@ -130,6 +130,11 @@ Future<void> _delivered(LiveRegionSession session) async {
   }
 }
 
+/// session 为被测会话；返回当前盖层上按阅读顺序排列的译文，即原生盖层实际绘制的文字。
+List<Object?> _overlayTexts(LiveRegionSession session) => [
+  for (final overlay in session.view.overlays) overlay['text'],
+];
+
 /// generation 为代次，texts 为按阅读顺序排列的段落原文。返回每段各占一行矩形的 OCR 结果。
 LiveOcrSample _frame(int generation, List<String> texts) => LiveOcrSample(
   generation: generation,
@@ -196,7 +201,7 @@ void main() {
     ]);
     provider.complete(0, ['你好', '界']);
     await _delivered(session);
-    expect(session.view.translation, '你好\n世界');
+    expect(_overlayTexts(session), ['你好', '世界']);
     expect(session.view.status, '已完成');
     expect(session.view.overlays, hasLength(2));
     await session.onOcr(_frame(1, ['Hello', 'World']));
@@ -216,7 +221,7 @@ void main() {
     expect(provider.cancelled, isEmpty);
     provider.complete(0, ['甲', '乙']);
     await _delivered(session);
-    expect(session.view.translation, '甲');
+    expect(_overlayTexts(session), ['甲']);
     clock.elapse(const Duration(milliseconds: 399));
     await _delivered(session);
     expect(provider.requests, hasLength(1));
@@ -238,7 +243,6 @@ void main() {
     provider.controllers[0].add(const BatchItemUpdate(0, '甲'));
     provider.controllers[0].add(const BatchCompleted());
     await _delivered(session);
-    expect(session.view.translation, '');
     expect(session.view.overlays, isEmpty);
   });
 
@@ -254,10 +258,10 @@ void main() {
     provider.complete(0, ['甲', '乙']);
     await _delivered(session);
     await session.onOcr(_frame(1, ['B']));
-    expect(session.view.translation, '乙');
+    expect(_overlayTexts(session), ['乙']);
     expect(session.view.status, '已完成');
     await session.onOcr(_frame(1, ['A', 'B']));
-    expect(session.view.translation, '甲\n乙');
+    expect(_overlayTexts(session), ['甲', '乙']);
     clock.elapse(const Duration(seconds: 5));
     await _delivered(session);
     expect(provider.requests, hasLength(1));
@@ -485,7 +489,7 @@ void main() {
     clock.elapse(const Duration(seconds: 5));
     await _delivered(session);
     expect(provider.requests, hasLength(3));
-    expect(session.view.translation, '乙');
+    expect(_overlayTexts(session), ['乙']);
     expect(session.view.status, '模型拒绝');
   });
 
@@ -499,7 +503,7 @@ void main() {
     await session.onOcr(_frame(1, ['A', 'B']));
     provider.complete(0, ['甲', null]);
     await _delivered(session);
-    expect(session.view.translation, '甲');
+    expect(_overlayTexts(session), ['甲']);
     clock.elapse(_halfSecond);
     await _delivered(session);
     expect(provider.sent.last, ['B']);
@@ -525,17 +529,16 @@ void main() {
     clock.elapse(_halfSecond);
     await _delivered(session);
     expect(provider.sent.last, ['C']);
-    final paused = session.pause(2);
+    session.pause(2);
     await _delivered(session);
     expect(provider.cancelled, [1]);
-    expect(paused.phase, 'paused');
-    expect(paused.banner, '暂停快照');
-    expect(paused.overlays, isEmpty);
+    expect(session.view.phase, 'paused');
+    expect(session.view.overlays, isEmpty);
     await session.onOcr(_frame(2, ['D']));
     expect(provider.requests, hasLength(2));
     session.resume(3);
     await session.onOcr(_frame(3, ['A', 'C']));
-    expect(session.view.translation, '甲');
+    expect(_overlayTexts(session), ['甲']);
     clock.elapse(_halfSecond);
     await _delivered(session);
     expect(provider.sent.sublist(2), [
@@ -543,9 +546,9 @@ void main() {
     ]);
   });
 
-  test('结束保留最后结果并清空缓存，放弃和采集失效不保留译文', () async {
-    // 作用：三种终止方式的结果与缓存边界。
-    // 边界：结束后的新会话对同一段落重新请求，说明缓存不跨会话。
+  test('结束、放弃与采集失效都撤下盖层并清空缓存，采集失效显示原因', () async {
+    // 作用：三种终止方式的阶段、盖层与缓存边界。
+    // 边界：每次终止后的新会话对同一段落重新请求，说明缓存不跨会话；采集失效的原因写入状态。
     final clock = ManualClock();
     final provider = ScriptedProvider();
     final session = _session(provider, clock);
@@ -553,27 +556,25 @@ void main() {
     await session.onOcr(_frame(1, ['A']));
     provider.complete(0, ['甲']);
     await _delivered(session);
-    final ended = session.end(2);
-    expect(ended.phase, 'ended');
-    expect(ended.banner, '已结束');
-    expect(ended.translation, '甲');
-    expect(ended.overlays, isEmpty);
+    session.end(2);
+    expect(session.view.phase, 'ended');
+    expect(session.view.overlays, isEmpty);
     session.start(_settings(), 3);
     await session.onOcr(_frame(3, ['A']));
     expect(provider.requests, hasLength(2));
     provider.complete(1, ['甲']);
     await _delivered(session);
-    final discarded = session.discard(4);
-    expect(discarded.phase, 'discarded');
-    expect(discarded.translation, '');
+    session.discard(4);
+    expect(session.view.phase, 'discarded');
+    expect(session.view.overlays, isEmpty);
     session.start(_settings(), 5);
     await session.onOcr(_frame(5, ['A']));
     provider.complete(2, ['甲']);
     await _delivered(session);
-    final failed = session.captureUnavailable(6, '目标显示器已移除。');
-    expect(failed.phase, 'ended');
-    expect(failed.translation, '');
-    expect(failed.status, '目标显示器已移除。');
+    session.captureUnavailable(6, '目标显示器已移除。');
+    expect(session.view.phase, 'ended');
+    expect(session.view.overlays, isEmpty);
+    expect(session.view.status, '目标显示器已移除。');
   });
 
   test('修改设置不重译未变化的段落块，新出现的段落块使用新设置', () async {
@@ -596,7 +597,7 @@ void main() {
     await _delivered(session);
     expect(provider.sent.last, ['B']);
     expect(provider.models, ['m1', 'm2']);
-    expect(session.view.translation, '甲');
+    expect(_overlayTexts(session), ['甲']);
   });
 
   test('超过 50000 个字符的段落块只在本地提示，刚好 50000 仍发送', () async {
@@ -725,6 +726,7 @@ void main() {
     session.start(_settings(), 2);
     await session.onOcr(_frame(1, ['A']));
     expect(provider.requests, isEmpty);
-    expect(session.view.source, '');
+    // 被接收的画面会把状态改为「正在翻译」；仍为「正在识别」说明旧代次结果未进入会话。
+    expect(session.view.status, '正在识别');
   });
 }

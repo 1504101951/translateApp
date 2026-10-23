@@ -132,19 +132,24 @@ Future<void> main() async {
         final command = Map<Object?, Object?>.from(call.arguments as Map);
         final generation = command['generation'] as int;
         final action = command['action'] as String;
-        final current = settings.current;
-        return switch (action) {
-          'start' => live.start(current, generation).toMap(),
-          'pause' => live.pause(generation).toMap(),
-          'resume' => live.resume(generation).toMap(),
-          'end' => live.end(generation).toMap(),
-          'discard' => live.discard(generation).toMap(),
-          'captureFailed' =>
-            live
-                .captureUnavailable(generation, command['failure'] as String)
-                .toMap(),
-          _ => throw ArgumentError('未知实时翻译操作：$action'),
-        };
+        // 快照只经 publishLiveRegion 发给原生，命令回包不携带快照（#124）。
+        switch (action) {
+          case 'start':
+            live.start(settings.current, generation);
+          case 'pause':
+            live.pause(generation);
+          case 'resume':
+            live.resume(generation);
+          case 'end':
+            live.end(generation);
+          case 'discard':
+            live.discard(generation);
+          case 'captureFailed':
+            live.captureUnavailable(generation, command['failure'] as String);
+          default:
+            throw ArgumentError('未知实时翻译操作：$action');
+        }
+        return null;
       case MethodNames.liveRegionOcr:
         final sample = Map<Object?, Object?>.from(call.arguments as Map);
         final blocks = <LiveTextBlock>[
@@ -158,7 +163,7 @@ Future<void> main() async {
                 height: (item['height'] as num?)?.toDouble(),
               ),
         ];
-        final view = await live.onOcr(
+        await live.onOcr(
           LiveOcrSample(
             generation: sample['generation'] as int,
             text: sample['text'] as String?,
@@ -166,7 +171,7 @@ Future<void> main() async {
             blocks: blocks,
           ),
         );
-        return view.toMap();
+        return null;
       case MethodNames.translatePlainText:
         final map = Map<Object?, Object?>.from(call.arguments as Map);
         final captureId = map['id'] as String;
