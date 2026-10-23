@@ -10,7 +10,9 @@ class AppDelegate: FlutterAppDelegate {
         engineName: AppConstants.permissionWizardEngineName,
         entrypoint: AppConstants.permissionWizardEntrypoint,
         title: "TranslateApp 权限",
-        size: NSSize(width: 480, height: 360)
+        size: NSSize(width: 480, height: 360),
+        refreshMethod: AppConstants.permissionStatusChangedMethod,
+        refreshesOnFocus: true
     )
     private let historyWindow = AuxiliaryWindowController(
         engineName: AppConstants.historyEngineName,
@@ -79,7 +81,7 @@ class AppDelegate: FlutterAppDelegate {
 
     /// notification为激活通知；从系统设置返回后刷新权限状态。
     override func applicationDidBecomeActive(_ notification: Notification) {
-        permissionWizard.notifyPermissionStatusChanged()
+        permissionWizard.refresh()
     }
 
     /// sender为退出请求；已有采集结果先明确丢弃，等待原生资源清理后退出。

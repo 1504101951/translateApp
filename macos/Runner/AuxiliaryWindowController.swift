@@ -11,15 +11,19 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
     private let title: String
     private let size: NSSize
     private let refreshMethod: String?
+    private let refreshesOnFocus: Bool
 
     /// engineName/entrypoint 标识第二引擎；title/size 为窗口外观；
-    /// refreshMethod 为请 Dart 重新读取数据的方法名，重开已存在的窗口或调用 refresh() 时发送，为空表示不需要（#126）。
-    init(engineName: String, entrypoint: String, title: String, size: NSSize, refreshMethod: String? = nil) {
+    /// refreshMethod 为请 Dart 重新读取数据的方法名，重开已存在的窗口或调用 refresh() 时发送，为空表示不需要（#126）；
+    /// refreshesOnFocus 为真时窗口每次成为 key 也发送，供权限向导在用户点回时重读授权。
+    init(engineName: String, entrypoint: String, title: String, size: NSSize,
+         refreshMethod: String? = nil, refreshesOnFocus: Bool = false) {
         self.engineName = engineName
         self.entrypoint = entrypoint
         self.title = title
         self.size = size
         self.refreshMethod = refreshMethod
+        self.refreshesOnFocus = refreshesOnFocus
         super.init()
     }
 
@@ -55,14 +59,10 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
         channel?.invokeMethod(refreshMethod, arguments: nil)
     }
 
-    /// 无参数；通知 Dart 重新读取系统授权，用于从系统设置返回后刷新步骤。
-    func notifyPermissionStatusChanged() {
-        channel?.invokeMethod(AppConstants.permissionStatusChangedMethod, arguments: nil)
-    }
-
-    /// notification 为窗口成为 key；用户点回向导时补一次授权读取。
+    /// notification 为窗口成为 key；只有 refreshesOnFocus 的窗口（权限向导）在用户点回时刷新，无返回值。
     func windowDidBecomeKey(_ notification: Notification) {
-        notifyPermissionStatusChanged()
+        guard refreshesOnFocus else { return }
+        refresh()
     }
 
     /// 无参数；关闭窗口但不销毁引擎标记，下次 show 可重建。
