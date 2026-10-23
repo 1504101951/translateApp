@@ -105,8 +105,6 @@ enum AppConstants {
     static let appearanceLight = "light"
     static let appearanceDark = "dark"
     static let appearanceChangedNotification = Notification.Name("TranslateAppAppearanceChanged")
-    /// 打开历史窗口；平台方法名与Dart一致。
-    static let openHistoryMethod = "openHistory"
     /// settingsChannel 的平台约定；调用方共享同一协议或硬件定义。
     static let settingsChannel = "translateapp/settings"
     /// screenshotChannel 的平台约定；调用方共享同一协议或硬件定义。
@@ -159,16 +157,12 @@ enum AppConstants {
     static let badArgsError = "bad_args"
     /// bad_settings 协议值；与Dart常量及持久化调用方同步。
     static let badSettingsError = "bad_settings"
-    /// captureRegion 协议值；与Dart常量及持久化调用方同步。
-    static let captureRegionMethod = "captureRegion"
     /// chooseExcludedApp 协议值；与Dart常量及持久化调用方同步。
     static let chooseExcludedAppMethod = "chooseExcludedApp"
     /// chooseScreenshotDirectory 协议值；与Dart常量及持久化调用方同步。
     static let chooseScreenshotDirectoryMethod = "chooseScreenshotDirectory"
     /// closePermissionWizard 协议值；与Dart常量及持久化调用方同步。
     static let closePermissionWizardMethod = "closePermissionWizard"
-    /// closePin 协议值；与Dart常量及持久化调用方同步。
-    static let closePinMethod = "closePin"
     /// closeScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let closeScreenshotMethod = "closeScreenshot"
     /// copyScreenshot 协议值；与Dart常量及持久化调用方同步。
@@ -239,8 +233,6 @@ enum AppConstants {
     static let pinScreenshotMethod = "pinScreenshot"
     /// preferences 协议值；与Dart常量及持久化调用方同步。
     static let preferencesKey = "preferences"
-    /// probeEmitSelection 协议值；与Dart常量及持久化调用方同步。
-    static let probeEmitSelectionMethod = "probeEmitSelection"
     /// readCredentials 协议值；与Dart常量及持久化调用方同步。
     static let readCredentialsMethod = "readCredentials"
     /// readSelectionForTranslation 协议值；与Dart常量及持久化调用方同步。
@@ -255,8 +247,6 @@ enum AppConstants {
     static let redoPressedMethod = "redoPressed"
     /// refreshSettings 协议值；与Dart常量及持久化调用方同步。
     static let refreshSettingsMethod = "refreshSettings"
-    /// requestAccessibility 协议值；与Dart常量及持久化调用方同步。
-    static let requestAccessibilityMethod = "requestAccessibility"
     /// requestScreenAccess 协议值；与Dart常量及持久化调用方同步。
     static let requestScreenAccessMethod = "requestScreenAccess"
     /// retainOverlay 协议值；与Dart常量及持久化调用方同步。

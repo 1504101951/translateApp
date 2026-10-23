@@ -114,11 +114,6 @@ class MacosPlatformBridge implements SettingsPlatform {
   Future<void> stopSpeech() =>
       _methods.invokeMethod<void>(MethodNames.stopSpeech);
 
-  /// 让 Swift 上报一条探测用选区事件，验证通道而不是实现 #2。
-  Future<void> probeEmitSelection() {
-    return _methods.invokeMethod<void>(MethodNames.probeEmitSelection);
-  }
-
   /// 无参数；返回 UserDefaults 偏好及 macOS 首选语言。
   Future<Map<Object?, Object?>> loadSettings() async => (await _methods
       .invokeMapMethod<Object?, Object?>(MethodNames.loadSettings))!;

@@ -45,9 +45,6 @@ abstract final class MethodNames {
   static const screenshotToolbarChanged = 'screenshotToolbarChanged';
   static const screenshotToolbarAction = 'screenshotToolbarAction';
 
-  /// 打开独立历史窗口的系统操作。
-  static const openHistory = 'openHistory';
-
   /// appReady 的稳定协议值，变更须同步两端及持久化调用方。
   static const appReady = 'appReady';
 
@@ -60,9 +57,6 @@ abstract final class MethodNames {
   /// applySettings 的稳定协议值，变更须同步两端及持久化调用方。
   static const applySettings = 'applySettings';
 
-  /// captureRegion 的稳定协议值，变更须同步两端及持久化调用方。
-  static const captureRegion = 'captureRegion';
-
   /// chooseExcludedApp 的稳定协议值，变更须同步两端及持久化调用方。
   static const chooseExcludedApp = 'chooseExcludedApp';
 
@@ -71,9 +65,6 @@ abstract final class MethodNames {
 
   /// closePermissionWizard 的稳定协议值，变更须同步两端及持久化调用方。
   static const closePermissionWizard = 'closePermissionWizard';
-
-  /// closePin 的稳定协议值，变更须同步两端及持久化调用方。
-  static const closePin = 'closePin';
 
   /// closeScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const closeScreenshot = 'closeScreenshot';
@@ -144,9 +135,6 @@ abstract final class MethodNames {
   /// pinScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const pinScreenshot = 'pinScreenshot';
 
-  /// probeEmitSelection 的稳定协议值，变更须同步两端及持久化调用方。
-  static const probeEmitSelection = 'probeEmitSelection';
-
   /// readCredentials 的稳定协议值，变更须同步两端及持久化调用方。
   static const readCredentials = 'readCredentials';
 
@@ -170,9 +158,6 @@ abstract final class MethodNames {
 
   /// refreshSettings 的稳定协议值，变更须同步两端及持久化调用方。
   static const refreshSettings = 'refreshSettings';
-
-  /// requestAccessibility 的稳定协议值，变更须同步两端及持久化调用方。
-  static const requestAccessibility = 'requestAccessibility';
 
   /// requestScreenAccess 的稳定协议值，变更须同步两端及持久化调用方。
   static const requestScreenAccess = 'requestScreenAccess';

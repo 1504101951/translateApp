@@ -1088,7 +1088,8 @@ class RunnerTests: XCTestCase {
 
         let second = pins.pin(png: png, origin: NSPoint(x: 200, y: 220))
         XCTAssertEqual(pins.count, 2)
-        pins.close(pinId: pinId)
+        // 关闭贴图窗口本身即用户关闭路径，只移除这一张贴图。
+        panel.close()
         XCTAssertFalse(pins.isVisible(pinId: pinId))
         XCTAssertTrue(pins.isVisible(pinId: second))
         XCTAssertEqual(pins.count, 1)

@@ -56,7 +56,6 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     }
     private var pendingAppReady = false
     var closePermissionWizard: (() -> Void)?
-    var showHistory: (() -> Void)?
     var shortcutRecorder: ((UInt32, UInt32) -> Void)?
     private var currentSessionId: String?
     private var sourceProcessIdentifier: pid_t?
@@ -447,9 +446,6 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 self.live.publish(state)
                 result(nil)
             }
-        case AppConstants.openHistoryMethod:
-            showHistory?()
-            result(nil)
         case AppConstants.requestScreenAccessMethod:
             Task { @MainActor in
                 let granted = await ScreenCaptureService.requestAccess(promoteToRegularApp: true)
@@ -494,11 +490,6 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
                 pendingAppReady = true
             }
             result(nil)
-        case AppConstants.probeEmitSelectionMethod:
-            emitProbeSelection()
-            result(nil)
-        case AppConstants.requestAccessibilityMethod:
-            result(AccessibilitySelection.isTrusted(prompt: true))
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -671,16 +662,6 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             "x": x,
             "y": y,
         ])
-    }
-
-    /// 无参数；发送固定文本的探测选区，无返回值。
-    func emitProbeSelection() {
-        let mouse = NSEvent.mouseLocation
-        let source = NSWorkspace.shared.frontmostApplication ?? NSRunningApplication.current
-        // 探测与真实事件使用相同的会话生命周期。
-        emitSelectionCaptured(text: "probe", gesture: SelectionGesture.drag.rawValue, x: mouse.x, y: mouse.y,
-                              sourcePID: source.processIdentifier,
-                              sourceAppName: source.localizedName)
     }
 
     /// processIdentifier 为新前台进程；离开来源时只结束未展开的按钮，无返回值。

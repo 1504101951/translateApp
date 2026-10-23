@@ -52,7 +52,6 @@ class AppDelegate: FlutterAppDelegate {
         StatusBarController.shared.showHistory = { [weak self] in self?.historyWindow.show() }
         StatusBarController.shared.install()
         bridge.closePermissionWizard = { [weak self] in self?.permissionWizard.close() }
-        bridge.showHistory = { [weak self] in self?.historyWindow.show() }
         bridge.onReady = { [weak self] in
             let access = AccessibilitySelection.isTrusted(prompt: false)
             let screen = ScreenCaptureService.isAuthorized()

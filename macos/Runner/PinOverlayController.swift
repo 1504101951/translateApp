@@ -18,12 +18,6 @@ final class PinOverlayController {
         return id
     }
 
-    /// pinId 为目标贴图；只关闭该贴图，不清理剪贴板或已保存文件。
-    func close(pinId: String) {
-        pins[pinId]?.close()
-        pins.removeValue(forKey: pinId)
-    }
-
     /// 无参数；关闭全部贴图，供应用退出时释放窗口。
     func closeAll() {
         // 先取出快照再清空，避免 close 回调在遍历时修改字典。

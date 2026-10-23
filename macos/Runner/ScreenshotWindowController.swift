@@ -511,8 +511,6 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 arguments: ["text": text, "id": id],
                 result: result
             )
-        case AppConstants.captureRegionMethod:
-            capture(); result(nil)
         case AppConstants.closeScreenshotMethod:
             window?.close(); result(nil)
         case AppConstants.requestScreenAccessMethod:
@@ -585,11 +583,6 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 return
             }
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-            result(nil)
-        case AppConstants.closePinMethod:
-            if let pinId = args["id"] as? String {
-                pins.close(pinId: pinId)
-            }
             result(nil)
         default:
             result(FlutterMethodNotImplemented)
