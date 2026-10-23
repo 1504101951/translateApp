@@ -745,9 +745,11 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                             if hint != nil { lastHint = clock.now }
                             let shown = hint
                             var preview: ScrollStitcher.Preview?
-                            if stitcher.acceptedFrames != previewFrames || (unmatched != nil) != previewMarked {
+                            // 自动滚动接不上时由 App 退回重试，缩略图不标回滚红框；改为手动后才标出（#112）。
+                            let marked = unmatched != nil && !driving
+                            if stitcher.acceptedFrames != previewFrames || marked != previewMarked {
                                 previewFrames = stitcher.acceptedFrames
-                                previewMarked = unmatched != nil
+                                previewMarked = marked
                                 // 缩略图图像宽152pt、最大高240pt，按选区所在屏倍率换成像素；不放大小选区。
                                 preview = stitcher.preview(
                                     width: Int(((AppConstants.scrollPreviewWidth - AppConstants.scrollPreviewInset * 2) * pointScale).rounded()),
@@ -779,18 +781,28 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                                     action = (target.value ?? 0) >= 0.999 ? .bottom : plan.start(now: clock.now)
                                 } else {
                                     await self.endAutoScroll(token: token, hint: trusted
-                                        ? "该区域无法自动滚动，已改为手动滚动" : "自动滚动需要辅助功能权限，已改为手动滚动")
+                                        ? MediaCaptureService.unsupportedScrollHint : "自动滚动需要辅助功能权限，已改为手动滚动")
                                 }
                             }
                             switch action {
                             case .wait:
                                 break
                             case .scroll(let step):
-                                // 记住本步之前的位置供退回，再写入新的滚动条值。
+                                // 记住本步之前的位置供退回，再写入新的滚动条值；读取或写入失败按不支持处理，
+                                // 避免画面不动被误判为到底（#112）。
                                 previousValue = target?.value
-                                if let target, let previousValue { target.set(previousValue + step) }
+                                guard let target, let previousValue, target.set(previousValue + step) else {
+                                    driving = false
+                                    await self.endAutoScroll(token: token, hint: MediaCaptureService.unsupportedScrollHint)
+                                    break
+                                }
                             case .rewind:
-                                if let target, let previousValue { target.set(previousValue) }
+                                // 退回失败同样按不支持处理（#112）。
+                                guard let target, let previousValue, target.set(previousValue) else {
+                                    driving = false
+                                    await self.endAutoScroll(token: token, hint: MediaCaptureService.unsupportedScrollHint)
+                                    break
+                                }
                             case .bottom:
                                 driving = false
                                 await MainActor.run {
@@ -799,7 +811,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
                                 }
                             case .unsupported:
                                 driving = false
-                                await self.endAutoScroll(token: token, hint: "该区域无法自动滚动，已改为手动滚动")
+                                await self.endAutoScroll(token: token, hint: MediaCaptureService.unsupportedScrollHint)
                             }
                         }
                         if clock.now < nextCapture { try await clock.sleep(until: nextCapture) }
@@ -849,6 +861,9 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         scrollHintSerial += 1
         update(target ?? phase, ["hint": text, "hintIsError": isError, "hintSerial": scrollHintSerial])
     }
+
+    /// 来源不支持自动滚动（没有可设置的滚动条、读写滚动条失败或首步不移动）时的提示（#112）。
+    private static let unsupportedScrollHint = "该区域无法自动滚动，已改为手动滚动"
 
     /// token为会话身份，hint为改为手动的原因；本次会话改为手动滚动并显示错误提示，移除接管监听，无返回值（#112）。
     private func endAutoScroll(token: String, hint: String) {

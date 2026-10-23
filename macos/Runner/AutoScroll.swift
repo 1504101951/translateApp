@@ -136,7 +136,6 @@ final class AutoScrollTarget {
     var value: Double? { (Self.attribute(bar, kAXValueAttribute) as? NSNumber)?.doubleValue }
 
     /// value为目标值，截到 0–1；写入滚动条，返回是否成功。
-    @discardableResult
     func set(_ value: Double) -> Bool {
         AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: min(1, max(0, value)))) == .success
     }
