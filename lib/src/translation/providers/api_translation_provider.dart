@@ -627,6 +627,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
 
   /// data 为百度响应。返回按原文行顺序排列的译文；服务返回错误码时抛失败。
   /// 52001（超时）与 52002（系统错误）属于临时错误，54003（访问频率受限）稍后重试，
+  /// 54005（长文本请求频繁）按文档「3s后再试」等待 3 秒后重试，
   /// 54004（账户余额不足）与其余错误码为服务级明确错误（#118）。
   List<String> _baiduTranslations(Map data) {
     final code = data['error_code']?.toString();
@@ -639,6 +640,11 @@ class ApiTranslationProvider implements BatchTranslationProvider {
         '54003' => const _ApiFailure(
           _rateLimitMessage,
           kind: TranslationFailureKind.rateLimited,
+        ),
+        '54005' => const _ApiFailure(
+          _rateLimitMessage,
+          kind: TranslationFailureKind.rateLimited,
+          retryAfter: Duration(seconds: 3),
         ),
         '54004' => const _ApiFailure(
           _quotaMessage,

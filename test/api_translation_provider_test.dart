@@ -609,36 +609,48 @@ void main() {
     await serving;
   });
 
-  test('百度错误码：54003 频率受限可重试，54004 余额不足停止（#118）', () async {
-    // 边界：两种错误码都以 HTTP 200 的 JSON 返回；54003 为频率受限，54004 为服务级额度不足。
+  test('百度错误码：54003、54005 频率受限可重试，54004 余额不足停止（#118）', () async {
+    // 边界：三种错误码都以 HTTP 200 的 JSON 返回；54003 为频率受限且不带等待，
+    // 54005 为长文本请求频繁，按文档「3s后再试」带 3 秒等待；54004 为服务级额度不足。
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
     final client = HttpClient();
     addTearDown(() => client.close(force: true));
+    const codes = ['54003', '54005', '54004'];
     final serving = () async {
       var count = 0;
       await for (final incoming in server) {
         await incoming.drain<void>();
         incoming.response.headers.contentType = ContentType.json;
         incoming.response.write(
-          '{"error_code":"${count == 0 ? '54003' : '54004'}","error_msg":"secret"}',
+          '{"error_code":"${codes[count]}","error_msg":"secret"}',
         );
         await incoming.response.close();
-        if (++count == 2) break;
+        if (++count == codes.length) break;
       }
     }();
     final failures = [
-      for (var i = 0; i < 2; i++)
+      for (var i = 0; i < codes.length; i++)
         (await provider(
               'baidu',
               server,
             ).translateBatch(batch, client: client).toList()).last
             as BatchFailure,
     ];
-    expect(failures.map((failure) => (failure.kind, failure.message)), [
-      (TranslationFailureKind.rateLimited, '请求过于频繁，请稍后重试。'),
-      (TranslationFailureKind.service, '额度或余额不足，请检查服务账户。'),
-    ]);
+    expect(
+      failures.map(
+        (failure) => (failure.kind, failure.message, failure.retryAfter),
+      ),
+      [
+        (TranslationFailureKind.rateLimited, '请求过于频繁，请稍后重试。', null),
+        (
+          TranslationFailureKind.rateLimited,
+          '请求过于频繁，请稍后重试。',
+          const Duration(seconds: 3),
+        ),
+        (TranslationFailureKind.service, '额度或余额不足，请检查服务账户。', null),
+      ],
+    );
     await serving;
   });
 
