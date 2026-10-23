@@ -44,7 +44,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
     if (mode != TextMode.translate) return _translate(request);
     // 语义模型需要整篇上下文，整片发送并校验配对。
     if (config.isModel && config.semanticPairs) {
-      return translateParagraphs(_translate, request, keepWholeSource: true);
+      return translateParagraphs(_translate, request);
     }
     // 其他服务按原文段落建立一一对应，分批调用批量接口（#113）。
     final (:items, :chars) = switch (config.kind) {

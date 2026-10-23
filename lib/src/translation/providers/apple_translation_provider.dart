@@ -44,11 +44,7 @@ class AppleTranslationProvider implements BatchTranslationProvider {
   @override
   Stream<TranslationEvent> translate(TranslationRequest request) {
     // translateParagraphs 处理原文已是目标语言的直通与取消传播；其余整片交给 _translateSegment 一次翻译。
-    return translateParagraphs(
-      _translateSegment,
-      request,
-      keepWholeSource: true,
-    );
+    return translateParagraphs(_translateSegment, request);
   }
 
   /// request 为整片原文；按非空段落批量翻译，返回整片译文更新与带原文分隔符的配对。

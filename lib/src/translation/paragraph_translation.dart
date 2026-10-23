@@ -4,12 +4,12 @@ import 'dart:io';
 import 'language_direction.dart';
 import 'translation_types.dart';
 
-/// translate 处理一次服务请求；request 提供文本与方向，keepWholeSource 保留模型语义上下文；返回可取消的配对译文流。
+/// translate 处理一次服务请求；request 提供文本与方向；返回可取消的配对译文流。
+/// 不同语言时整片作为一次请求，保留模型语义上下文；已是目标语言时按行直通原文，不发请求。
 Stream<TranslationEvent> translateParagraphs(
   Stream<TranslationEvent> Function(TranslationRequest request) translate,
-  TranslationRequest request, {
-  bool keepWholeSource = false,
-}) {
+  TranslationRequest request,
+) {
   StreamIterator<TranslationEvent>? current;
   var cancelled = false;
   late StreamController<TranslationEvent> output;
@@ -27,10 +27,8 @@ Stream<TranslationEvent> translateParagraphs(
           LanguageDirection.normalize(request.targetLanguage);
       var end = 0;
       try {
-        // 普通接口没有对齐信息；以原文段落作为请求边界，不按译文句数猜配对。
-        final pattern = keepWholeSource && !sameLanguage
-            ? r'[\s\S]+'
-            : r'[^\r\n]+';
+        // 不同语言整片发送；已是目标语言时按行直通，空白行留在分隔符里。
+        final pattern = sameLanguage ? r'[^\r\n]+' : r'[\s\S]+';
         for (final match in RegExp(pattern).allMatches(source)) {
           if (cancelled) return;
           final paragraph = match.group(0)!;

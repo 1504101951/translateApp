@@ -200,7 +200,6 @@ void main() {
           detectedLanguage: 'en',
           targetLanguage: 'zh-CN',
         ),
-        keepWholeSource: true,
       ).toList();
       expect(
         (events.last as TranslationCompleted).pairs.map((e) => e.source).join(),
@@ -209,27 +208,21 @@ void main() {
       expect((events.last as TranslationCompleted).pairs, hasLength(2));
     },
   );
-  test('keeps paragraph gaps and validated semantic subdivisions', () async {
-    // CRLF、空段和末尾换行都必须保留；一段可含两组语义对照，另一段没有模型配对。
+  test('整片请求保留 CRLF、空段与末尾换行，服务未给配对时整片作为一组对照', () async {
+    // 作用：不同语言时原文整片交给服务一次请求，换行与空段原样进入请求。
+    // 边界：原文含 CRLF、空段和末尾换行；只有完整原文能命中替身，按段请求会直接失败；
+    // 服务完成时没有配对，结果为覆盖完整原文的一组对照。
+    const source = 'First one. First two.\r\n\r\nSecond.\n';
     final events = await translateParagraphs(
       _Provider({
-        'First one. First two.': Stream.fromIterable([
-          const TranslationUpdate('第一句。'),
-          const TranslationUpdate('第二句。'),
-          const TranslationCompleted(
-            pairs: [
-              TranslationPair('First one. ', '第一句。'),
-              TranslationPair('First two.', '第二句。'),
-            ],
-          ),
-        ]),
-        'Second.': Stream.fromIterable([
-          const TranslationUpdate('第二段。'),
+        source: Stream.fromIterable([
+          const TranslationUpdate('第一句。第二句。\r\n\r\n'),
+          const TranslationUpdate('第二段。\n'),
           const TranslationCompleted(),
         ]),
       }).translate,
       const TranslationRequest(
-        sourceText: 'First one. First two.\r\n\r\nSecond.\n',
+        sourceText: source,
         detectedLanguage: 'en',
         targetLanguage: 'zh-CN',
       ),
@@ -239,25 +232,23 @@ void main() {
       '第一句。第二句。\r\n\r\n第二段。\n',
     );
     final pairs = (events.last as TranslationCompleted).pairs;
-    expect(
-      pairs.map((e) => e.source).join(),
-      'First one. First two.\r\n\r\nSecond.\n',
-    );
-    expect(pairs.map((e) => e.translation), ['第一句。', '第二句。', '\r\n\r\n第二段。\n']);
+    expect(pairs.map((e) => (e.source, e.translation)), [
+      (source, '第一句。第二句。\r\n\r\n第二段。\n'),
+    ]);
   });
 
-  test('failure ends the translation before later paragraphs', () async {
-    // 第二段失败后不能翻译第三段，也不能把部分结果标为完成。
+  test('整片请求先给出部分译文后失败时以失败结束，不标记完成', () async {
+    // 作用：服务中途失败不能把已收到的部分译文升级为完成。
+    // 边界：失败前已有一条增量；结果只有增量与失败，没有完成事件。
     final events = await translateParagraphs(
       _Provider({
-        'First.': Stream.fromIterable([
+        'First.\nSecond.': Stream.fromIterable([
           const TranslationUpdate('第一段。'),
-          const TranslationCompleted(),
+          const TranslationFailure('服务不可用'),
         ]),
-        'Second.': Stream.value(const TranslationFailure('服务不可用')),
       }).translate,
       const TranslationRequest(
-        sourceText: 'First.\nSecond.\nThird.',
+        sourceText: 'First.\nSecond.',
         targetLanguage: 'zh-CN',
       ),
     ).toList();
@@ -265,7 +256,7 @@ void main() {
     expect(events.whereType<TranslationCompleted>(), isEmpty);
     expect(
       events.whereType<TranslationUpdate>().map((e) => e.addition).join(),
-      '第一段。\n',
+      '第一段。',
     );
   });
 
@@ -288,15 +279,15 @@ void main() {
   });
 
   test(
-    'cancellation stops the current stream and remaining paragraphs',
+    'cancellation stops the in-flight request without waiting for it',
     () async {
-      // 第一段尚未完成时取消；不得等待后续网络事件或执行下一段。
+      // 整片请求尚未完成时取消；不得等待后续网络事件。
       final pending = StreamController<TranslationEvent>();
       final received = Completer<void>();
       final output = <TranslationEvent>[];
       final subscription =
           translateParagraphs(
-            _Provider({'First.': pending.stream}).translate,
+            _Provider({'First.\nSecond.': pending.stream}).translate,
             const TranslationRequest(
               sourceText: 'First.\nSecond.',
               targetLanguage: 'zh-CN',
