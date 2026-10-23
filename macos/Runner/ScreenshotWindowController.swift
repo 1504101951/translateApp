@@ -74,6 +74,9 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     private var selectedScale: CGFloat = 1
     private var png: Data?
     private var captureId: String?
+    /// 截图已关闭或被替换时回给 Dart 的错误；所有按截图身份校验的方法共用同一文案（#124）。
+    private static let staleCaptureFailure = FlutterError(
+        code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil)
     private var capturedAt: Int64 = 0
     private var pixels = NSSize.zero
     private var displayFrame = NSRect(x: 0, y: 0, width: 1280, height: 800)
@@ -398,7 +401,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             result(snapshot())
         case AppConstants.recognizeBlocksMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                result(Self.staleCaptureFailure)
                 return
             }
             let payload: Data
@@ -407,7 +410,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             } else if let png {
                 payload = png
             } else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                result(Self.staleCaptureFailure)
                 return
             }
             // recognizeBlocks 是同步的 Vision 调用，放到后台任务执行，识别期间主线程不阻塞（#115）。
@@ -416,7 +419,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                     let blocks = try await Task.detached { try ScreenCaptureService.recognizeBlocks(png: payload) }.value
                     // 识别期间截图可能被关闭或替换，迟到结果按过期处理。
                     guard id == self.captureId else {
-                        result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                        result(Self.staleCaptureFailure)
                         return
                     }
                     result(blocks)
@@ -426,7 +429,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             }
         case AppConstants.recognizeTextMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                result(Self.staleCaptureFailure)
                 return
             }
             let payload: Data
@@ -435,7 +438,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             } else if let png {
                 payload = png
             } else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                result(Self.staleCaptureFailure)
                 return
             }
             // recognizeText 输出 OCR Markdown，detectCodes 输出二维码与条码；Vision 均为异步接口（#108）。
@@ -450,7 +453,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             }
         case AppConstants.openLinkMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                result(Self.staleCaptureFailure)
                 return
             }
             // ScreenshotLink 只放行 http/https；其他协议即使来自识别结果也不打开（#108）。
@@ -470,7 +473,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             result(nil)
         case AppConstants.rememberScreenshotRegionMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
+                result(Self.staleCaptureFailure); return
             }
             guard let x = (args["x"] as? NSNumber)?.doubleValue, let y = (args["y"] as? NSNumber)?.doubleValue,
                   let width = (args["width"] as? NSNumber)?.doubleValue,
@@ -485,7 +488,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             result(nil)
         case AppConstants.recordScreenshotHistoryMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
+                result(Self.staleCaptureFailure); return
             }
             // 主 Dart 引擎持有历史数据库，按开关决定是否写入。
             MacPlatformBridge.Shared.instance?.requestApplication(
@@ -493,13 +496,13 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             )
         case AppConstants.uploadTargetMethod, AppConstants.uploadScreenshotMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
+                result(Self.staleCaptureFailure); return
             }
             // 主 Dart 引擎持有上传设置与钥匙串凭据，签名并上传后返回分享链接（#111）。
             MacPlatformBridge.Shared.instance?.requestApplication(call.method, arguments: args, result: result)
         case AppConstants.translatePlainTextMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换。", details: nil)); return
+                result(Self.staleCaptureFailure); return
             }
             guard let text = args["text"] as? String, !text.isEmpty else {
                 result(FlutterError(code: AppConstants.ocrEmptyError, message: "没有可翻译的文字。", details: nil))
@@ -523,11 +526,11 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             }
         case AppConstants.copyScreenshotMethod, AppConstants.saveScreenshotMethod, AppConstants.pinScreenshotMethod:
             guard let id = args["id"] as? String, id == captureId else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                result(Self.staleCaptureFailure)
                 return
             }
             guard let typed = args["bytes"] as? FlutterStandardTypedData else {
-                result(FlutterError(code: AppConstants.staleCaptureError, message: "截图已关闭或被替换，请重新截图。", details: nil))
+                result(Self.staleCaptureFailure)
                 return
             }
             let payload = typed.data

@@ -7,6 +7,9 @@ import '../translation/language_direction.dart';
 import '../translation/segmented_translation.dart';
 import '../translation/translation_types.dart';
 
+/// 截图已关闭或被替换时的提示，与原生截图窗口的过期错误同一文案（#124）。
+const _staleCaptureMessage = '截图已关闭或被替换，请重新截图。';
+
 /// text 为 OCR 原文，provider/language 为启动时配置，detectLanguage 使用本地识别，
 /// isCurrent 核对截图生命周期，history 管理持久化；返回完整译文，失败或取消不写记录。
 Future<String> translateScreenshotText({
@@ -26,7 +29,7 @@ Future<String> translateScreenshotText({
   if (!await isCurrent()) {
     throw PlatformException(
       code: ErrorCodes.staleCapture,
-      message: '截图已关闭或被替换。',
+      message: _staleCaptureMessage,
     );
   }
   // 使用启动时冻结的语言方向，避免请求期间设置更新污染历史元数据。
@@ -65,7 +68,7 @@ Future<String> translateScreenshotText({
   if (!await isCurrent()) {
     throw PlatformException(
       code: ErrorCodes.staleCapture,
-      message: '截图已关闭或被替换。',
+      message: _staleCaptureMessage,
     );
   }
   final translated = buffer.toString();
