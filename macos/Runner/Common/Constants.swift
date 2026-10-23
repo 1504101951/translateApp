@@ -9,6 +9,12 @@ enum CapturePhase: String {
     case idle, preparing, recording, pausing, paused, finalizing, videoReady, scrolling, imageReady, converting, failed
 }
 
+/// 实时翻译会话阶段；rawValue 与 Dart LiveRegionPhase.name 逐项对应（#127）。
+enum LiveRegionPhase: String { case idle, running, paused, ended, discarded }
+
+/// 发给主引擎的实时翻译命令；rawValue 与 Dart LiveRegionAction.name 逐项对应（#127）。
+enum LiveRegionAction: String { case start, pause, resume, end, discard, captureFailed }
+
 /// 录制结果的导出类型；rawValue 是 converting 阶段 exporting 详情值与保存分类，与Dart RecordingExport.name逐项对应（#110）。
 enum RecordingExport: String {
     case mp4, gif, apng, webm

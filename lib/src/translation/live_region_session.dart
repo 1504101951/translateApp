@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:characters/characters.dart';
 
+import '../common/constants/live_region.dart';
 import '../common/constants/text_limits.dart';
 import '../settings/app_settings.dart';
 import 'language_direction.dart';
@@ -114,7 +115,7 @@ class LiveOcrSample {
 
 /// 原生盖层与悬浮条绘制所用的业务快照。不含密钥、凭据或调度中间态。
 class LiveRegionView {
-  /// phase 为 idle/running/paused/ended/discarded；status 为悬浮条显示的进度或原因；
+  /// phase 为会话阶段；status 为悬浮条显示的进度或原因；
   /// overlays 为盖层译文，metrics 为批次计时；均为原生盖层与悬浮条读取的字段（#124）。
   const LiveRegionView({
     required this.phase,
@@ -123,9 +124,9 @@ class LiveRegionView {
     this.metrics = const [],
   });
 
-  static const idle = LiveRegionView(phase: 'idle', status: '');
+  static const idle = LiveRegionView(phase: LiveRegionPhase.idle, status: '');
 
-  final String phase;
+  final LiveRegionPhase phase;
   final String status;
 
   /// 只包含已经能归属到段落块的译文。坐标为屏幕点。
@@ -139,7 +140,7 @@ class LiveRegionView {
 
   /// 无参数；返回可跨引擎传递的快照，不包含服务密钥。
   Map<String, Object?> toMap() => {
-    'phase': phase,
+    'phase': phase.name,
     'status': status,
     'overlays': overlays,
     'metrics': metrics,
@@ -218,7 +219,7 @@ class LiveRegionSession {
   // 键为段落原文，顺序即当前画面的阅读顺序。
   var _paragraphs = <String, _Paragraph>{};
   var _generation = 0;
-  var _phase = 'idle';
+  var _phase = LiveRegionPhase.idle;
   // 画面没有段落块时显示的状态：正在识别、未识别到文字或识别错误。
   var _notice = '';
   // 服务级明确错误的提示；非空时本次会话不再发送批次。
@@ -240,7 +241,7 @@ class LiveRegionSession {
   /// settings 为开始时的当前偏好，generation 为捕获代次。
   /// 建立空的运行快照并发布，无返回值。不继承上一次的文字、译文、缓存或计时。
   void start(AppSettings settings, int generation) {
-    if (generation <= _generation && _phase != 'idle') return;
+    if (generation <= _generation && _phase != LiveRegionPhase.idle) return;
     // 新会话不再等待上一次取消；旧完成回调不能减少这次的进行计数。
     _epoch += 1;
     _pending = 0;
@@ -252,7 +253,7 @@ class LiveRegionSession {
     _release();
     _client = HttpClient();
     _generation = generation;
-    _phase = 'running';
+    _phase = LiveRegionPhase.running;
     _latestSettings = settings;
     _paragraphs = {};
     _firstNonEmpty = true;
@@ -267,40 +268,40 @@ class LiveRegionSession {
 
   /// generation 为暂停后的新代次。停止发送并保留当前内容与缓存，发布暂停快照，无返回值。
   void pause(int generation) {
-    if (_phase != 'running' || generation <= _generation) return;
+    if (_phase != LiveRegionPhase.running || generation <= _generation) return;
     _generation = generation;
     clock.cancelSchedule();
-    _phase = 'paused';
+    _phase = LiveRegionPhase.paused;
     _cancelAll();
     _publish();
   }
 
   /// generation 为恢复后的新代次。沿用同一会话的缓存和请求间隔，发布运行快照，无返回值。
   void resume(int generation) {
-    if (_phase != 'paused' || generation <= _generation) return;
+    if (_phase != LiveRegionPhase.paused || generation <= _generation) return;
     _generation = generation;
-    _phase = 'running';
+    _phase = LiveRegionPhase.running;
     _publish();
   }
 
   /// generation 为结束后的新代次。停止工作并清空缓存，发布结束快照，无返回值。
   void end(int generation) {
-    if (_phase == 'idle' ||
-        _phase == 'discarded' ||
+    if (_phase == LiveRegionPhase.idle ||
+        _phase == LiveRegionPhase.discarded ||
         generation <= _generation) {
       return;
     }
     _generation = generation;
-    _phase = 'ended';
+    _phase = LiveRegionPhase.ended;
     _release();
     _publish();
   }
 
   /// generation 为放弃后的新代次。清空本次内容与缓存，发布 discarded 快照，无返回值。
   void discard(int generation) {
-    if (generation <= _generation && _phase != 'idle') return;
+    if (generation <= _generation && _phase != LiveRegionPhase.idle) return;
     _generation = generation;
-    _phase = 'discarded';
+    _phase = LiveRegionPhase.discarded;
     _paragraphs = {};
     _notice = '';
     _halt = null;
@@ -312,10 +313,12 @@ class LiveRegionSession {
   /// generation 为失效后的新代次，message 为用户可读原因。
   /// 清空原文和译文，避免旧结果继续显示为当前译文；发布结束快照，无返回值。
   void captureUnavailable(int generation, String message) {
-    if (_phase != 'running' && _phase != 'paused') return;
+    if (_phase != LiveRegionPhase.running && _phase != LiveRegionPhase.paused) {
+      return;
+    }
     if (generation <= _generation) return;
     _generation = generation;
-    _phase = 'ended';
+    _phase = LiveRegionPhase.ended;
     _paragraphs = {};
     _notice = message;
     _halt = null;
@@ -345,7 +348,9 @@ class LiveRegionSession {
   }
 
   void _applyOcr(LiveOcrSample sample) {
-    if (sample.generation != _generation || _phase != 'running') return;
+    if (sample.generation != _generation || _phase != LiveRegionPhase.running) {
+      return;
+    }
     if (sample.failure != null) {
       _clearScreen(sample.failure!);
       return;
@@ -417,7 +422,7 @@ class LiveRegionSession {
 
   /// 无参数。把当前画面中未命中且已满足发送等待的段落块组成批次并发送。
   void _evaluate() {
-    if (_phase != 'running' || _halt != null) {
+    if (_phase != LiveRegionPhase.running || _halt != null) {
       clock.cancelSchedule();
       return;
     }
@@ -795,7 +800,7 @@ class LiveRegionSession {
 
   /// 无参数。运行中且译文已归属到有坐标的段落块时才返回盖层。
   List<Map<String, Object>> _overlayMaps() {
-    if (_phase != 'running') return const [];
+    if (_phase != LiveRegionPhase.running) return const [];
     final maps = <Map<String, Object>>[];
     for (final paragraph in _paragraphs.values) {
       final text = paragraph.shown;

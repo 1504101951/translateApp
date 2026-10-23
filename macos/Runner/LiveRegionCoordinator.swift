@@ -224,7 +224,7 @@ final class LiveRegionCoordinator {
             Task { await self?.end() }
         }
         do {
-            try await command("start", generation: token)
+            try await command(.start, generation: token)
             try await capture.start(source: source, region: region, generation: token)
             if recording {
                 // 录制与识别各用一路捕获；录制把译文盖层窗口加入画面，控制条和遮罩仍被排除。
@@ -236,7 +236,7 @@ final class LiveRegionCoordinator {
             generation += 1
             await capture.stop()
             await cancelRecording()
-            if token != generation { try? await command("discard", generation: generation) }
+            if token != generation { try? await command(.discard, generation: generation) }
             running = false
             overlay.close()
             bridge.screenshot.restoreAfterCapturePreparation()
@@ -257,7 +257,7 @@ final class LiveRegionCoordinator {
         overlay.clear()
         await pauseRecording(true)
         controls.setLivePaused(true)
-        try? await command("pause", generation: generation)
+        try? await command(.pause, generation: generation)
     }
 
     private func resume() async {
@@ -267,7 +267,7 @@ final class LiveRegionCoordinator {
         generation += 1
         let token = generation
         do {
-            try await command("resume", generation: token)
+            try await command(.resume, generation: token)
             try await capture.resume(source: source, region: region, generation: token)
             await pauseRecording(false)
             controls.setLivePaused(false)
@@ -290,7 +290,7 @@ final class LiveRegionCoordinator {
         controls.setLiveShade(nil)
         overlay.close()
         StatusBarController.shared.setLiveAbort(false)
-        try? await command("end", generation: generation)
+        try? await command(.end, generation: generation)
     }
 
     private func discard() async {
@@ -307,7 +307,7 @@ final class LiveRegionCoordinator {
         controls.setLiveShade(nil)
         overlay.close()
         StatusBarController.shared.setLiveAbort(false)
-        try? await command("discard", generation: token)
+        try? await command(.discard, generation: token)
     }
 
     private func unavailable(_ message: String) async {
@@ -322,7 +322,7 @@ final class LiveRegionCoordinator {
         controls.setLiveShade(nil)
         overlay.close()
         StatusBarController.shared.setLiveAbort(false)
-        try? await command("captureFailed", generation: generation, failure: message)
+        try? await command(.captureFailed, generation: generation, failure: message)
     }
 
     /// paused 为真暂停录制，为假继续录制。未同步录制时不做任何事；失败写入排查日志。
@@ -358,8 +358,8 @@ final class LiveRegionCoordinator {
     private var windowVisible: Bool { running || ended }
 
     /// action/generation 交给主引擎。failure 只用于采集失效。
-    private func command(_ action: String, generation: Int, failure: String? = nil) async throws {
-        var arguments: [String: Any] = ["action": action, "generation": generation]
+    private func command(_ action: LiveRegionAction, generation: Int, failure: String? = nil) async throws {
+        var arguments: [String: Any] = ["action": action.rawValue, "generation": generation]
         if let failure { arguments["failure"] = failure }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             bridge.requestApplication(AppConstants.liveRegionCommandMethod, arguments: arguments) { result in
@@ -391,7 +391,11 @@ final class LiveRegionCoordinator {
                 .joined(separator: " ")
             LiveRegionLog.note("batch \(fields)")
         }
-        let runningNow = state["phase"] as? String == "running"
+        // 主引擎快照总带阶段；缺少或不认识即两端协议不一致，直接终止（#127）。
+        guard let raw = state["phase"] as? String, let phase = LiveRegionPhase(rawValue: raw) else {
+            preconditionFailure("实时翻译快照缺少可识别的阶段")
+        }
+        let runningNow = phase == .running
         let chips = runningNow ? (state["overlays"] as? [[String: Any]] ?? []) : []
         overlay.apply(chips)
         controls.setLiveDetail(runningNow ? (state["status"] as? String ?? "") : "")

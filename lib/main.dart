@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'src/capture/capture_app.dart';
+import 'src/common/constants/live_region.dart';
 import 'src/common/constants/method_names.dart';
 import 'src/history/history_app.dart';
 import 'src/history/history_requests.dart';
@@ -131,23 +132,23 @@ Future<void> main() async {
       case MethodNames.liveRegionCommand:
         final command = Map<Object?, Object?>.from(call.arguments as Map);
         final generation = command['generation'] as int;
-        final action = command['action'] as String;
-        // 快照只经 publishLiveRegion 发给原生，命令回包不携带快照（#124）。
+        // 未知命令由 byName 直接抛错（#127）；快照只经 publishLiveRegion 发给原生，命令回包不携带快照（#124）。
+        final action = LiveRegionAction.values.byName(
+          command['action'] as String,
+        );
         switch (action) {
-          case 'start':
+          case LiveRegionAction.start:
             live.start(settings.current, generation);
-          case 'pause':
+          case LiveRegionAction.pause:
             live.pause(generation);
-          case 'resume':
+          case LiveRegionAction.resume:
             live.resume(generation);
-          case 'end':
+          case LiveRegionAction.end:
             live.end(generation);
-          case 'discard':
+          case LiveRegionAction.discard:
             live.discard(generation);
-          case 'captureFailed':
+          case LiveRegionAction.captureFailed:
             live.captureUnavailable(generation, command['failure'] as String);
-          default:
-            throw ArgumentError('未知实时翻译操作：$action');
         }
         return null;
       case MethodNames.liveRegionOcr:

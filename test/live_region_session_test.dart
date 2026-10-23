@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translate_app/src/common/constants/live_region.dart';
 import 'package:translate_app/src/settings/app_settings.dart';
 import 'package:translate_app/src/settings/service_config.dart';
 import 'package:translate_app/src/translation/live_region_session.dart';
@@ -532,7 +533,7 @@ void main() {
     session.pause(2);
     await _delivered(session);
     expect(provider.cancelled, [1]);
-    expect(session.view.phase, 'paused');
+    expect(session.view.phase, LiveRegionPhase.paused);
     expect(session.view.overlays, isEmpty);
     await session.onOcr(_frame(2, ['D']));
     expect(provider.requests, hasLength(2));
@@ -557,7 +558,7 @@ void main() {
     provider.complete(0, ['甲']);
     await _delivered(session);
     session.end(2);
-    expect(session.view.phase, 'ended');
+    expect(session.view.phase, LiveRegionPhase.ended);
     expect(session.view.overlays, isEmpty);
     session.start(_settings(), 3);
     await session.onOcr(_frame(3, ['A']));
@@ -565,14 +566,14 @@ void main() {
     provider.complete(1, ['甲']);
     await _delivered(session);
     session.discard(4);
-    expect(session.view.phase, 'discarded');
+    expect(session.view.phase, LiveRegionPhase.discarded);
     expect(session.view.overlays, isEmpty);
     session.start(_settings(), 5);
     await session.onOcr(_frame(5, ['A']));
     provider.complete(2, ['甲']);
     await _delivered(session);
     session.captureUnavailable(6, '目标显示器已移除。');
-    expect(session.view.phase, 'ended');
+    expect(session.view.phase, LiveRegionPhase.ended);
     expect(session.view.overlays, isEmpty);
     expect(session.view.status, '目标显示器已移除。');
   });
