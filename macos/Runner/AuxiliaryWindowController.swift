@@ -5,70 +5,54 @@ import FlutterMacOS
 final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
     private var engine: FlutterEngine?
     private var window: NSWindow?
-    private var historyObserver: NSObjectProtocol?
     private var channel: FlutterMethodChannel?
     private let engineName: String
     private let entrypoint: String
     private let title: String
     private let size: NSSize
+    private let refreshMethod: String?
 
-    /// engineName/entrypoint 标识第二引擎；title/size 为窗口外观。
-    init(engineName: String, entrypoint: String, title: String, size: NSSize) {
+    /// engineName/entrypoint 标识第二引擎；title/size 为窗口外观；
+    /// refreshMethod 为请 Dart 重新读取数据的方法名，重开已存在的窗口或调用 refresh() 时发送，为空表示不需要（#126）。
+    init(engineName: String, entrypoint: String, title: String, size: NSSize, refreshMethod: String? = nil) {
         self.engineName = engineName
         self.entrypoint = entrypoint
         self.title = title
         self.size = size
+        self.refreshMethod = refreshMethod
         super.init()
-        if entrypoint == AppConstants.historyEntrypoint {
-            historyObserver = NotificationCenter.default.addObserver(forName: AppConstants.historyChangedNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.channel?.invokeMethod(AppConstants.historyChangedMethod, arguments: nil)
-            }
-        }
     }
 
-    deinit {
-        if let historyObserver { NotificationCenter.default.removeObserver(historyObserver) }
-    }
-
-    /// 无参数；显示窗口，已存在则前置。
+    /// 无参数；显示窗口，已存在则刷新后前置。
     func show() {
         if let window {
-            if entrypoint == AppConstants.historyEntrypoint {
-                channel?.invokeMethod(AppConstants.historyChangedMethod, arguments: nil)
-            }
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            refresh()
+            WindowEngine.present(window)
             return
         }
-        // WindowEngine 统一装配附属窗口引擎（#120）；启动失败时不显示窗口。
+        // WindowEngine 统一装配附属窗口引擎（#120）；启动失败时提示并不显示窗口（#126）。
         guard let started = WindowEngine.start(
             name: engineName, entrypoint: entrypoint, channel: AppConstants.settingsChannel,
             handler: { call, result in
                 let bridge = MacPlatformBridge.Shared.instance!
                 // routeWindowRequest负责跨引擎分发，辅助窗口不保存业务方法表。
                 bridge.routeWindowRequest(call, result: result)
-            }) else { return }
+            }) else {
+            WindowEngine.reportStartFailure("\(title)窗口")
+            return
+        }
         engine = started.engine
         channel = started.channel
-        let flutter = started.flutter
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.delegate = self
-        window.title = title
-        window.isReleasedWhenClosed = false
-        // 辅助窗口共用透明承载，玻璃材料由各自 Flutter 引擎的原生视图绘制。
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        NativeGlassFactory.installContent(flutter, in: window)
-        window.setContentSize(size)
-        window.center()
+        // WindowEngine.makeWindow 建出承载原生玻璃内容的普通窗口；附属窗口关闭即停止引擎。
+        let window = WindowEngine.makeWindow(flutter: started.flutter, title: title, size: size, minSize: nil, delegate: self)
         self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        WindowEngine.present(window)
+    }
+
+    /// 无参数；窗口引擎运行中且配置了 refreshMethod 时请 Dart 重新读取数据，无返回值。
+    func refresh() {
+        guard let refreshMethod else { return }
+        channel?.invokeMethod(refreshMethod, arguments: nil)
     }
 
     /// 无参数；通知 Dart 重新读取系统授权，用于从系统设置返回后刷新步骤。

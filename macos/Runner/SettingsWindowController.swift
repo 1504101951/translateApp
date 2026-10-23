@@ -14,8 +14,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func show() {
         if let window {
             refresh()
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            WindowEngine.present(window)
             return
         }
         // WindowEngine 统一装配附属窗口引擎（#120）。
@@ -31,34 +30,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                     bridge.routeWindowRequest(call, result: result)
                 }
             }) else {
-            let alert = NSAlert()
-            alert.messageText = "设置窗口启动失败"
-            alert.informativeText = "请退出并重新打开 TranslateApp。"
-            alert.runModal()
+            WindowEngine.reportStartFailure("设置窗口")
             return
         }
         engine = started.engine
         channel = started.channel
-        let flutter = started.flutter
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false
-        )
-        window.delegate = self
-        window.title = "TranslateApp 设置"
-        window.minSize = NSSize(width: 520, height: 500)
-        window.isReleasedWhenClosed = false
-        // Flutter 控件绘制在原生玻璃材料上；普通窗口保持原有层级。
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        NativeGlassFactory.installContent(flutter, in: window)
-        // Flutter 控制器初始视图可为零尺寸；绑定后明确设置可读的表单窗口大小。
-        window.setContentSize(NSSize(width: 560, height: 720))
-        window.center()
+        // WindowEngine.makeWindow 建出承载原生玻璃内容的普通窗口；设置窗关闭后保留引擎以便快速重开。
+        let window = WindowEngine.makeWindow(
+            flutter: started.flutter, title: "TranslateApp 设置", size: NSSize(width: 560, height: 720),
+            minSize: NSSize(width: 520, height: 500), delegate: self)
         self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        WindowEngine.present(window)
     }
 
     /// result 接收 keyCode/modifiers/label，取消为 nil；仅在当前设置窗口录制一次组合。

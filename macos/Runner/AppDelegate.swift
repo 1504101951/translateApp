@@ -16,9 +16,12 @@ class AppDelegate: FlutterAppDelegate {
         engineName: AppConstants.historyEngineName,
         entrypoint: AppConstants.historyEntrypoint,
         title: "翻译历史",
-        size: NSSize(width: 520, height: 640)
+        size: NSSize(width: 520, height: 640),
+        refreshMethod: AppConstants.historyChangedMethod
     )
     private var launchedAtLogin = false
+    /// 翻译历史变更通知的观察者；新记录写入后刷新已打开的历史窗口（#126）。
+    private var historyObserver: NSObjectProtocol?
 
     /// notification 为应用启动通知；从系统 AppleEvent 识别登录项启动，无返回值。
     override func applicationWillFinishLaunching(_ notification: Notification) {
@@ -52,6 +55,9 @@ class AppDelegate: FlutterAppDelegate {
         StatusBarController.shared.showHistory = { [weak self] in self?.historyWindow.show() }
         StatusBarController.shared.install()
         bridge.closePermissionWizard = { [weak self] in self?.permissionWizard.close() }
+        historyObserver = NotificationCenter.default.addObserver(
+            forName: AppConstants.historyChangedNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.historyWindow.refresh() }
         bridge.onReady = { [weak self] in
             let access = AccessibilitySelection.isTrusted(prompt: false)
             let screen = ScreenCaptureService.isAuthorized()
