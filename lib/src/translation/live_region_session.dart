@@ -11,7 +11,6 @@ import 'translation_types.dart';
 
 /// 已批准的实时翻译调度值。
 ///
-/// captureMinInterval 是 SCStream 供帧间隔，只节流系统输出，不保证固定帧率。
 /// candidateCoalescingDelay 按单个段落块计时：段落原文保持不变达到该时长后才可发送。
 /// requestStartInterval 是两个批次开始的最小间隔，不是完成后再等待。
 /// maxInflightBatches 是同时在途的批次上限；不允许并行的服务固定为 1。
@@ -21,7 +20,6 @@ import 'translation_types.dart';
 /// rateLimitBackoff 是频率受限且服务未给出 Retry-After 时依次等待的时长，超过三次沿用最后一项；
 /// maxRetryAfter 是采用服务给出的 Retry-After 的上限（#118）。
 abstract final class LiveRegionSchedule {
-  static const captureMinInterval = Duration(milliseconds: 200);
   static const candidateCoalescingDelay = Duration(milliseconds: 200);
   static const requestStartInterval = Duration(milliseconds: 500);
   static const maxInflightBatches = 3;

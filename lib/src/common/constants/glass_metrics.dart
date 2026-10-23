@@ -17,7 +17,6 @@ abstract final class GlassMetrics {
   static const cropHandle = 8.0;
   static const cropHandleHitRadius = 12.0;
   static const cropEdgeHitRadius = 6.0;
-  static const inputHeight = 32.0;
   static const dropdownMinWidth = 120.0;
   static const dropdownMaxWidth = 240.0;
   static const menuMinWidth = 160.0;

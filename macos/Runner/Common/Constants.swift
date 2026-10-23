@@ -27,7 +27,7 @@ enum AppConstants {
     /// 连续采集独立通道与多引擎入口，和Dart常量一致。
     static let captureChannel = "translateapp/capture"
     static let captureEntrypoint = "captureMain"
-    /// 已批准的初始供帧间隔，单位毫秒。须与 Dart LiveRegionSchedule.captureMinInterval 一致。
+    /// 实时翻译 SCStream 的已批准供帧间隔，单位毫秒；只节流系统输出，不保证固定帧率。
     static let liveCaptureMinIntervalMs = 200
     static let previewLiveRegionMethod = "previewLiveRegion"
     static let cancelLivePreviewMethod = "cancelLivePreview"

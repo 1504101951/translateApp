@@ -11,7 +11,6 @@ abstract final class DrawingMetrics {
   static const swatch = 24.0;
   static const minWidth = 1.0;
   static const maxWidth = 20.0;
-  static const defaultWidth = 3.0;
   static const mosaicPixels = 12.0;
 
   /// 荧光笔（#107）：默认黄色与 16pt 粗细，绘制时施加 40% 不透明度。
