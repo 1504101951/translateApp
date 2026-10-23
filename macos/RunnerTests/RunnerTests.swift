@@ -172,7 +172,7 @@ class RunnerTests: XCTestCase {
         _ = NSApp.setActivationPolicy(.accessory)
         XCTAssertEqual(NSApp.activationPolicy(), .accessory)
         let png = try screenshotFixture(width: 200, height: 2000, color: .white)
-        for cycle in 0...1 {
+        for _ in 0...1 {
             let token = controller.service.id
             let editorsBefore = NSApp.windows.filter { $0 is ScreenshotPanel && $0.isVisible }.count
             // 拼接失败后的交付入口就是这个结果，不能再打开截图编辑器。
@@ -1074,7 +1074,6 @@ class RunnerTests: XCTestCase {
         let png = rep.representation(using: .png, properties: [:])!
         let pinId = pins.pin(png: png, origin: NSPoint(x: 120, y: 180))
         let panel = try XCTUnwrap(pins.firstPanel)
-        XCTAssertTrue(panel is PinPanel)
         XCTAssertTrue(panel.canBecomeKey)
         XCTAssertFalse(panel.canBecomeMain)
         XCTAssertEqual(panel.level, .statusBar)
@@ -1101,7 +1100,6 @@ class RunnerTests: XCTestCase {
         // 图片层接收首次拖动；右上角没有覆盖控件，Escape只关闭当前贴图。
         let remaining = try XCTUnwrap(pins.firstPanel)
         let image = remaining.imageViewForTesting
-        XCTAssertTrue(image is DraggablePinImageView)
         let beforeDrag = image.dragBeginCountForTesting
         let dragEvent = try XCTUnwrap(
             NSEvent.mouseEvent(

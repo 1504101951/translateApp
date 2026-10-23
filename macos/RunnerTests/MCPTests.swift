@@ -19,7 +19,11 @@ final class MCPTests: XCTestCase {
 
         /// 参数 data：会话写出的一行 JSON。
         func append(_ data: Data) {
-            let object = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+            // 会话写出的每一行都必须是 JSON 对象；不是时记为测试失败并跳过该行。
+            guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                XCTFail("会话写出的行不是 JSON 对象：\(String(decoding: data, as: UTF8.self))")
+                return
+            }
             lock.lock()
             messages.append(object)
             raw.append(String(decoding: data, as: UTF8.self))

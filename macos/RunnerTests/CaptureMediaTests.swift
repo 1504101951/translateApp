@@ -29,6 +29,60 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertFalse(slot.finish())
         XCTAssertTrue(slot.offer(generation: 3))
     }
+
+    /// 无参数；截图存储按类型与本地日期分类，重名只新增序号文件，已有文件、已取消的发布与越界路径都不改写任何内容（#124）。
+    /// 边界：同一日期五种输出进入不同分类，APNG 扩展名为 png 但不进截图分类；根路径被文件占用、名称越出目录与目录已删除都必须报错。
+    func testScreenshotStorageClassifiesByDateAndKeepsExistingFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // 日期用公历构造，不受用户的日历区域设置影响。
+        let date = try XCTUnwrap(Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 12)))
+        for (kind, category, ext) in [("png", "截图", "png"), ("mp4", "视频", "mp4"), ("gif", "gif", "gif"), ("apng", "apng", "png"), ("webm", "webm", "webm")] {
+            let folder = try ScreenshotStorage.datedDirectory(basePath: directory.path, extension: kind, date: date)
+            XCTAssertEqual(folder.path, directory.appendingPathComponent("\(category)/2026-10-01").path)
+            let target = folder.appendingPathComponent("采集.\(ext)")
+            let source = directory.appendingPathComponent("source.\(ext)")
+            try Data([1, 2, 3]).write(to: source)
+            try Data([9]).write(to: target)
+            // 同名媒体只新增序号文件；临时源与已保存内容均保持不变，不留暂存文件。
+            let output = try ScreenshotStorage.publish(source: source, target: target)
+            XCTAssertEqual(output.lastPathComponent, "采集-2.\(ext)")
+            XCTAssertEqual(try Data(contentsOf: output), Data([1, 2, 3]))
+            XCTAssertEqual(try Data(contentsOf: target), Data([9]))
+            XCTAssertEqual(try Data(contentsOf: source), Data([1, 2, 3]))
+            XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: folder.path).contains { $0.hasSuffix(".partial") })
+        }
+        // 根路径被真实文件占用时必须失败，不能报告保存成功或污染该文件。
+        let blockedRoot = directory.appendingPathComponent("blocked")
+        try Data([7]).write(to: blockedRoot)
+        XCTAssertThrowsError(try ScreenshotStorage.datedDirectory(basePath: blockedRoot.path, extension: "png", date: date))
+        XCTAssertEqual(try Data(contentsOf: blockedRoot), Data([7]))
+        // 同一毫秒内或重复保存同一截图是重名边界，已有文件的字节必须完全保留。
+        let first = try ScreenshotStorage.save(Data([1, 2, 3]), directory: directory, name: "截图.png")
+        let second = try ScreenshotStorage.save(Data([4, 5, 6]), directory: directory, name: "截图.png")
+        let third = try ScreenshotStorage.save(Data([7]), directory: directory, name: "截图.png")
+        XCTAssertEqual([second.lastPathComponent, third.lastPathComponent], ["截图-2.png", "截图-3.png"])
+        XCTAssertEqual(try Data(contentsOf: first), Data([1, 2, 3]))
+        XCTAssertEqual(try Data(contentsOf: second), Data([4, 5, 6]))
+        // 取消是真实任务状态；发布不得创建目标，也不能删除仍可预览的来源或遗留暂存文件。
+        let cancelledTarget = directory.appendingPathComponent("cancelled.gif")
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try ScreenshotStorage.publish(source: first, target: cancelledTarget)
+        }
+        do {
+            _ = try await cancelled.value
+            XCTFail("已取消的导出不能发布")
+        } catch is CancellationError {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cancelledTarget.path))
+        XCTAssertEqual(try Data(contentsOf: first), Data([1, 2, 3]))
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasSuffix(".partial") })
+        // 名称越出所选目录、所选目录已删除都必须报错。
+        XCTAssertThrowsError(try ScreenshotStorage.save(Data([8]), directory: directory, name: "../outside.png"))
+        XCTAssertThrowsError(try ScreenshotStorage.save(Data([8]), directory: directory.appendingPathComponent("removed"), name: "截图.png"))
+    }
+
     /// 无参数；没有真实冻结帧时，即使请求结构完整也必须拒绝启动，不能把任意ID当作屏幕身份。
     @MainActor
     func testCaptureToolbarRejectsMissingScreenFrame() throws {
