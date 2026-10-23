@@ -29,14 +29,14 @@ class CaptureApp extends StatefulWidget {
 
 /// 维护实际采集状态和一秒响应；GIF参数由已保存的截图设置决定。
 class _CaptureAppState extends State<CaptureApp> {
-  Map<String, dynamic> _state = {};
+  // 首个原生状态到达前为空闲；原生每次状态都带 phase，缺少即按协议错误抛出（#124）。
+  Map<String, dynamic> _state = {'phase': CapturePhase.idle.name};
   bool _pending = false;
   String? _feedback;
   bool _feedbackIsError = false;
   Timer? _feedbackTimer;
 
-  CapturePhase get _phase =>
-      CapturePhase.parse(_state['phase'] as String? ?? 'idle');
+  CapturePhase get _phase => CapturePhase.parse(_state['phase'] as String);
 
   /// 无参数；订阅原生状态并请求当前会话，不枚举来源或打开准备页面。
   @override
