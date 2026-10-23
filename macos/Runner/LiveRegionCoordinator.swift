@@ -151,7 +151,7 @@ final class LiveTextOverlay {
     }
 }
 
-/// 连接结果窗、未编码捕获和主引擎会话。不保存译文。
+/// 连接译文盖层、采集悬浮条、未编码捕获和主引擎会话。不保存译文。
 @MainActor
 final class LiveRegionCoordinator {
     private let bridge: MacPlatformBridge

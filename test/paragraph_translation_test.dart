@@ -40,7 +40,7 @@ class _BatchProvider implements BatchTranslationProvider {
   @override
   bool get allowsParallelBatches => false;
 
-  /// request 为单篇请求；单篇路径由 translateParagraphBatches 改走批量接口，这里不应被调用。
+  /// request 为单篇请求；translateParagraphBatches 只调用批量接口，这里不应被调用。
   @override
   Stream<TranslationEvent> translate(TranslationRequest request) =>
       throw StateError('single request is not expected');

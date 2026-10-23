@@ -117,7 +117,7 @@ class LiveOcrSample {
   final List<LiveTextBlock> blocks;
 }
 
-/// 结果窗口渲染的业务快照。不含密钥、凭据或调度中间态。
+/// 原生盖层与悬浮条绘制所用的业务快照。不含密钥、凭据或调度中间态。
 class LiveRegionView {
   /// phase 为 idle/running/paused/ended/discarded；banner 为暂停或结束标注。
   const LiveRegionView({

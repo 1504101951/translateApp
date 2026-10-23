@@ -241,7 +241,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         return state
     }
 
-    /// id 为本次实时翻译控制身份，screen 为结果窗所在显示器。显示既有悬浮条，不启动录屏。
+    /// id 为本次实时翻译控制身份，screen 为来源所在显示器。显示既有悬浮条，不启动录屏。
     func showLiveControls(id: String, screen: NSScreen?) {
         liveControlID = id
         livePaused = false

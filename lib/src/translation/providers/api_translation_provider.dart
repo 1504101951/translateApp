@@ -46,7 +46,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
     if (config.isModel && config.semanticPairs) {
       return translateParagraphs(_translate, request, keepWholeSource: true);
     }
-    // 其他服务按原文段落建立一一对应，分批调用批量接口，不再逐行串行请求（#113）。
+    // 其他服务按原文段落建立一一对应，分批调用批量接口（#113）。
     final (:items, :chars) = switch (config.kind) {
       'google' => _googleBatchLimits,
       'baidu' => _baiduBatchLimits,
@@ -342,7 +342,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
               if (terms.isNotEmpty) 'glossary': terms,
               // numberedBatchText 给每个段落加上“[编号]”行首。
               'paragraphs': numberedBatchText(request.texts),
-              // 单篇分批翻译携带上一片的尾部，与逐段请求时的上下文一致（#113）。
+              // 单篇分批翻译携带上一片的原文与译文尾部作为上下文（#113）。
               if (request.previousSourceTail != null ||
                   request.previousTranslationTail != null)
                 'previous_context': {
