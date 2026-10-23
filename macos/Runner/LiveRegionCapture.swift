@@ -71,9 +71,8 @@ final class LiveRegionCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         region: MediaCaptureService.Region?,
         generation: Int
     ) async throws {
-        guard ScreenCaptureService.isAuthorized() else {
-            throw GIFExporter.ExportError(message: "屏幕录制权限不可用。")
-        }
+        // DisplayCapture 集中显示器采集的权限、来源、选区与尺寸校验（#125）。
+        try DisplayCapture.requireAuthorization()
         await stopStreams()
         slot.adopt(generation)
         frames.removeAll()
@@ -336,36 +335,18 @@ final class LiveRegionCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         let displayID = kind == CaptureTarget.region.rawValue
             ? region?.displayID
             : (source["sourceID"] as? NSNumber)?.uint32Value
-        guard let displayID, let display = content.displays.first(where: { $0.displayID == displayID }) else {
-            throw GIFExporter.ExportError(message: "捕获目标已不可用，请重新选择。")
-        }
-        let own = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-        guard !own.isEmpty else {
-            throw GIFExporter.ExportError(message: "无法排除采集控制窗口，请重新开始。")
-        }
+        let display = try DisplayCapture.display(displayID, in: content)
+        let own = try DisplayCapture.ownApplications(in: content)
         let filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
         var crop: CGRect?
         if kind == CaptureTarget.region.rawValue, let region {
-            guard abs(CGFloat(filter.pointPixelScale) - region.scale) < 0.01 else {
-                throw GIFExporter.ExportError(message: "显示器缩放已改变，请重新框选。")
-            }
-            crop = CGRect(
-                x: region.rect.minX / region.scale,
-                y: region.rect.minY / region.scale,
-                width: region.rect.width / region.scale,
-                height: region.rect.height / region.scale
-            )
-            guard CGRect(origin: .zero, size: filter.contentRect.size).contains(crop!) else {
-                throw GIFExporter.ExportError(message: "选区超出当前显示器，请重新框选。")
-            }
+            crop = try DisplayCapture.crop(region, in: filter)
         }
         let scale = CGFloat(filter.pointPixelScale)
         let size = crop?.size ?? filter.contentRect.size
         let width = Int((size.width * scale).rounded())
         let height = Int((size.height * scale).rounded())
-        guard width >= 32, height >= 64 else {
-            throw GIFExporter.ExportError(message: "选区至少需要32×64像素。")
-        }
+        try DisplayCapture.requireMinimumSize(width: width, height: height)
         let config = baseConfig(
             width: width,
             height: height,
@@ -379,7 +360,7 @@ final class LiveRegionCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         target.origin.y += actual.minY
         target.size = actual.size
         let bounds = CaptureGeometry.appKitRect(fromCGWindowBounds: target)
-        return ([(stream, display.displayID, bounds)], bounds, displayID)
+        return ([(stream, display.displayID, bounds)], bounds, display.displayID)
     }
 
     /// width/height 为输出像素，interval 为已批准的供帧间隔。返回不编码、不采集鼠标和音频的配置。

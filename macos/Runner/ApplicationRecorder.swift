@@ -302,7 +302,7 @@ final class ApplicationRecorder: NSObject, SCStreamDelegate {
 
     /// 无参数；核对应用存活、可见窗口及完整显示器拓扑，变化时明确失败，不选择其他应用。
     func validate() async throws {
-        guard ScreenCaptureService.isAuthorized() else { throw GIFExporter.ExportError(message: "屏幕录制权限已失效。") }
+        try DisplayCapture.requireAuthorization()
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard content.windows.contains(where: { $0.isOnScreen && $0.frame.width > 0 && $0.frame.height > 0 && $0.owningApplication?.bundleIdentifier == applicationID }) else {
             throw GIFExporter.ExportError(message: "所选应用已退出或没有可录制的可见窗口。")

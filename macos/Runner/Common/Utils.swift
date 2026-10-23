@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import Darwin
 import OSLog
+import ScreenCaptureKit
 
 /// 录制启动的本地耗时记录；只记录固定步骤与时长，不包含图像、窗口标题或输出路径。
 enum CaptureStartupLog {
@@ -22,6 +23,48 @@ enum LiveRegionLog {
     /// message 为“键=值”形式的一行数值字段；写入系统日志，无返回值。
     static func note(_ message: String) {
         logger.notice("\(message, privacy: .public)")
+    }
+}
+
+/// 显示器采集共用的来源解析与校验（#125）：录制、长截图与实时翻译使用同一套规则与错误文案。
+enum DisplayCapture {
+    /// 无参数；屏幕录制未授权时抛出用户可读错误，无返回值。
+    static func requireAuthorization() throws {
+        guard ScreenCaptureService.isAuthorized() else { throw GIFExporter.ExportError(message: "屏幕录制权限不可用。") }
+    }
+
+    /// displayID 为目标显示器（区域取选区所在屏，可为空），content 为当前可共享内容；返回该显示器，不可用时抛错。
+    static func display(_ displayID: CGDirectDisplayID?, in content: SCShareableContent) throws -> SCDisplay {
+        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            throw GIFExporter.ExportError(message: "捕获目标已不可用，请重新选择。")
+        }
+        return display
+    }
+
+    /// content 为当前可共享内容；返回本应用，供显示器采集排除控制、译文与编辑窗口，找不到时抛错。
+    static func ownApplications(in content: SCShareableContent) throws -> [SCRunningApplication] {
+        let own = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+        guard !own.isEmpty else { throw GIFExporter.ExportError(message: "无法排除采集控制窗口，请重新开始。") }
+        return own
+    }
+
+    /// region 为已确认的像素选区，filter 为所在显示器的过滤器；倍率未变时返回点坐标裁剪框，
+    /// 倍率改变或越出显示器时抛错。
+    static func crop(_ region: MediaCaptureService.Region, in filter: SCContentFilter) throws -> CGRect {
+        guard abs(CGFloat(filter.pointPixelScale) - region.scale) < 0.01 else {
+            throw GIFExporter.ExportError(message: "显示器缩放已改变，请重新框选。")
+        }
+        let crop = CGRect(x: region.rect.minX / region.scale, y: region.rect.minY / region.scale,
+                          width: region.rect.width / region.scale, height: region.rect.height / region.scale)
+        guard CGRect(origin: .zero, size: filter.contentRect.size).contains(crop) else {
+            throw GIFExporter.ExportError(message: "选区超出当前显示器，请重新框选。")
+        }
+        return crop
+    }
+
+    /// width/height 为输出像素；小于 32×64 时抛错，无返回值。
+    static func requireMinimumSize(width: Int, height: Int) throws {
+        guard width >= 32, height >= 64 else { throw GIFExporter.ExportError(message: "选区至少需要32×64像素。") }
     }
 }
 

@@ -139,7 +139,8 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
 
     /// args指定显示器或已确认区域，video决定偶数像素对齐；返回排除自身窗口的过滤器和原生采集配置。
     private func configuration(_ args: [String: Any], video: Bool) async throws -> (SCContentFilter, SCStreamConfiguration) {
-        guard ScreenCaptureService.isAuthorized() else { throw GIFExporter.ExportError(message: "屏幕录制权限不可用。") }
+        // DisplayCapture 集中显示器采集的权限、来源、选区与尺寸校验（#125）。
+        try DisplayCapture.requireAuthorization()
         let token = id
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard token == id else { throw CancellationError() }
@@ -149,13 +150,12 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         var targetFrame: CGRect
         do {
             let displayID = kind == CaptureTarget.region.rawValue ? region?.displayID : (args["sourceID"] as? NSNumber)?.uint32Value
-            guard [CaptureTarget.display.rawValue, CaptureTarget.region.rawValue].contains(kind),
-                  let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            guard [CaptureTarget.display.rawValue, CaptureTarget.region.rawValue].contains(kind) else {
                 throw GIFExporter.ExportError(message: "捕获目标已不可用，请重新选择。")
             }
+            let display = try DisplayCapture.display(displayID, in: content)
             // 应用的控制、翻译、编辑窗口全部从显示器捕获中排除。
-            let own = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-            guard !own.isEmpty else { throw GIFExporter.ExportError(message: "无法排除采集控制窗口，请重新开始。") }
+            let own = try DisplayCapture.ownApplications(in: content)
             // 指定的本应用窗口作为例外留在画面里；找不全时明确失败，不录制缺少这些窗口的画面。
             let included = content.windows.filter { includedWindowIDs.contains($0.windowID) }
             guard included.count == includedWindowIDs.count else {
@@ -164,14 +164,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: included)
             targetFrame = display.frame
             if kind == CaptureTarget.region.rawValue, let region {
-                guard abs(CGFloat(filter.pointPixelScale) - region.scale) < 0.01 else {
-                    throw GIFExporter.ExportError(message: "显示器缩放已改变，请重新框选。")
-                }
-                crop = CGRect(x: region.rect.minX / region.scale, y: region.rect.minY / region.scale,
-                              width: region.rect.width / region.scale, height: region.rect.height / region.scale)
-                guard CGRect(origin: .zero, size: filter.contentRect.size).contains(crop!) else {
-                    throw GIFExporter.ExportError(message: "选区超出当前显示器，请重新框选。")
-                }
+                crop = try DisplayCapture.crop(region, in: filter)
             }
         }
         let config = SCStreamConfiguration()
@@ -180,7 +173,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         var width = Int((size.width * scale).rounded(video ? .down : .toNearestOrAwayFromZero))
         var height = Int((size.height * scale).rounded(video ? .down : .toNearestOrAwayFromZero))
         if video { width -= width % 2; height -= height % 2 }
-        guard width >= 32, height >= 64 else { throw GIFExporter.ExportError(message: "选区至少需要32×64像素。") }
+        try DisplayCapture.requireMinimumSize(width: width, height: height)
         config.width = width
         config.height = height
         config.minimumFrameInterval = CMTime(value: 1, timescale: AppConstants.recordingFramesPerSecond)
@@ -312,9 +305,9 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         let started = ContinuousClock.now
         defer { CaptureStartupLog.record("application-segment-await", since: started) }
         let token = id
-        guard ScreenCaptureService.isAuthorized(),
-              let applicationID = recordingArguments["applicationID"] as? String else {
-            throw GIFExporter.ExportError(message: "应用来源或屏幕录制权限不可用。")
+        try DisplayCapture.requireAuthorization()
+        guard let applicationID = recordingArguments["applicationID"] as? String else {
+            throw GIFExporter.ExportError(message: "捕获目标已不可用，请重新选择。")
         }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard token == id else { throw CancellationError() }
