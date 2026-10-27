@@ -21,12 +21,10 @@ class ServiceConfig {
   };
 
   /// 新建服务展示的五类；既有协议ID仍用于原请求与凭据账户，不迁移用户配置。
-  static const selectableKinds = {
-    'google': '谷歌翻译',
-    'baidu': '百度翻译',
-    'openai': 'OpenAI',
-    'anthropic': 'Anthropic',
-    'apple': 'Apple 系统翻译',
+  /// 显示名取自 kinds，此处只决定展示顺序（#131）。
+  static final selectableKinds = {
+    for (final kind in ['google', 'baidu', 'openai', 'anthropic', 'apple'])
+      kind: kinds[kind]!,
   };
 
   /// 无参数；系统默认名使用当前产品名称，用户自定义配置名保持原样。
@@ -57,7 +55,10 @@ class ServiceConfig {
   final String prompt;
   final bool semanticPairs;
   final int maxOutputTokens;
-  bool get isModel =>
+  bool get isModel => isModelKind(kind);
+
+  /// kind 为服务协议 ID；返回是否为模型服务（OpenAI、DeepSeek、Anthropic 协议）（#131）。
+  static bool isModelKind(String kind) =>
       kind == 'openai' || kind == 'deepseek' || kind == 'anthropic';
 
   /// 无参数；返回是否为 Apple 系统翻译。系统翻译无服务端点、无凭据，不读写 Keychain。

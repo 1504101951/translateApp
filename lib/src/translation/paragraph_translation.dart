@@ -23,9 +23,11 @@ Stream<TranslationEvent> translateParagraphs(
     onListen: () async {
       final source = request.sourceText;
       final pairs = <TranslationPair>[];
-      final sameLanguage =
-          request.detectedLanguage ==
-          LanguageDirection.normalize(request.targetLanguage);
+      // isTarget 判断原文是否已是目标语言。
+      final sameLanguage = LanguageDirection.isTarget(
+        request.detectedLanguage,
+        request.targetLanguage,
+      );
       var end = 0;
       try {
         // 不同语言整片发送；已是目标语言时按行直通，空白行留在分隔符里。
@@ -135,9 +137,11 @@ Stream<TranslationEvent> translateParagraphBatches(
     },
     onListen: () async {
       final source = request.sourceText;
-      final sameLanguage =
-          request.detectedLanguage ==
-          LanguageDirection.normalize(request.targetLanguage);
+      // isTarget 判断原文是否已是目标语言。
+      final sameLanguage = LanguageDirection.isTarget(
+        request.detectedLanguage,
+        request.targetLanguage,
+      );
       // 普通接口没有对齐信息；以原文行作为段落边界，空白行留在分隔符里。
       final paragraphs = [
         for (final match in RegExp(r'[^\r\n]+').allMatches(source))

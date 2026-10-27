@@ -29,6 +29,7 @@ import 'recognized_text_panel.dart';
 import 'screenshot_editor_layout.dart';
 import '../settings/screenshot_toolbar_preferences.dart';
 import '../common/constants/screenshot_actions.dart';
+import '../upload/s3_upload.dart';
 
 /// handle 为控制点方向，plusWhenIdle控制空白十字；channel为截图引擎，返回系统或原生对角光标。
 MouseCursor cursorForEditHandle(
@@ -952,7 +953,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       if (!mounted || _capture['id'] != id) return;
       if (target == null) {
         setState(() {
-          _message = '未配置上传目标，请在「设置 → 截图 → 上传分享」中填写。';
+          _message = uploadUnconfiguredMessage;
           _failed = true;
         });
         return;
@@ -2350,7 +2351,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
                   child: NativeGlassSurface(
                     material: true,
                     child: IconButton(
-                      key: const Key('screenshot-close'),
+                      key: const Key(ScreenshotActions.close),
                       tooltip: '关闭',
                       onPressed: _busy ? null : _close,
                       icon: const Icon(Icons.close, color: Colors.white),

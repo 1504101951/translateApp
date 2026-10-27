@@ -5,6 +5,7 @@ import '../common/constants/channel_names.dart';
 import '../common/constants/error_codes.dart';
 import '../common/constants/preference_keys.dart';
 import '../common/constants/screenshot_enums.dart';
+import '../common/constants/shortcut_keys.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -434,10 +435,10 @@ class _SettingsPageState extends State<_SettingsPage>
                 _recording
                     ? '请按下组合键，Esc 取消…'
                     : [
-                        if (code & 4096 != 0) '⌃',
-                        if (code & 2048 != 0) '⌥',
-                        if (code & 512 != 0) '⇧',
-                        if (code & 256 != 0) '⌘',
+                        if (code & ShortcutKeys.control != 0) '⌃',
+                        if (code & ShortcutKeys.option != 0) '⌥',
+                        if (code & ShortcutKeys.shift != 0) '⇧',
+                        if (code & ShortcutKeys.command != 0) '⌘',
                         label,
                       ].join(' '),
               ),

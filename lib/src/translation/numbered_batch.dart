@@ -1,10 +1,14 @@
 import 'translation_types.dart';
 
+/// text 为一个段落原文；返回段内换行改为空格的单行文本，批量请求以换行作段落边界时使用（#131）。
+String singleLineParagraph(String text) =>
+    text.replaceAll(RegExp(r'[\r\n]+'), ' ');
+
 /// texts 为同一批次的段落原文。返回“[编号] 原文”逐行排列的文本，编号从 1 开始；
 /// 段落内的换行改为空格，保证一行只对应一个段落。
 String numberedBatchText(List<String> texts) => [
   for (final (index, text) in texts.indexed)
-    '[${index + 1}] ${text.replaceAll(RegExp(r'[\r\n]+'), ' ')}',
+    '[${index + 1}] ${singleLineParagraph(text)}',
 ].join('\n');
 
 /// 把模型按“[编号] 译文”逐行输出的流式文本归属到批次内的段落。

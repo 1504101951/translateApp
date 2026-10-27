@@ -26,6 +26,10 @@ class LanguageDirection {
     );
   }
 
+  /// detected 为已规范化的识别语言或 null，target 为目标语言；返回原文是否已是目标语言（#131）。
+  static bool isTarget(String? detected, String target) =>
+      detected == normalize(target);
+
   /// raw 为 BCP-47 或下划线格式语言码；返回翻译服务使用的语言码。
   static String normalize(String raw) {
     final parts = raw.replaceAll('_', '-').toLowerCase().split('-');

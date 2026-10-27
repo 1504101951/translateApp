@@ -2,6 +2,7 @@ import '../screenshot/drawing_preferences.dart';
 import '../common/constants/appearance_modes.dart';
 import '../common/constants/preference_keys.dart';
 import '../common/constants/screenshot_enums.dart';
+import '../common/constants/shortcut_keys.dart';
 import '../upload/s3_upload.dart';
 import '../translation/glossary.dart';
 import '../translation/language_direction.dart';
@@ -263,15 +264,14 @@ class AppSettings {
       ),
     ];
     for (final (code, label, modifiers) in shortcuts) {
+      // ShortcutKeys 与 Swift 注册校验共用键码、修饰键掩码与文案（#131）。
       if (code < 0 ||
-          code > 127 ||
-          code == 53 ||
+          code > ShortcutKeys.maxKeyCode ||
+          code == ShortcutKeys.escape ||
           label.isEmpty ||
-          modifiers & 6400 == 0 ||
-          modifiers & ~6912 != 0) {
-        throw const FormatException(
-          '快捷键至少需要 Control、Option 或 Command，且不能使用 Esc。',
-        );
+          modifiers & ShortcutKeys.required == 0 ||
+          modifiers & ~ShortcutKeys.allowed != 0) {
+        throw const FormatException(ShortcutKeys.invalidMessage);
       }
     }
     // 三个全局快捷键在同一注册事务中生效，组合（键码与修饰键）不能重复。

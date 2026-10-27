@@ -546,8 +546,10 @@ class LiveRegionSession {
         final direction = settings.direction.resolve(
           detected ?? (_containsCjk(joined) ? 'zh-Hans' : null),
         );
-        if (direction.detectedLanguage ==
-            LanguageDirection.normalize(direction.targetLanguage)) {
+        if (LanguageDirection.isTarget(
+          direction.detectedLanguage,
+          direction.targetLanguage,
+        )) {
           // 已是目标语言时原文即译文，不产生网络请求。
           for (final (index, text) in texts.indexed) {
             batch.partial[index].write(text);

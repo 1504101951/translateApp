@@ -9,6 +9,9 @@ import '../common/widgets/native_glass.dart';
 import 'screenshot_compose_dialogs.dart';
 import 'screenshot_history.dart';
 
+/// 截图历史操作失败且主引擎没有给出原因时的提示（#131）。
+const _operationFailed = '操作失败，请重试。';
+
 /// 历史窗口的截图分段；数据以主引擎为准，文件操作交给原生（#29）。
 class ScreenshotHistoryPage extends StatefulWidget {
   /// channel 为历史窗口通道，version 递增时重新读取（主引擎通知变更后由窗口传入）。
@@ -100,7 +103,7 @@ class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
       if (reload) await _load();
     } on PlatformException catch (error) {
       if (!mounted) return;
-      setState(() => _message = error.message ?? '操作失败，请重试。');
+      setState(() => _message = error.message ?? _operationFailed);
     }
   }
 
@@ -123,7 +126,7 @@ class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
       await _load();
     } on PlatformException catch (error) {
       if (!mounted) return;
-      setState(() => _message = error.message ?? '操作失败，请重试。');
+      setState(() => _message = error.message ?? _operationFailed);
     }
   }
 
@@ -189,7 +192,7 @@ class _ScreenshotHistoryPageState extends State<ScreenshotHistoryPage> {
       );
     } on PlatformException catch (error) {
       if (!mounted) return;
-      setState(() => _message = error.message ?? '操作失败，请重试。');
+      setState(() => _message = error.message ?? _operationFailed);
     }
   }
 

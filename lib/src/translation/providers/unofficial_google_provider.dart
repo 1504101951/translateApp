@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../../settings/service_config.dart';
 import '../translation_types.dart';
+import '../numbered_batch.dart';
 import '../paragraph_translation.dart';
 
 /// 零配置翻译源。单篇翻译按段落分批调用批量接口并独占一个 HTTP 连接；实时翻译的批量请求使用会话传入的连接。
@@ -60,10 +61,8 @@ class UnofficialGoogleProvider implements BatchTranslationProvider {
       final connection = await _open(
         client,
         // 一行只放一个段落，换行才能作为段落边界。
-        q: [
-          for (final text in request.texts)
-            text.replaceAll(RegExp(r'[\r\n]+'), ' '),
-        ].join('\n'),
+        q: [for (final text in request.texts) singleLineParagraph(text)]
+            .join('\n'),
         detected: request.detectedLanguage,
         target: request.targetLanguage,
       );

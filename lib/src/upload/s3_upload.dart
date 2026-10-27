@@ -8,6 +8,9 @@ import 'package:crypto/crypto.dart';
 
 import '../common/constants/network_limits.dart';
 
+/// 未配置上传目标时的提示；截图编辑与主引擎上传请求共用（#131）。
+const uploadUnconfiguredMessage = '未配置上传目标，请在「设置 → 截图 → 上传分享」中填写。';
+
 /// S3 兼容存储的上传目标；来自设置「截图 → 上传分享」，访问密钥另存钥匙串（#111）。
 /// 请求使用路径式地址 `endpoint/bucket/key`，兼容 AWS S3、Cloudflare R2、MinIO 等。
 class S3Target {

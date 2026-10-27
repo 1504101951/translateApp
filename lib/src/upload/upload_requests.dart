@@ -22,7 +22,7 @@ Future<Object?> handleUploadRequest(
   if (target == null) {
     throw PlatformException(
       code: ErrorCodes.uploadFailed,
-      message: '未配置上传目标，请在「设置 → 截图 → 上传分享」中填写。',
+      message: uploadUnconfiguredMessage,
     );
   }
   final arguments = Map<Object?, Object?>.from(call.arguments as Map);

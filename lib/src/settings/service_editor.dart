@@ -136,8 +136,7 @@ class _ServiceEditorState extends State<ServiceEditor> {
   /// context 为对话框上下文；返回服务字段和可验证的连接测试入口。
   @override
   Widget build(BuildContext context) {
-    final isModel =
-        _kind == 'openai' || _kind == 'deepseek' || _kind == 'anthropic';
+    final isModel = ServiceConfig.isModelKind(_kind);
     // 系统翻译在本机完成，不显示服务地址与凭据字段。
     final isSystem = ServiceConfig.isSystemKind(_kind);
     return PopScope(

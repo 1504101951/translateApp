@@ -310,8 +310,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
       http.followRedirects = false;
       // 一行只放一个段落，换行才能作为段落边界。
       final lines = [
-        for (final text in request.texts)
-          text.replaceAll(RegExp(r'[\r\n]+'), ' '),
+        for (final text in request.texts) singleLineParagraph(text),
       ];
       switch (config.kind) {
         case 'baidu':
