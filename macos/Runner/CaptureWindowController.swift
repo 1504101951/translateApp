@@ -652,7 +652,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                     // datedDirectory创建截图/日期目录；save按源像素写入，不经过裁剪编码。
                     let directory = try ScreenshotStorage.datedDirectory(
                         basePath: UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
-                        extension: "png")
+                        category: .screenshot)
                     let url = try ScreenshotStorage.save(png, directory: directory, name: name)
                     service.noteSavedScroll(url.path)
                 default:
@@ -670,7 +670,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         // datedDirectory统一创建媒体分类和日期目录，最终发布再处理同名冲突。
         let directory = try ScreenshotStorage.datedDirectory(
             basePath: UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
-            extension: kind.rawValue, date: date)
+            category: ScreenshotStorage.Category(kind), date: date)
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")

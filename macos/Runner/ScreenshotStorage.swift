@@ -11,25 +11,29 @@ enum ScreenshotStorage {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
-    /// basePath为根目录偏好，extension为保存类型png/mp4/gif/apng/webm（apng文件扩展名仍为png），date为发起保存的本地日期；创建并返回分类日期目录。
-    static func datedDirectory(basePath: String?, extension fileExtension: String, date: Date = Date()) throws -> URL {
-        let category: String
-        switch fileExtension {
-        case "png": category = "截图"
-        case "mp4": category = "视频"
-        case "gif": category = "gif"
-        // APNG 按单独分类保存，不与截图混放（#110）。
-        case "apng": category = "apng"
-        case "webm": category = "webm"
-        default: throw NSError(domain: "TranslateApp", code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "不支持此采集文件类型。"])
+    /// 保存分类；rawValue 为根目录下的分类文件夹名。APNG 单独分类，不与截图混放（#110）；类型封闭，无需处理未知类型（#130）。
+    enum Category: String {
+        case screenshot = "截图", video = "视频", gif, apng, webm
+
+        /// export 为录制导出类型；返回对应保存分类。
+        init(_ export: RecordingExport) {
+            switch export {
+            case .mp4: self = .video
+            case .gif: self = .gif
+            case .apng: self = .apng
+            case .webm: self = .webm
+            }
         }
+    }
+
+    /// basePath为根目录偏好，category为保存分类，date为发起保存的本地日期；创建并返回分类日期目录。
+    static func datedDirectory(basePath: String?, category: Category, date: Date = Date()) throws -> URL {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         // 日期只在操作发起时冻结，跨午夜的后台导出仍写入同一次操作的目录。
-        let directory = rootDirectory(basePath).appendingPathComponent(category, isDirectory: true)
+        let directory = rootDirectory(basePath).appendingPathComponent(category.rawValue, isDirectory: true)
             .appendingPathComponent(formatter.string(from: date), isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory

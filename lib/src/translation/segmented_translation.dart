@@ -8,15 +8,10 @@ const translationSegmentTarget = 4000;
 const translationSegmentMax = 6000;
 const slidingContextChars = 1000;
 
-/// source 为完整原文；按约 4000 字分包，为保住段落可到 6000，超长段再按句/硬切。
-List<String> splitTranslationSegments(
-  String source, {
-  int target = translationSegmentTarget,
-  int max = translationSegmentMax,
-}) {
-  if (target <= 0 || max < target) {
-    throw ArgumentError('分片目标必须大于0且不超过上限。');
-  }
+/// source 为完整原文；按约 4000 字分包，为保住段落可到 6000，超长段再按句/硬切；返回按顺序拼接即为原文的分片列表。
+List<String> splitTranslationSegments(String source) {
+  const target = translationSegmentTarget;
+  const max = translationSegmentMax;
   if (source.isEmpty) return const [];
   if (source.characters.length <= max) return [source];
 

@@ -550,7 +550,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                     // datedDirectory统一默认路径；save独占创建，重名只增加序号。
                     let directory = try ScreenshotStorage.datedDirectory(
                         basePath: UserDefaults.standard.string(forKey: AppConstants.screenshotSaveDirectoryKey),
-                        extension: "png")
+                        category: .screenshot)
                     let url = try ScreenshotStorage.save(payload, directory: directory, name: name)
                     result(url.path)
                 } catch {

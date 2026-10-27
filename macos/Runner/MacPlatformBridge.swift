@@ -5,7 +5,6 @@ import Security
 import LocalAuthentication
 import NaturalLanguage
 import ServiceManagement
-import UniformTypeIdentifiers
 import FlutterMacOS
 
 /// Dart ↔ Swift 平台通道。不保存翻译状态，不实现 Provider。

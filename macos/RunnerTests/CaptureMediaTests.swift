@@ -38,8 +38,12 @@ final class CaptureMediaTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         // 日期用公历构造，不受用户的日历区域设置影响。
         let date = try XCTUnwrap(Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 12)))
-        for (kind, category, ext) in [("png", "截图", "png"), ("mp4", "视频", "mp4"), ("gif", "gif", "gif"), ("apng", "apng", "png"), ("webm", "webm", "webm")] {
-            let folder = try ScreenshotStorage.datedDirectory(basePath: directory.path, extension: kind, date: date)
+        let kinds: [(ScreenshotStorage.Category, String, String)] = [
+            (.screenshot, "截图", "png"), (ScreenshotStorage.Category(.mp4), "视频", "mp4"), (ScreenshotStorage.Category(.gif), "gif", "gif"),
+            (ScreenshotStorage.Category(.apng), "apng", "png"), (ScreenshotStorage.Category(.webm), "webm", "webm"),
+        ]
+        for (kind, category, ext) in kinds {
+            let folder = try ScreenshotStorage.datedDirectory(basePath: directory.path, category: kind, date: date)
             XCTAssertEqual(folder.path, directory.appendingPathComponent("\(category)/2026-10-01").path)
             let target = folder.appendingPathComponent("采集.\(ext)")
             let source = directory.appendingPathComponent("source.\(ext)")
@@ -56,7 +60,7 @@ final class CaptureMediaTests: XCTestCase {
         // 根路径被真实文件占用时必须失败，不能报告保存成功或污染该文件。
         let blockedRoot = directory.appendingPathComponent("blocked")
         try Data([7]).write(to: blockedRoot)
-        XCTAssertThrowsError(try ScreenshotStorage.datedDirectory(basePath: blockedRoot.path, extension: "png", date: date))
+        XCTAssertThrowsError(try ScreenshotStorage.datedDirectory(basePath: blockedRoot.path, category: .screenshot, date: date))
         XCTAssertEqual(try Data(contentsOf: blockedRoot), Data([7]))
         // 同一毫秒内或重复保存同一截图是重名边界，已有文件的字节必须完全保留。
         let first = try ScreenshotStorage.save(Data([1, 2, 3]), directory: directory, name: "截图.png")

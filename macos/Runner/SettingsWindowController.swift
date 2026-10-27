@@ -1,5 +1,4 @@
 import Cocoa
-import Carbon
 import FlutterMacOS
 
 /// 设置使用独立 Flutter 引擎和普通窗口；浮层保持非激活且不共享视图控制器。
