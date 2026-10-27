@@ -625,7 +625,9 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                     guard let self else { return }
                     self.pendingStartup = nil
                     guard let started else {
-                        // reportStartFailure 统一提示截图预览未就绪，失败资源由启动对象释放。
+                        // cancelCapture 清空未显示的草稿及采集身份，后续录制与实时翻译不能复用。
+                        self.cancelCapture()
+                        // reportStartFailure 在草稿清理后统一提示截图预览未就绪。
                         WindowEngine.reportStartFailure("截图预览")
                         return
                     }
