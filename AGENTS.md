@@ -18,7 +18,7 @@
 
 ## 并行会话
 
-使用完整 Codex 任务 ID 隔离临时产物并标记 Issue 输出，具体规则见 [会话隔离规范](docs/agents/session.md)。
+使用所用智能体框架的完整会话 ID 隔离临时产物，并以 `<框架名>-Thread` 标记 Issue 输出，具体规则见 [会话隔离规范](docs/agents/session.md)。
 
 ## 先更新规格，再开发
 

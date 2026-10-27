@@ -10,8 +10,8 @@
 - 用 `gh issue comment <编号>` 发表评论。
 - 用 `gh issue edit <编号>` 添加或移除标签。
 - 不关闭 Issue；状态规则见 `AGENTS.md`。
-- `Codex-Thread` 标记规则见 `docs/agents/session.md`。
-- 创建前先搜索同一来源和同一 Codex 线程的已有 Issue，避免重复。
+- `<框架名>-Thread` 会话标记规则见 `docs/agents/session.md`。
+- 创建前先搜索同一来源和同一会话的已有 Issue，避免重复。
 
 ## 拉取请求
 
