@@ -195,8 +195,6 @@ enum AppConstants {
     static let getAppearanceMethod = "getAppearance"
     /// getScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let getScreenshotMethod = "getScreenshot"
-    /// getSettings 协议值；与Dart常量及持久化调用方同步。
-    static let getSettingsMethod = "getSettings"
     /// glassAppearance 协议值；与Dart常量及持久化调用方同步。
     static let glassAppearanceKey = "glassAppearance"
     /// glassOpacity 协议值；与Dart常量及持久化调用方同步。
@@ -205,10 +203,6 @@ enum AppConstants {
     static let hideOverlayMethod = "hideOverlay"
     /// historyMain 协议值；与Dart常量及持久化调用方同步。
     static let historyEntrypoint = "historyMain"
-    /// historyPage 协议值；与Dart常量及持久化调用方同步。
-    static let historyPageMethod = "historyPage"
-    /// historyRecording 协议值；与Dart常量及持久化调用方同步。
-    static let historyRecordingMethod = "historyRecording"
     /// isCurrentScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let isCurrentScreenshotMethod = "isCurrentScreenshot"
     /// keychain_failed 协议值；与Dart常量及持久化调用方同步。
@@ -269,8 +263,6 @@ enum AppConstants {
     static let rollbackFailedError = "rollback_failed"
     /// saveScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let saveScreenshotMethod = "saveScreenshot"
-    /// saveSettings 协议值；与Dart常量及持久化调用方同步。
-    static let saveSettingsMethod = "saveSettings"
     /// save_failed 协议值；与Dart常量及持久化调用方同步。
     static let saveFailedError = "save_failed"
     /// screenshotChanged 协议值；与Dart常量及持久化调用方同步。
@@ -285,8 +277,6 @@ enum AppConstants {
     static let selectionCapturedEvent = "selectionCaptured"
     /// selectionInvalidated 协议值；与Dart常量及持久化调用方同步。
     static let selectionInvalidatedEvent = "selectionInvalidated"
-    /// setHistoryRecording 协议值；与Dart常量及持久化调用方同步。
-    static let setHistoryRecordingMethod = "setHistoryRecording"
     /// setOverlaySize 协议值；与Dart常量及持久化调用方同步。
     static let setOverlaySizeMethod = "setOverlaySize"
     /// settingsMain 协议值；与Dart常量及持久化调用方同步。
@@ -321,18 +311,6 @@ enum AppConstants {
     static let uploadTargetMethod = "uploadTarget"
     /// uploadScreenshot 协议值；截图引擎把 PNG 交给主引擎上传，返回分享链接（#111），与Dart常量同步。
     static let uploadScreenshotMethod = "uploadScreenshot"
-    /// screenshotHistoryList 协议值；历史窗口读取截图历史，转发主引擎，与Dart常量同步。
-    static let screenshotHistoryListMethod = "screenshotHistoryList"
-    /// deleteScreenshotHistory 协议值；历史窗口删除截图历史，转发主引擎，与Dart常量同步。
-    static let deleteScreenshotHistoryMethod = "deleteScreenshotHistory"
-    /// clearScreenshotHistory 协议值；历史窗口清空截图历史，转发主引擎，与Dart常量同步。
-    static let clearScreenshotHistoryMethod = "clearScreenshotHistory"
-    /// screenshotHistoryRecording 协议值；读取截图历史开关，转发主引擎，与Dart常量同步。
-    static let screenshotHistoryRecordingMethod = "screenshotHistoryRecording"
-    /// setScreenshotHistoryRecording 协议值；设置截图历史开关，转发主引擎，与Dart常量同步。
-    static let setScreenshotHistoryRecordingMethod = "setScreenshotHistoryRecording"
-    /// addScreenshotHistory 协议值；历史窗口把拼接或拆分结果加入截图历史，转发主引擎（#109），与Dart常量同步。
-    static let addScreenshotHistoryMethod = "addScreenshotHistory"
     /// stitchScreenshots 协议值；按顺序拼接截图历史图片（#109），与Dart常量同步。
     static let stitchScreenshotsMethod = "stitchScreenshots"
     /// splitScreenshot 协议值；按高度等分一张截图历史图片（#109），与Dart常量同步。
@@ -349,10 +327,6 @@ enum AppConstants {
     static let lookupDefinitionMethod = "lookupDefinition"
     /// vocabularyList 协议值；历史窗口读取生词本，转发主引擎，与Dart常量同步。
     static let vocabularyListMethod = "vocabularyList"
-    /// deleteVocabulary 协议值；历史窗口删除生词，转发主引擎，与Dart常量同步。
-    static let deleteVocabularyMethod = "deleteVocabulary"
-    /// vocabularyCsv 协议值；历史窗口取得生词本 CSV，转发主引擎，与Dart常量同步。
-    static let vocabularyCsvMethod = "vocabularyCsv"
     /// saveTextFile 协议值；经系统保存面板保存文本文件，与Dart常量同步。
     static let saveTextFileMethod = "saveTextFile"
     /// toggleSpeech 协议值；朗读或停止朗读卡片一栏文字，与Dart常量同步。
@@ -373,8 +347,6 @@ enum AppConstants {
     static let systemTranslationUnsupported = "unsupported"
     /// 系统翻译高保真策略；与Dart SystemTranslationStrategy同步，其余值按低延迟处理。
     static let systemTranslationHighFidelity = "highFidelity"
-    /// testService 协议值；与Dart常量及持久化调用方同步。
-    static let testServiceMethod = "testService"
     /// toggleAutomatic 协议值；与Dart常量及持久化调用方同步。
     static let toggleAutomaticMethod = "toggleAutomatic"
     /// translatePlainText 协议值；与Dart常量及持久化调用方同步。

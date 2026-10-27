@@ -52,12 +52,6 @@ abstract final class PreferenceKeys {
   /// launchAtLogin 的稳定协议值，变更须同步两端及持久化调用方。
   static const launchAtLogin = 'launchAtLogin';
 
-  /// permissionWizardFinished 的稳定协议值，变更须同步两端及持久化调用方。
-  static const permissionWizardFinished = 'permissionWizardFinished';
-
-  /// preferences 的稳定协议值，变更须同步两端及持久化调用方。
-  static const preferences = 'preferences';
-
   /// primaryLanguage 的稳定协议值，变更须同步两端及持久化调用方。
   static const primaryLanguage = 'primaryLanguage';
 
