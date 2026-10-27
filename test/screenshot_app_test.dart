@@ -319,73 +319,6 @@ void main() {
     expect(find.text('已复制图片'), findsOneWidget);
   });
 
-  testWidgets('贴图按钮发送合成 bytes 并显示已贴图', (tester) async {
-    // 边界：必须走真实 ScreenshotApp 贴图按钮与 _export('pin')，断言通道收到合成 PNG。
-    tester.view.physicalSize = const Size(960, 740);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final bytes = await tester.runAsync(_pngCheckerboard);
-    const channel = MethodChannel('test/screenshot-pin');
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    // 替身模拟原生侧状态：贴出的图片、剪贴板、已保存文件与编辑窗是否关闭。
-    final pinned = <Uint8List>[];
-    var copied = false;
-    var saved = false;
-    var closed = false;
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      switch (call.method) {
-        case MethodNames.getScreenshot:
-          return {
-            'id': 'shot-pin',
-            'bytes': bytes,
-            'capturedAt': 1788662400000,
-            'width': 8,
-            'height': 8,
-            'displayX': 100.0,
-            'displayY': 200.0,
-            'displayWidth': 800.0,
-            'displayHeight': 600.0,
-            'directory': '',
-          };
-        case MethodNames.pinScreenshot:
-          final args = Map<Object?, Object?>.from(call.arguments as Map);
-          expect(args['id'], 'shot-pin');
-          expect(args['bytes'], isA<Uint8List>());
-          expect(args['x'], 100.0);
-          expect(args['y'], 200.0);
-          pinned.add(args['bytes'] as Uint8List);
-          return 'pin-live-1';
-        case MethodNames.copyScreenshot:
-          copied = true;
-          return null;
-        case MethodNames.saveScreenshot:
-          saved = true;
-          return null;
-        case MethodNames.closeScreenshot:
-          closed = true;
-          return null;
-        default:
-          return null;
-      }
-    });
-    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
-
-    await tester.pumpWidget(const ScreenshotApp(channel: channel));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('screenshot-canvas')), findsOneWidget);
-
-    await _tapExport(tester, const Key('screenshot-pin'));
-    // 贴出恰好一张有效 PNG，编辑窗关闭，剪贴板与保存目录不变。
-    expect(pinned, hasLength(1));
-    expect(pinned.single.length, greaterThan(32));
-    expect(closed, isTrue);
-    expect(copied, isFalse);
-    expect(saved, isFalse);
-  });
-
   testWidgets('无屏幕录制权限时不进入编辑画布', (tester) async {
     // 边界：仅 screenAccess=false、无 bytes 时展示申请入口，不创建编辑画布。
     const channel = MethodChannel('test/screenshot-denied');
@@ -417,20 +350,20 @@ void main() {
     expect(find.byKey(const Key('screenshot-canvas')), findsNothing);
   });
 
-  testWidgets('识别文字只打开结果弹窗，点复制全部才写剪贴板，弹窗不自动关闭', (tester) async {
-    // 作用：识别结果先给用户看，由用户决定复制哪些。
-    // 边界：识别完成后剪贴板调用为 0 次；点“复制全部”后恰好 1 次且为全文；2 秒后弹窗仍在。
+  testWidgets('识别结果渲染 Markdown，复制全部保存原文且弹窗保留到手动关闭', (tester) async {
+    // 作用：验证识别结果展示、模拟原生剪贴板内容与弹窗生命周期。
+    // 边界：识别后不自动复制；复制全部保留标题与表格标记，2 秒后弹窗仍在，手动关闭才消失。
     tester.view.physicalSize = const Size(960, 740);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final bytes = await tester.runAsync(_pngCheckerboard);
     const channel = MethodChannel('test/screenshot-ocr');
-    // 原生识别结果为 Markdown；「复制全部」必须复制这段原文而不是渲染后的文字。
+    // 原生识别结果含标题与表格，页面应显示排版后的正文。
     const markdown = '# Hello\n\n| World |\n| --- |';
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    // 替身模拟系统剪贴板中的文字。
+    // 模拟原生剪贴板的业务状态，保存收到的实际文本而非调用次数。
     String? clipboard;
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == MethodNames.getScreenshot) {
@@ -448,16 +381,17 @@ void main() {
       }
       if (call.method == MethodNames.copyText) {
         clipboard = (call.arguments as Map)['text'] as String;
-        return null;
       }
       return null;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const ScreenshotApp(channel: channel));
     await tester.pump();
+    // _tapExport 启动识别并等待结果弹窗。
     await _tapExport(tester, const Key('screenshot-ocr-copy'));
-    // 识别完成只打开弹窗，不写剪贴板；弹窗渲染 Markdown，不显示标记符号。
+    // 识别完成显示 Markdown 正文，尚未展示复制成功反馈。
     expect(clipboard, isNull);
+    expect(find.text('已复制文字'), findsNothing);
     expect(find.text('Hello'), findsOneWidget);
     expect(find.text('World'), findsOneWidget);
     expect(find.textContaining('# '), findsNothing);
@@ -659,8 +593,9 @@ void main() {
     expect(find.text('已在图上显示译文'), findsNothing);
   });
 
-  testWidgets('截图翻译的迟到识别结果不在替换后的截图上显示，也不发起翻译（#115）', (tester) async {
-    // 边界：识别请求已发出、结果到达前截图被替换；迟到结果不生成覆盖层、不调用翻译、不显示成功反馈。
+  testWidgets('截图翻译的迟到识别结果不发起翻译且不在替换后的截图上显示（#115）', (tester) async {
+    // 作用：截图被替换后，旧识别结果不能进入主引擎翻译业务。
+    // 边界：识别完成前换图；模拟主引擎没有收到旧原文，当前画布不出现旧译文或成功反馈。
     tester.view.physicalSize = const Size(960, 740);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -680,7 +615,7 @@ void main() {
     };
     final requested = Completer<void>();
     final reply = Completer<List<Object?>>();
-    // 替身模拟主引擎收到的翻译原文；迟到结果不应产生任何翻译请求。
+    // 模拟主引擎收到的原文状态，不以界面隐藏代替没有翻译请求。
     String? translatedSource;
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
@@ -714,7 +649,10 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 100)),
       );
     }
-    expect(requested.isCompleted, isTrue);
+    // 完成器仅用于安排“识别期间换图”的输入顺序，不作为业务断言。
+    await tester.runAsync(
+      () => requested.future.timeout(const Duration(seconds: 1)),
+    );
     await messenger.handlePlatformMessage(
       channel.name,
       codec.encodeMethodCall(
@@ -731,6 +669,7 @@ void main() {
     ]);
     await tester.pumpAndSettle();
     expect(translatedSource, isNull);
+    expect(find.byKey(const Key('screenshot-canvas')), findsOneWidget);
     expect(find.text('你好'), findsNothing);
     expect(find.text('已在图上显示译文'), findsNothing);
   });

@@ -366,6 +366,97 @@ class RunnerTests: XCTestCase {
         }
     }
 
+    /// 验证配置快捷键经真实 Flutter 引擎贴图后保留像素、结束截图且不复制或保存；无参数、无返回值。
+    @MainActor
+    func testScreenshotPinShortcutPreservesImageAndClosesWithoutCopyOrSave() async throws {
+        let defaults = UserDefaults.standard
+        let previousPreferences = defaults.object(forKey: AppConstants.preferencesKey)
+        let previousDirectory = defaults.object(forKey: AppConstants.screenshotSaveDirectoryKey)
+        let previousRegion = defaults.object(forKey: AppConstants.lastScreenshotRegionKey)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "ScreenshotPin-01a17aec-c9a5-72f3-b897-aa5e2c2e720d-\(UUID().uuidString)", isDirectory: true
+        )
+        let board = NSPasteboard.withUniqueName()
+        let controller = ScreenshotWindowController(pasteboard: board)
+        defer {
+            // 释放真实截图引擎与独立贴图，恢复偏好并清理本用例的隔离资源。
+            controller.shutdown()
+            board.releaseGlobally()
+            if let previousPreferences { defaults.set(previousPreferences, forKey: AppConstants.preferencesKey) }
+            else { defaults.removeObject(forKey: AppConstants.preferencesKey) }
+            if let previousDirectory { defaults.set(previousDirectory, forKey: AppConstants.screenshotSaveDirectoryKey) }
+            else { defaults.removeObject(forKey: AppConstants.screenshotSaveDirectoryKey) }
+            if let previousRegion { defaults.set(previousRegion, forKey: AppConstants.lastScreenshotRegionKey) }
+            else { defaults.removeObject(forKey: AppConstants.lastScreenshotRegionKey) }
+            try? FileManager.default.removeItem(at: root)
+        }
+        var preferences = previousPreferences as? [String: Any] ?? [:]
+        // 112/8 对应逻辑字符 p 与 Command；35 是 ANSI P，覆盖用户配置到原生事件的映射。
+        preferences[AppConstants.screenshotToolbarShortcutsKey] = ["screenshot-pin": ["keyId": 112, "modifiers": 8]]
+        defaults.set(preferences, forKey: AppConstants.preferencesKey)
+        defaults.set(root.path, forKey: AppConstants.screenshotSaveDirectoryKey)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sentinel = root.appendingPathComponent("existing.bin")
+        let savedContents = Data([0, 1, 2, 255])
+        try savedContents.write(to: sentinel)
+        let existingFiles = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+        let clipboardImage = try screenshotFixture(width: 2, height: 3, color: .blue)
+        XCTAssertTrue(board.setData(clipboardImage, forType: .png))
+        XCTAssertTrue(board.setString("clipboard stays unchanged", forType: .string))
+        let clipboardChangeCount = board.changeCount
+        let png = try screenshotFixture(width: 80, height: 60, color: NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1))
+        let id = "pin-shortcut"
+        // seedCaptureForTesting 启动生产截图编辑窗与真实 Dart 引擎，不直接调用贴图或关闭方法。
+        controller.seedCaptureForTesting(png: png, id: id, width: 80, height: 60, showEditor: true)
+        // waitForScreenshotEditor 等待入口确认，后续事件针对真实可见窗口。
+        _ = try await waitForScreenshotEditor()
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        let panel = try XCTUnwrap(NSApp.windows.first { $0 is ScreenshotPanel && $0.isVisible })
+        // isCurrentCapture 确认快捷键前会话有效，贴图必须由本次操作创建。
+        XCTAssertTrue(controller.isCurrentCapture(id))
+        XCTAssertEqual(controller.pins.count, 0)
+        panel.makeFirstResponder(nil)
+        panel.resignKey()
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+            windowNumber: panel.windowNumber, context: nil, characters: "p",
+            charactersIgnoringModifiers: "p", isARepeat: false, keyCode: 35
+        ))
+        // filterScreenshotEvent 消费原生配置键，再由 Dart 完成合成、贴图及关闭会话。
+        XCTAssertNil(controller.filterScreenshotEvent(try XCTUnwrap(event.cgEvent)))
+        // isCurrentCapture 检查身份已失效；仅隐藏编辑窗或仅创建贴图都不足以完成此操作。
+        let completed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controller.pins.count == 1 && !controller.isCurrentCapture(id) && !panel.isVisible
+        }, object: nil)
+        await fulfillment(of: [completed], timeout: 2)
+        let pin = try XCTUnwrap(controller.pins.firstPanel)
+        XCTAssertTrue(pin.isVisible)
+        let decoded = try XCTUnwrap(pin.imageViewForTesting.image?.representations.first as? NSBitmapImageRep)
+        // 非正方形尺寸检测裁切与宽高交换；四角及中心检测边界丢失、空白或颜色变化。
+        XCTAssertEqual(decoded.pixelsWide, 80)
+        XCTAssertEqual(decoded.pixelsHigh, 60)
+        let original = try XCTUnwrap(NSBitmapImageRep(data: png))
+        XCTAssertEqual(try XCTUnwrap(decoded.colorSpace.iccProfileData),
+                       try XCTUnwrap(original.colorSpace.iccProfileData))
+        // PNG 色彩配置保持一致后逐点读取原始通道，避免 NSColor 转换改变采样数值。
+        // 原生解码按实际采样位深表示满量程；纯红和全不透明必须精确到该位深的最大值。
+        let fullChannel = (1 << decoded.bitsPerSample) - 1
+        for (x, y) in [(0, 0), (79, 0), (0, 59), (79, 59), (40, 30)] {
+            var samples = [Int](repeating: 0, count: decoded.samplesPerPixel)
+            decoded.getPixel(&samples, atX: x, y: y)
+            XCTAssertEqual(samples, [fullChannel, 0, 0, fullChannel])
+        }
+        XCTAssertFalse(panel.isVisible)
+        // isCurrentCapture 核对最终身份，不能用测试主动关闭编辑窗来制造通过条件。
+        XCTAssertFalse(controller.isCurrentCapture(id))
+        XCTAssertEqual(board.changeCount, clipboardChangeCount)
+        XCTAssertEqual(board.data(forType: .png), clipboardImage)
+        XCTAssertEqual(board.string(forType: .string), "clipboard stays unchanged")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(), existingFiles)
+        XCTAssertEqual(try Data(contentsOf: sentinel), savedContents)
+    }
+
+
     /// 无参数；成功读取保留段落并恢复原内容；取消先于新写入、读取期间用户写入时保留用户的新内容；
     /// 复制结果不属于选区时剪贴板仍是本次复制的结果，还原为复制前的内容（#117）。
     @MainActor
