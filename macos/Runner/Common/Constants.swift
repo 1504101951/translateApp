@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Carbon
 
 /// 采集目标协议；rawValue与Dart CaptureTarget.name逐项对应。
 enum CaptureTarget: String { case region, application, display }
@@ -143,6 +144,10 @@ enum AppConstants {
     static let gifMaximumWidthKey = "gifMaximumWidth"
     /// escapeKeyCode 的平台约定；调用方共享同一协议或硬件定义。
     static let escapeKeyCode: UInt16 = 53
+    /// 全局快捷键必须包含其中至少一个修饰键（Carbon 修饰键位）。
+    static let shortcutRequiredModifiers = UInt32(cmdKey | optionKey | controlKey)
+    /// 全局快捷键允许出现的全部修饰键（Carbon 修饰键位）。
+    static let shortcutAllowedModifiers = shortcutRequiredModifiers | UInt32(shiftKey)
     /// returnKeyCode 的平台约定；调用方共享同一协议或硬件定义。
     static let returnKeyCode: UInt16 = 36
     /// keypadEnterKeyCode 的平台约定；调用方共享同一协议或硬件定义。
@@ -370,6 +375,19 @@ enum AppConstants {
 
     /// App 在用户 Application Support 下的数据目录名；历史库与 MCP socket 共用。
     static let applicationSupportFolderName = "TranslateApp"
+    /// 本应用 NSError 的统一域名。
+    static let errorDomain = "TranslateApp"
+    /// 钥匙串读写失败的 NSError 域名。
+    static let keychainErrorDomain = "TranslateApp.Keychain"
+    /// 缺少屏幕录制权限时显示给用户的统一提示。
+    static let screenRecordingRequiredMessage = "需要屏幕录制权限，请在系统设置中允许 TranslateApp 后重试。"
+    /// 长图结果窗的最小内容尺寸，单位点。
+    static let longScreenshotResultMinimumSize = NSSize(width: 320, height: 240)
+    /// 无参数；返回用户 Application Support 下的 App 数据目录（不保证已创建），历史库与 MCP socket 共用。
+    static var applicationSupportURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(applicationSupportFolderName, isDirectory: true)
+    }
     /// MCP 接口（#96、#68「MCP 接口边界」）：stdio helper 与 App 共用的名称、图片预算和英文协议文案。
     /// helper 可执行文件名，位于 App 包 Contents/MacOS。
     static let mcpHelperName = "translateapp-mcp"
@@ -391,6 +409,42 @@ enum AppConstants {
     static let mcpVersionMismatchMessage = "TranslateApp and its MCP helper are different versions. Restart TranslateApp, then retry."
     /// OCR 没有识别到文字时返回给 agent 的文本。
     static let mcpNoTextMessage = "No text recognized."
+    /// 截图类工具的矩形超出参考清晰度图片时的错误；reference 为清晰度名，display 为显示器序号，width/height 为该图尺寸。
+    static func mcpRectangleOutOfRangeMessage(reference: String, display: Int, width: Int, height: Int) -> String {
+        "Rectangle exceeds the \(reference) image of display \(display) (\(width)×\(height))."
+    }
+    /// capture_window 找不到窗口时的错误；windowID 为请求的窗口编号。
+    static func mcpWindowNotFoundMessage(windowID: UInt32) -> String {
+        "window_id \(windowID) not found; call list_windows again."
+    }
+    /// 截图失败时的错误；reason 为失败原因描述。
+    static func mcpCaptureFailedMessage(_ reason: String) -> String { "Capture failed: \(reason)" }
+    /// 显示器序号越界时的错误；index 为请求序号，count 为当前显示器数量。
+    static func mcpDisplayOutOfRangeMessage(index: Int, count: Int) -> String {
+        "display_index \(index) is out of range; \(count) displays available."
+    }
+    /// 工具调用包含未声明参数时的错误；name 为参数名。
+    static func mcpUnknownArgumentMessage(_ name: String) -> String { "Unknown argument: \(name)" }
+    /// 工具调用缺少必填参数时的错误；key 为参数名。
+    static func mcpMissingArgumentMessage(_ key: String) -> String { "Missing required argument: \(key)" }
+    /// 响应无法序列化为 JSON 时的 JSON-RPC 内部错误文案。
+    static let mcpInternalErrorMessage = "Internal error: response is not JSON-serializable."
+    /// helper 无法连接 App 时的错误；reason 为失败原因描述。
+    static func mcpConnectFailedMessage(_ reason: String) -> String { "Cannot connect to TranslateApp: \(reason)" }
+    /// App 未返回结果就关闭连接时的错误。
+    static let mcpConnectionClosedMessage = "TranslateApp closed the connection without a result."
+    /// helper 与 App 通信中断时的错误；reason 为失败原因描述。
+    static func mcpCommunicationFailedMessage(_ reason: String) -> String { "Communication with TranslateApp failed: \(reason)" }
+    /// 请求不是合法 JSON 时的 JSON-RPC 错误文案。
+    static let mcpParseErrorMessage = "Parse error"
+    /// 请求的 JSON-RPC 方法不存在时的错误；method 为方法名。
+    static func mcpMethodNotFoundMessage(_ method: String) -> String { "Method not found: \(method)" }
+    /// 调用的工具不存在时的错误；name 为工具名。
+    static func mcpUnknownToolMessage(_ name: String) -> String { "Unknown tool: \(name)" }
+    /// 截图数据无法解码为像素时的错误。
+    static let mcpPixelReadFailedMessage = "Unable to read screenshot pixels."
+    /// 截图无法缩放到目标尺寸时的错误。
+    static let mcpScaleFailedMessage = "Unable to scale screenshot."
     /// 设置中「允许 agent 截图」开关的偏好键；与 Dart PreferenceKeys.mcpEnabled 一致。
     static let mcpEnabledKey = "mcpEnabled"
     /// 设置页读取 helper 完整路径的方法；与 Dart MethodNames.mcpHelperPath 一致。

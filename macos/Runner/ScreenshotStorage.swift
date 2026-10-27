@@ -67,7 +67,7 @@ enum ScreenshotStorage {
     static func save(_ data: Data, directory: URL, name: String) throws -> URL {
         guard !name.isEmpty, name == (name as NSString).lastPathComponent,
               (name as NSString).pathExtension.lowercased() == "png" else {
-            throw NSError(domain: "TranslateApp", code: 1, userInfo: [NSLocalizedDescriptionKey: "截图文件名必须是 PNG 文件名。"])
+            throw NSError(domain: AppConstants.errorDomain, code: 1, userInfo: [NSLocalizedDescriptionKey: "截图文件名必须是 PNG 文件名。"])
         }
         let stem = (name as NSString).deletingPathExtension
         var suffix = 1

@@ -211,11 +211,9 @@ final class LiveRegionCoordinator {
         running = true
         ended = false
         let displayID = (source["sourceID"] as? NSNumber)?.uint32Value
-        let screen = NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
-        }
+        let screen = NSScreen.screens.first { $0.displayID == displayID }
         // 是否同步录制取自已保存的设置，对区域、窗口和全屏目标都生效。
-        let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+        let preferences = AppPreferences.current
         recording = preferences[AppConstants.liveRecordingKey] as? Bool == true
         overlay.open()
         bridge.screenshot.hideForCapture()

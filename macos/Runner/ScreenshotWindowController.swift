@@ -44,7 +44,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             CGRect(x: $0["x"]!, y: $0["y"]!, width: $0["width"]!, height: $0["height"]!)
         }
         for screen in NSScreen.screens {
-            let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! NSNumber).uint32Value
+            let id = screen.displayID!
             guard id != selectedDisplayID else { continue }
             let panel = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false
@@ -153,20 +153,18 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 self.png = nil
                 self.captureId = nil
                 self.initialCrop = nil
-                self.message = "截图需要屏幕录制权限。请在设置中允许 TranslateApp。"
+                self.message = AppConstants.screenRecordingRequiredMessage
                 ScreenCaptureService.openScreenRecordingSettings()
                 self.show(compact: true)
                 return
             }
             do {
                 // 上次区域所在显示器已断开时提示失效，不改截其他屏幕。
-                if case .lastRegion(let region) = target, !NSScreen.screens.contains(where: {
-                    ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == region.displayID
-                }) {
+                if case .lastRegion(let region) = target, !NSScreen.screens.contains(where: { $0.displayID == region.displayID }) {
                     throw ScreenshotRegion.Invalid()
                 }
                 // 「截图包含鼠标指针」由设置页写入偏好字典，默认不含指针。
-                let showsCursor = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)?[
+                let showsCursor = AppPreferences.current[
                     AppConstants.screenshotIncludesCursorKey
                 ] as? Bool == true
                 let frame = try await ScreenCaptureService.captureActiveDisplay(displayID: target.displayID, showsCursor: showsCursor)
@@ -245,9 +243,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             "displayWidth": displayFrame.width,
             "displayHeight": displayFrame.height,
         ]
-        if let screen = NSScreen.screens.first(where: {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == selectedDisplayID
-        }), displaysFrozenScreen {
+        if let screen = NSScreen.screens.first(where: { $0.displayID == selectedDisplayID }), displaysFrozenScreen {
             // 可用区域按冻结显示器的局部顶部原点发送；不改变整屏画布和源图坐标。
             value["toolbarSafeX"] = screen.visibleFrame.minX - displayFrame.minX
             value["toolbarSafeY"] = displayFrame.maxY - screen.visibleFrame.maxY
@@ -274,7 +270,7 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
 
     /// 无参数；返回已保存的工具栏配置与确认截图动作子集，缺省值由Dart领域对象提供。
     private func toolbarPreferences() -> [String: Any] {
-        let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+        let preferences = AppPreferences.current
         return preferences.filter { [AppConstants.screenshotToolbarOrderKey, AppConstants.screenshotToolbarChildrenKey, AppConstants.screenshotToolbarShortcutsKey, AppConstants.screenshotToolbarHiddenKey, AppConstants.screenshotDrawingKey, AppConstants.screenshotConfirmActionKey].contains($0.key) }
     }
 

@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 import ImageIO
-import UniformTypeIdentifiers
 
 /// 截图历史的拼接、拆分与比较（#109）；全部按原始像素处理，不缩放、不重采样。
 enum ScreenshotComposer {
@@ -30,7 +29,9 @@ enum ScreenshotComposer {
             context.draw(image, in: CGRect(x: x, y: y, width: image.width, height: image.height))
             offset += vertical ? image.height : image.width
         }
-        return try png(context.makeImage())
+        // makeImage 返回 nil 表示位图生成失败，与编码失败共用同一错误。
+        guard let merged = context.makeImage() else { throw PNGEncoding.failure }
+        return try PNGEncoding.data(merged)
     }
 
     /// path 为 PNG 路径，parts 为段数（2–10 且不超过像素高度）；返回自上而下的各段 PNG，余数并入最后一段。
@@ -44,7 +45,10 @@ enum ScreenshotComposer {
             // cropping 的坐标原点在左上；最后一段取到底部。
             let top = index * piece
             let height = index == parts - 1 ? image.height - top : piece
-            return try png(image.cropping(to: CGRect(x: 0, y: top, width: image.width, height: height)))
+            guard let part = image.cropping(to: CGRect(x: 0, y: top, width: image.width, height: height)) else {
+                throw PNGEncoding.failure
+            }
+            return try PNGEncoding.data(part)
         }
     }
 
@@ -68,7 +72,8 @@ enum ScreenshotComposer {
                 mask[index] = highlight
             }
         }
-        return (try png(context.makeImage()), different, width * height)
+        guard let diff = context.makeImage() else { throw PNGEncoding.failure }
+        return (try PNGEncoding.data(diff), different, width * height)
     }
 
     /// path 为 PNG 路径；返回解码后的位图，文件缺失或不可读时抛出。
@@ -102,14 +107,4 @@ enum ScreenshotComposer {
         ))
     }
 
-    /// image 为待编码位图（nil 表示上一步失败）；返回 PNG 字节。
-    private static func png(_ image: CGImage?) throws -> Data {
-        let data = NSMutableData()
-        guard let image,
-              let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)
-        else { throw Failure(message: "无法编码图片。") }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { throw Failure(message: "无法编码图片。") }
-        return data as Data
-    }
 }

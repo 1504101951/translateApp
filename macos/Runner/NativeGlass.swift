@@ -26,7 +26,7 @@ final class NativeGlassFactory: NSObject, FlutterPlatformViewFactory {
 
     /// 无参数；返回已提交的视觉字段，不读取凭据或业务草稿。
     static func appearanceSnapshot() -> [String: Any] {
-        let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+        let preferences = AppPreferences.current
         return [AppConstants.glassAppearanceKey: preferences[AppConstants.glassAppearanceKey] as? String ?? AppConstants.appearanceSystem,
                 AppConstants.glassOpacityKey: preferences[AppConstants.glassOpacityKey] as? Double ?? 0.8]
     }

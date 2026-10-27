@@ -245,7 +245,7 @@ enum MCPProtocol {
         // 与 schema 的 additionalProperties: false 一致，未声明的参数明确报错，便于模型修正参数名。
         let declared = Set(toolDefinitions().first { $0.name == name }!.parameters.map(\.name))
         if let unknown = arguments.keys.sorted().first(where: { !declared.contains($0) }) {
-            throw .invalidArgument("Unknown argument: \(unknown)")
+            throw .invalidArgument(AppConstants.mcpUnknownArgumentMessage(unknown))
         }
 
         switch tool {
@@ -337,7 +337,7 @@ enum MCPProtocol {
     static func internalErrorData(id: Any?) -> Data {
         let idJSON = id.flatMap(fragment) ?? Data("null".utf8)
         return Data(#"{"jsonrpc":"2.0","id":"#.utf8) + idJSON
-            + Data(#","error":{"code":\#(internalError),"message":"Internal error: response is not JSON-serializable."}}"#.utf8)
+            + Data(#","error":{"code":\#(internalError),"message":"\#(AppConstants.mcpInternalErrorMessage)"}}"#.utf8)
     }
 
     /// 作用：生成 JSON-RPC 错误响应。参数 id：请求 id，无法解析时为 NSNull；code、message：错误码与说明。
@@ -380,7 +380,7 @@ enum MCPProtocol {
     /// 返回：参数值；缺失或不合法时抛 invalidArgument。
     private static func required(_ arguments: [String: Any], _ key: String, minimum: Int) throws(MCPRequestError) -> Int {
         guard let value = try integer(arguments, key, minimum: minimum) else {
-            throw .invalidArgument("Missing required argument: \(key)")
+            throw .invalidArgument(AppConstants.mcpMissingArgumentMessage(key))
         }
         return value
     }
@@ -427,21 +427,21 @@ final class MCPForwardCall {
         } catch MCPSocketError.notRunning {
             return .failed(message: AppConstants.mcpNotRunningMessage)
         } catch {
-            return .failed(message: "Cannot connect to TranslateApp: \(error)")
+            return .failed(message: AppConstants.mcpConnectFailedMessage(error.localizedDescription))
         }
         guard attach(connected) else { return nil }
         defer { detachAndClose(connected) }
         do {
             try MCPSocket.writeLine(JSONEncoder().encode(request), to: connected)
             guard let line = try MCPSocket.readLine(from: connected) else {
-                return isCancelled ? nil : .failed(message: "TranslateApp closed the connection without a result.")
+                return isCancelled ? nil : .failed(message: AppConstants.mcpConnectionClosedMessage)
             }
             return try JSONDecoder().decode(MCPToolReply.self, from: line)
         } catch is DecodingError {
             // 运行中的 App 与 helper 来自不同版本时结果结构不同。
             return isCancelled ? nil : .failed(message: AppConstants.mcpVersionMismatchMessage)
         } catch {
-            return isCancelled ? nil : .failed(message: "Communication with TranslateApp failed: \(error)")
+            return isCancelled ? nil : .failed(message: AppConstants.mcpCommunicationFailedMessage(error.localizedDescription))
         }
     }
 
@@ -502,7 +502,7 @@ final class MCPHelperSession {
     /// 参数 line：不含换行的 JSON-RPC 消息。
     func receive(_ line: Data) {
         guard let message = (try? JSONSerialization.jsonObject(with: line)) else {
-            return emit(MCPProtocol.error(id: NSNull(), code: MCPProtocol.parseError, message: "Parse error"))
+            return emit(MCPProtocol.error(id: NSNull(), code: MCPProtocol.parseError, message: AppConstants.mcpParseErrorMessage))
         }
         guard let object = message as? [String: Any], object["jsonrpc"] as? String == "2.0",
               let method = object["method"] as? String else {
@@ -525,7 +525,7 @@ final class MCPHelperSession {
         case "tools/call":
             call(id: id, key: key, params: params)
         default:
-            emit(MCPProtocol.error(id: id, code: MCPProtocol.methodNotFound, message: "Method not found: \(method)"))
+            emit(MCPProtocol.error(id: id, code: MCPProtocol.methodNotFound, message: AppConstants.mcpMethodNotFoundMessage(method)))
         }
     }
 
@@ -538,7 +538,7 @@ final class MCPHelperSession {
         } catch {
             switch error {
             case .unknownTool(let name):
-                return emit(MCPProtocol.error(id: id, code: MCPProtocol.invalidParams, message: "Unknown tool: \(name)"))
+                return emit(MCPProtocol.error(id: id, code: MCPProtocol.invalidParams, message: AppConstants.mcpUnknownToolMessage(name)))
             case .invalidArgument(let message):
                 return emit(MCPProtocol.response(id: id, result: MCPProtocol.toolError(message)))
             }

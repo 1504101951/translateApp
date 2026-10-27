@@ -2,11 +2,13 @@ import AppKit
 import CoreGraphics
 import CoreVideo
 import ScreenCaptureKit
-import UniformTypeIdentifiers
 import Vision
 
 /// 系统截图模块的权限与冻结帧；本进程捕获才会把 TranslateApp 写入屏幕录制 TCC。
 enum ScreenCaptureService {
+    /// 显示器内容无法读取（编号缺失或不在可捕获列表）时显示给用户的提示。
+    private static let displayUnreadableMessage = "无法读取显示器内容，请检查屏幕录制权限。"
+
     /// 指针所在显示器的冻结帧，包含PNG像素、像素尺寸、AppKit显示坐标及可选前台窗口裁剪框。
     struct FreezeFrame {
         let displayID: CGDirectDisplayID
@@ -78,25 +80,23 @@ enum ScreenCaptureService {
         let mouse = NSEvent.mouseLocation
         let screen = displayID == nil
             ? (NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main)
-            : NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID }
+            : NSScreen.screens.first { $0.displayID == displayID }
         guard let screen else {
             throw NSError(
-                domain: "TranslateApp",
+                domain: AppConstants.errorDomain,
                 code: 10,
                 userInfo: [NSLocalizedDescriptionKey: "找不到可用显示器。"]
             )
         }
-        let screenNumber = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
-            .uint32Value
-        guard let screenNumber else {
+        guard let screenNumber = screen.displayID else {
             throw NSError(
-                domain: "TranslateApp",
+                domain: AppConstants.errorDomain,
                 code: 11,
-                userInfo: [NSLocalizedDescriptionKey: "无法读取显示器内容，请检查屏幕录制权限。"]
+                userInfo: [NSLocalizedDescriptionKey: displayUnreadableMessage]
             )
         }
         let (image, scale) = try await captureDisplayImage(displayID: screenNumber, showsCursor: showsCursor)
-        let png = try pngData(from: image, scale: scale)
+        let png = try PNGEncoding.data(image, scale: scale)
         return FreezeFrame(
             displayID: screenNumber,
             scale: scale,
@@ -118,9 +118,9 @@ enum ScreenCaptureService {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw NSError(
-                domain: "TranslateApp",
+                domain: AppConstants.errorDomain,
                 code: 11,
-                userInfo: [NSLocalizedDescriptionKey: "无法读取显示器内容，请检查屏幕录制权限。"]
+                userInfo: [NSLocalizedDescriptionKey: displayUnreadableMessage]
             )
         }
         let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -175,7 +175,7 @@ enum ScreenCaptureService {
     static func recognizeText(png: Data) async throws -> String {
         guard let image = NSBitmapImageRep(data: png)?.cgImage else {
             throw NSError(
-                domain: "TranslateApp",
+                domain: AppConstants.errorDomain,
                 code: 13,
                 userInfo: [NSLocalizedDescriptionKey: "无法读取截图以识别文字。"]
             )
@@ -188,7 +188,7 @@ enum ScreenCaptureService {
     static func detectCodes(png: Data) async throws -> [[String: String]] {
         guard let image = NSBitmapImageRep(data: png)?.cgImage else {
             throw NSError(
-                domain: "TranslateApp",
+                domain: AppConstants.errorDomain,
                 code: 13,
                 userInfo: [NSLocalizedDescriptionKey: "无法读取截图以识别文字。"]
             )
@@ -356,7 +356,7 @@ enum ScreenCaptureService {
     static func recognizeBlocks(png: Data) throws -> [[String: Any]] {
         guard let image = NSBitmapImageRep(data: png)?.cgImage else {
             throw NSError(
-                domain: "TranslateApp",
+                domain: AppConstants.errorDomain,
                 code: 13,
                 userInfo: [NSLocalizedDescriptionKey: "无法读取截图以识别文字。"]
             )
@@ -384,32 +384,5 @@ enum ScreenCaptureService {
                 "height": box.height * height,
             ]
         }
-    }
-
-    /// image 为冻结帧，scale 为点到物理像素比；按像素编码 PNG，并写入 DPI 以免贴图按 72DPI 放大发糊。
-    static func pngData(from image: CGImage, scale: CGFloat) throws -> Data {
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            data, UTType.png.identifier as CFString, 1, nil
-        ) else {
-            throw NSError(
-                domain: "TranslateApp",
-                code: 12,
-                userInfo: [NSLocalizedDescriptionKey: "无法编码冻结帧。"]
-            )
-        }
-        let dpi = 72.0 * Double(max(scale, 1))
-        CGImageDestinationAddImage(destination, image, [
-            kCGImagePropertyDPIWidth: dpi,
-            kCGImagePropertyDPIHeight: dpi,
-        ] as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            throw NSError(
-                domain: "TranslateApp",
-                code: 12,
-                userInfo: [NSLocalizedDescriptionKey: "无法编码冻结帧。"]
-            )
-        }
-        return data as Data
     }
 }

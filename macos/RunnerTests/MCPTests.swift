@@ -104,7 +104,7 @@ final class MCPTests: XCTestCase {
         ])
         NSGraphicsContext.restoreGraphicsState()
         let image = try XCTUnwrap(context.makeImage())
-        return try ScreenCaptureService.pngData(from: image, scale: 1)
+        return try PNGEncoding.data(image, scale: 1)
     }
 
     /// 解析失败、缺少 method、未知方法分别返回 -32700、-32600、-32601；通知不产生输出。

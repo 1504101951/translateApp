@@ -54,7 +54,7 @@ enum MCPImageOutput {
         let size = fitted(width: source.width, height: source.height, detail: options.detail)
         let png = options.output == .text
             ? nil
-            : try ScreenCaptureService.pngData(from: try resize(source, to: size), scale: 1)
+            : try PNGEncoding.data(try resize(source, to: size), scale: 1)
         guard options.output != .image else { return .image(png: png, markdown: nil) }
         // recognizeDocument 在原图上识别，块位置按返回图尺寸换算。
         let blocks = try await ScreenCaptureService.recognizeDocument(image: source)
@@ -92,7 +92,7 @@ enum MCPImageOutput {
     static func image(_ png: Data) throws -> CGImage {
         guard let source = CGImageSourceCreateWithData(png as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            throw NSError(domain: "TranslateApp", code: 14, userInfo: [NSLocalizedDescriptionKey: "Unable to read screenshot pixels."])
+            throw NSError(domain: AppConstants.errorDomain, code: 14, userInfo: [NSLocalizedDescriptionKey: AppConstants.mcpPixelReadFailedMessage])
         }
         return image
     }
@@ -106,12 +106,12 @@ enum MCPImageOutput {
             space: CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
-            throw NSError(domain: "TranslateApp", code: 15, userInfo: [NSLocalizedDescriptionKey: "Unable to scale screenshot."])
+            throw NSError(domain: AppConstants.errorDomain, code: 15, userInfo: [NSLocalizedDescriptionKey: AppConstants.mcpScaleFailedMessage])
         }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
         guard let resized = context.makeImage() else {
-            throw NSError(domain: "TranslateApp", code: 15, userInfo: [NSLocalizedDescriptionKey: "Unable to scale screenshot."])
+            throw NSError(domain: AppConstants.errorDomain, code: 15, userInfo: [NSLocalizedDescriptionKey: AppConstants.mcpScaleFailedMessage])
         }
         return resized
     }

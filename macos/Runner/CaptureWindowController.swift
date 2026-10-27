@@ -132,9 +132,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                 preparingScreenshot = true
                 screenshot.hideForCapture()
                 if let id = source["sourceID"] as? NSNumber {
-                    originScreen = NSScreen.screens.first {
-                        ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id.uint32Value
-                    }
+                    originScreen = NSScreen.screens.first { $0.displayID == id.uint32Value }
                 }
                 if scrolling { try await service.startScrolling() }
                 else { try await service.startRecording(source) }
@@ -187,9 +185,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             window = NSWindow(contentRect: frame, styleMask: AppConstants.captureResultWindowStyle,
                 backing: .buffered, defer: false)
             window.title = "录制结果"
-            // 最小内容保留右侧六个操作、内外间距和至少1pt视频，缩放不裁掉工具栏。
-            window.contentMinSize = NSSize(width: AppConstants.captureResultToolbarWidth + AppConstants.captureControlGap * 3 + 1,
-                height: AppConstants.captureResultToolbarHeight + AppConstants.captureControlGap * 2)
+            window.contentMinSize = Self.recordingResultMinimumSize()
         }
         window.isReleasedWhenClosed = false
         window.isOpaque = !compact
@@ -384,10 +380,13 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     private func applyResultChrome(to window: NSWindow) {
         let image = service.phase == .imageReady
         window.title = image ? "长截图结果" : "录制结果"
-        window.contentMinSize = image
-            ? NSSize(width: 320, height: 240)
-            : NSSize(width: AppConstants.captureResultToolbarWidth + AppConstants.captureControlGap * 3 + 1,
-                     height: AppConstants.captureResultToolbarHeight + AppConstants.captureControlGap * 2)
+        window.contentMinSize = image ? AppConstants.longScreenshotResultMinimumSize : Self.recordingResultMinimumSize()
+    }
+
+    /// 无参数；返回录制结果窗的最小内容尺寸，保留右侧六个操作、内外间距和至少1pt视频，缩放不裁掉工具栏。
+    private static func recordingResultMinimumSize() -> NSSize {
+        NSSize(width: AppConstants.captureResultToolbarWidth + AppConstants.captureControlGap * 3 + 1,
+               height: AppConstants.captureResultToolbarHeight + AppConstants.captureControlGap * 2)
     }
 
     /// 无参数；控制条固定在发起截图显示器的右下角，不随窗口移动或采集范围跳屏。
@@ -472,8 +471,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         }
         var active = Set<CGDirectDisplayID>()
         for screen in NSScreen.screens where screen.frame.intersects(frame) {
-            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { continue }
-            let displayID = number.uint32Value
+            guard let displayID = screen.displayID else { continue }
             active.insert(displayID)
             let shade: NSWindow
             if let current = captureShades[displayID] {
@@ -620,7 +618,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                     let info = try await GIFExporter.metadata(source)
                     guard token == service.id else { throw GIFExporter.ExportError(message: "录制会话已失效。") }
                     // 每次导出读取已提交设置；GIF与APNG共用截图设置中的GIF参数，结果窗口不缓存另一份。
-                    let settings = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+                    let settings = AppPreferences.current
                     let options = GIFExporter.Options(
                         framesPerSecond: settings[AppConstants.gifFramesPerSecondKey] as? Int ?? 10,
                         maximumWidth: settings[AppConstants.gifMaximumWidthKey] as? Int)

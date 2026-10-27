@@ -1,3 +1,4 @@
+import Carbon
 import Cocoa
 import FlutterMacOS
 
@@ -47,7 +48,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         finishRecording(nil)
         recordingResult = result
         MacPlatformBridge.Shared.instance?.shortcutRecorder = { [weak self] keyCode, modifiers in
-            let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+            let preferences = AppPreferences.current
             // 被系统吞掉的只会是已注册的三种全局快捷键之一，按组合找回已保存的显示名。
             let purpose = GlobalHotKey.allCases.first {
                 preferences[$0.keyCodeKey] as? UInt32 == keyCode && preferences[$0.modifiersKey] as? UInt32 == modifiers
@@ -57,15 +58,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else { return event }
-            if event.keyCode == 53 {
+            if event.keyCode == AppConstants.escapeKeyCode {
                 self.finishRecording(nil)
                 return nil
             }
             let flags = event.modifierFlags
-            let modifiers: UInt32 = (flags.contains(.command) ? 256 : 0)
-                | (flags.contains(.shift) ? 512 : 0)
-                | (flags.contains(.option) ? 2048 : 0)
-                | (flags.contains(.control) ? 4096 : 0)
+            let modifiers: UInt32 = (flags.contains(.command) ? UInt32(cmdKey) : 0)
+                | (flags.contains(.shift) ? UInt32(shiftKey) : 0)
+                | (flags.contains(.option) ? UInt32(optionKey) : 0)
+                | (flags.contains(.control) ? UInt32(controlKey) : 0)
             do {
                 try SelectionMonitor.validateShortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers)
                 let special: [UInt16: String] = [

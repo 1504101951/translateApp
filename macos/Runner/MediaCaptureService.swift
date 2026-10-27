@@ -93,7 +93,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     /// preferredApplicationID为截图前台应用；返回按应用去重的身份、名称和PNG图标，不采集屏幕像素。
     func sources(preferredApplicationID: String?) async throws -> [[String: Any]] {
         guard await ScreenCaptureService.requestAccess() else {
-            throw GIFExporter.ExportError(message: "需要屏幕录制权限，请在系统设置中授权后重试。")
+            throw GIFExporter.ExportError(message: AppConstants.screenRecordingRequiredMessage)
         }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let visible = Set(content.windows.filter {
@@ -179,7 +179,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         config.minimumFrameInterval = CMTime(value: 1, timescale: AppConstants.recordingFramesPerSecond)
         config.showsCursor = video
         // 「录制时显示鼠标点击」由设置页写入偏好字典，默认关闭；静帧截图不绘制点击（#110）。
-        config.showMouseClicks = video && UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)?[
+        config.showMouseClicks = video && AppPreferences.current[
             AppConstants.recordingShowsClicksKey
         ] as? Bool == true
         config.capturesAudio = false
@@ -669,7 +669,7 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
             let stitcher = ScrollStitcher(edges: edges)
             finishScroll = false
             // 自动滚动只在设置为自动时启用；选区中心是辅助功能命中测试的位置（#112）。
-            let automatic = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)?[
+            let automatic = AppPreferences.current[
                 AppConstants.scrollCaptureModeKey
             ] as? String == ScrollCaptureMode.automatic.rawValue
             autoScrollAvailable = automatic

@@ -3,6 +3,7 @@ import CoreGraphics
 import Darwin
 import OSLog
 import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 /// 录制启动的本地耗时记录；只记录固定步骤与时长，不包含图像、窗口标题或输出路径。
 enum CaptureStartupLog {
@@ -26,11 +27,49 @@ enum LiveRegionLog {
     }
 }
 
+extension NSScreen {
+    /// 无参数；返回该屏幕对应的 CoreGraphics 显示器编号，系统未提供编号时为 nil。
+    var displayID: CGDirectDisplayID? {
+        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+}
+
+/// 偏好字典的只读入口；写入由 MacPlatformBridge 负责。
+enum AppPreferences {
+    /// 无参数；返回 Flutter 侧保存的偏好字典，尚未保存时为空字典。
+    static var current: [String: Any] {
+        UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+    }
+}
+
+/// PNG 编码的统一入口；录制冻结帧、长截图、拼接与 MCP 图片共用。
+enum PNGEncoding {
+    /// 编码失败时抛出的用户可读错误。
+    static let failure = GIFExporter.ExportError(message: "无法编码图片。")
+
+    /// image 为待编码位图；scale 非空时为点到物理像素比，按 72×max(scale,1) 写入 DPI 以免贴图按 72DPI 放大发糊，
+    /// 为空时不写 DPI。返回 PNG 字节，编码失败时抛出 `failure`。
+    static func data(_ image: CGImage, scale: CGFloat? = nil) throws -> Data {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
+            throw failure
+        }
+        // 只有调用方给出倍率时才写 DPI。
+        let properties = scale.map { scale -> CFDictionary in
+            let dpi = 72.0 * Double(max(scale, 1))
+            return [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary
+        }
+        CGImageDestinationAddImage(destination, image, properties)
+        guard CGImageDestinationFinalize(destination) else { throw failure }
+        return data as Data
+    }
+}
+
 /// 显示器采集共用的来源解析与校验（#125）：录制、长截图与实时翻译使用同一套规则与错误文案。
 enum DisplayCapture {
     /// 无参数；屏幕录制未授权时抛出用户可读错误，无返回值。
     static func requireAuthorization() throws {
-        guard ScreenCaptureService.isAuthorized() else { throw GIFExporter.ExportError(message: "屏幕录制权限不可用。") }
+        guard ScreenCaptureService.isAuthorized() else { throw GIFExporter.ExportError(message: AppConstants.screenRecordingRequiredMessage) }
     }
 
     /// displayID 为目标显示器（区域取选区所在屏，可为空），content 为当前可共享内容；返回该显示器，不可用时抛错。
@@ -70,10 +109,14 @@ enum DisplayCapture {
 
 /// 窗口列表与显示器坐标换算；截图默认选区用。
 enum CaptureGeometry {
+    /// 无参数；返回坐标原点在 (0,0) 的主显示器，找不到时退回 NSScreen.main，坐标换算以其高度为基准。
+    private static var primaryScreen: NSScreen? {
+        NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
+    }
+
     /// cgBounds 为 CGWindow 顶左原点矩形；返回 AppKit 底左原点矩形。
     static func appKitRect(fromCGWindowBounds cgBounds: CGRect) -> NSRect {
-        let primary = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
-        let top = primary?.frame.maxY ?? cgBounds.maxY
+        let top = primaryScreen?.frame.maxY ?? cgBounds.maxY
         return NSRect(
             x: cgBounds.origin.x,
             y: top - cgBounds.origin.y - cgBounds.height,
@@ -84,8 +127,7 @@ enum CaptureGeometry {
 
     /// point 为 AppKit 底左原点的屏幕点；返回 CG 顶左原点的全局点，辅助功能命中测试使用（#112）。
     static func cgPoint(fromAppKitPoint point: NSPoint) -> CGPoint {
-        let primary = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
-        return CGPoint(x: point.x, y: (primary?.frame.maxY ?? point.y) - point.y)
+        return CGPoint(x: point.x, y: (primaryScreen?.frame.maxY ?? point.y) - point.y)
     }
 
     /// window 为 AppKit 窗口矩形，displayFrame 为当前屏，pixelWidth/Height 为冻结帧像素。

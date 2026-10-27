@@ -32,20 +32,20 @@ enum MCPToolRunner {
                         sourceWidth: image.width, sourceHeight: image.height
                     ), let cropped = image.cropping(to: rect) else {
                         let size = MCPImageOutput.fitted(width: image.width, height: image.height, detail: reference)
-                        return .failed(message: "Rectangle exceeds the \(reference.rawValue) image of display \(index) (\(size.width)×\(size.height)).")
+                        return .failed(message: AppConstants.mcpRectangleOutOfRangeMessage(reference: reference.rawValue, display: index, width: size.width, height: size.height))
                     }
                     return try await MCPImageOutput.reply(cropped, options: options)
                 }
             case .captureWindow(let windowID, let options):
                 return try await capture {
                     guard let window = try await ScreenCaptureService.visibleWindows().first(where: { $0.windowID == windowID }) else {
-                        return .failed(message: "window_id \(windowID) not found; call list_windows again.")
+                        return .failed(message: AppConstants.mcpWindowNotFoundMessage(windowID: windowID))
                     }
                     return try await MCPImageOutput.reply(ScreenCaptureService.captureWindowImage(window), options: options)
                 }
             }
         } catch {
-            return .failed(message: "Capture failed: \(error.localizedDescription)")
+            return .failed(message: AppConstants.mcpCaptureFailedMessage(error.localizedDescription))
         }
     }
 
@@ -73,7 +73,7 @@ enum MCPToolRunner {
     /// 作用：列出显示器。返回：按 NSScreen.screens 顺序的显示器，0 为主显示器。
     private static func displays() -> [Display] {
         NSScreen.screens.enumerated().compactMap { index, screen in
-            guard let id = screenNumber(screen) else { return nil }
+            guard let id = screen.displayID else { return nil }
             let bounds = CGDisplayBounds(id)
             // 与 captureDisplayImage 一致：物理像素为点尺寸乘点到像素比例。
             let pixelWidth = Int((bounds.width * screen.backingScaleFactor).rounded())
@@ -123,16 +123,11 @@ enum MCPToolRunner {
     /// 作用：把显示器序号转换为 CGDirectDisplayID。参数 index：0 起序号。返回：越界时为 nil。
     private static func displayID(_ index: Int) -> CGDirectDisplayID? {
         let screens = NSScreen.screens
-        return screens.indices.contains(index) ? screenNumber(screens[index]) : nil
-    }
-
-    /// 作用：读取 NSScreen 的显示器编号。参数 screen：显示器。返回：CGDirectDisplayID。
-    private static func screenNumber(_ screen: NSScreen) -> CGDirectDisplayID? {
-        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+        return screens.indices.contains(index) ? screens[index].displayID : nil
     }
 
     /// 作用：生成显示器序号越界的错误。参数 index：请求的序号。返回：failed 结果。
     private static func displayOutOfRange(_ index: Int) -> MCPToolReply {
-        .failed(message: "display_index \(index) is out of range; \(NSScreen.screens.count) displays available.")
+        .failed(message: AppConstants.mcpDisplayOutOfRangeMessage(index: index, count: NSScreen.screens.count))
     }
 }

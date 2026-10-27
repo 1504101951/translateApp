@@ -16,8 +16,7 @@ enum MCPSocket {
     /// 作用：返回当前用户的默认 socket 文件 URL。
     /// 返回：~/Library/Application Support/TranslateApp/mcp.sock。
     static var defaultURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent(AppConstants.applicationSupportFolderName, isDirectory: true)
+        AppConstants.applicationSupportURL
             .appendingPathComponent(AppConstants.mcpSocketFileName)
     }
 

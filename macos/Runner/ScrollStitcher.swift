@@ -1,7 +1,5 @@
 import CoreGraphics
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 /// 垂直滚动图像拼接器；只消费本地位图，不读取屏幕或控制其他应用。
 final class ScrollStitcher {
@@ -244,7 +242,7 @@ final class ScrollStitcher {
             guard let result = context.makeImage() else { throw Failure(message: "无法合成长图。") }
             image = result
         } else { image = first.image }
-        return (try Self.pngData(image), image.width, image.height, acceptedFrames)
+        return (try PNGEncoding.data(image), image.width, image.height, acceptedFrames)
     }
 
     /// 实时缩略图；target为下一帧必须重叠的正文段，坐标为缩略图像素、顶部原点。
@@ -304,18 +302,7 @@ final class ScrollStitcher {
     /// 无参数；返回已接受的首帧PNG。完整合成失败时仍能保存这一屏，没有帧时抛错。
     func confirmedFrame() throws -> (png: Data, width: Int, height: Int, frames: Int) {
         guard let first else { throw Failure(message: "还没有捕获到图像。") }
-        return (try Self.pngData(first.image), first.image.width, first.image.height, acceptedFrames)
-    }
-
-    /// image为已确认像素；返回PNG字节，编码失败时抛出可读错误。
-    private static func pngData(_ image: CGImage) throws -> Data {
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
-            throw Failure(message: "无法创建长图PNG。")
-        }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { throw Failure(message: "长图PNG编码失败。") }
-        return data as Data
+        return (try PNGEncoding.data(first.image), first.image.width, first.image.height, acceptedFrames)
     }
 
     /// image/y/height描述顶部原点的完整宽度条带；复制像素以免裁剪对象长期持有整帧内存。

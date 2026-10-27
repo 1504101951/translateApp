@@ -41,13 +41,13 @@ final class SelectionMonitor {
     /// 全部新组合注册成功后才替换旧配置；组合非法、重复或被占用时抛出错误并保留原注册。
     func configure(automatic: Bool, excludedApps: Set<String>, shortcuts: [GlobalHotKey: HotKeyBinding]) throws {
         guard Set(GlobalHotKey.allCases) == Set(shortcuts.keys) else {
-            throw NSError(domain: "TranslateApp", code: 4, userInfo: [NSLocalizedDescriptionKey: "全局快捷键配置不完整。"])
+            throw NSError(domain: AppConstants.errorDomain, code: 4, userInfo: [NSLocalizedDescriptionKey: "全局快捷键配置不完整。"])
         }
         for binding in shortcuts.values {
             try Self.validateShortcut(keyCode: binding.keyCode, modifiers: binding.modifiers)
         }
         guard Set(shortcuts.values).count == shortcuts.count else {
-            throw NSError(domain: "TranslateApp", code: 3, userInfo: [NSLocalizedDescriptionKey: "翻译、输入翻译与截图快捷键不能相同。"])
+            throw NSError(domain: AppConstants.errorDomain, code: 3, userInfo: [NSLocalizedDescriptionKey: "翻译、输入翻译与截图快捷键不能相同。"])
         }
         if hotKeyHandler == nil {
             var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -120,8 +120,10 @@ final class SelectionMonitor {
 
     /// keyCode/modifiers 为待注册组合；拒绝普通输入与已启用的系统保留键，成功无返回值。
     static func validateShortcut(keyCode: UInt32, modifiers: UInt32) throws {
-        guard keyCode <= 127, keyCode != 53, modifiers & 6400 != 0, modifiers & ~6912 == 0 else {
-            throw NSError(domain: "TranslateApp", code: 1, userInfo: [
+        guard keyCode <= 127, keyCode != UInt32(AppConstants.escapeKeyCode),
+              modifiers & AppConstants.shortcutRequiredModifiers != 0,
+              modifiers & ~AppConstants.shortcutAllowedModifiers == 0 else {
+            throw NSError(domain: AppConstants.errorDomain, code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "快捷键至少需要 Control、Option 或 Command，并搭配一个非 Esc 按键。",
             ])
         }
@@ -132,7 +134,7 @@ final class SelectionMonitor {
             if item[kHISymbolicHotKeyEnabled as String] as? Bool == true,
                item[kHISymbolicHotKeyCode as String] as? UInt32 == keyCode,
                item[kHISymbolicHotKeyModifiers as String] as? UInt32 == modifiers {
-                throw NSError(domain: "TranslateApp", code: 2, userInfo: [
+                throw NSError(domain: AppConstants.errorDomain, code: 2, userInfo: [
                     NSLocalizedDescriptionKey: "这个组合已用于 macOS 系统快捷键，请换一个组合。",
                 ])
             }
@@ -235,7 +237,7 @@ final class SelectionMonitor {
     private func consumeKey(type: NSEvent.EventType, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
         guard !isCapturingScreenshot else { return }
         let bridge = MacPlatformBridge.Shared.instance
-        if keyCode == 53, type == .keyDown {
+        if keyCode == AppConstants.escapeKeyCode, type == .keyDown {
             pendingKeySelection = nil
             captureTask?.cancel()
             stopObservingSelection()

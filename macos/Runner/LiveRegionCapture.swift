@@ -264,9 +264,7 @@ final class LiveRegionCapture: NSObject, SCStreamDelegate, SCStreamOutput {
 
     private func noteScreens() {
         guard running, let targetDisplayID else { return }
-        let ids = NSScreen.screens.compactMap {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
-        }
+        let ids = NSScreen.screens.compactMap(\.displayID)
         if !ids.contains(targetDisplayID) {
             fail("目标显示器已移除。")
         }

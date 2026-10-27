@@ -34,7 +34,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     /// MCP 请求入口；开关读取已提交的普通偏好，工具由 MCPToolRunner 执行。
     @MainActor lazy var mcp = MCPCaptureServer(
         isEnabled: {
-            let preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+            let preferences = AppPreferences.current
             return preferences[AppConstants.mcpEnabledKey] as? Bool == true
         },
         run: MCPToolRunner.run
@@ -227,7 +227,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             // 只查询捕获身份，不向主引擎传输第二份截图数据。
             result(screenshot.isCurrentCapture(id))
         case AppConstants.loadSettingsMethod:
-            var settings = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey) ?? [:]
+            var settings = AppPreferences.current
             settings["systemLanguage"] = Locale.preferredLanguages.first ?? "en"
             settings[AppConstants.launchAtLoginKey] = [.enabled, .requiresApproval].contains(SMAppService.mainApp.status)
             // 设置页面展示解析后的根目录；空偏好使用系统Pictures下的截图目录。
@@ -428,8 +428,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             closePermissionWizard?()
             result(nil)
         case AppConstants.applicationSupportPathMethod:
-            let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let dir = root.appendingPathComponent(AppConstants.applicationSupportFolderName, isDirectory: true)
+            // 目录路径由 AppConstants 计算，这里负责首次访问时创建。
+            let dir = AppConstants.applicationSupportURL
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             result(dir.path)
         case AppConstants.mcpHelperPathMethod:
@@ -572,7 +572,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = item as? Data,
               let credentials = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else {
-            throw NSError(domain: "TranslateApp.Keychain", code: Int(status), userInfo: [
+            throw NSError(domain: AppConstants.keychainErrorDomain, code: Int(status), userInfo: [
                 NSLocalizedDescriptionKey: "无法读取翻译服务凭据，请检查钥匙串访问权限。",
             ])
         }
@@ -598,7 +598,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             if status == errSecItemNotFound { return }
         }
         guard status == errSecSuccess else {
-            throw NSError(domain: "TranslateApp.Keychain", code: Int(status), userInfo: [
+            throw NSError(domain: AppConstants.keychainErrorDomain, code: Int(status), userInfo: [
                 NSLocalizedDescriptionKey: "无法保存或删除翻译服务凭据，请检查钥匙串访问权限。",
             ])
         }

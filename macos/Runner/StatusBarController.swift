@@ -37,8 +37,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         item.button?.imagePosition = .imageOnly
         // 图标独占菜单栏方形位置，名称仍通过悬停与辅助功能提供。
         item.button?.title = ""
-        item.button?.setAccessibilityLabel("选区翻译")
-        item.button?.toolTip = "选区翻译"
+        applyIdleLabel(to: item.button)
         statusItem = item
         reloadMenu()
         // 刚创建时窗口高度可能是 0，下一拍再强制显示。
@@ -103,14 +102,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         automaticItem = automatic
         menu.addItem(automatic)
         menu.addItem(.separator())
-        let access = NSMenuItem(
-            title: trusted ? "辅助功能已开启" : "授予辅助功能权限…",
-            action: #selector(requestAccess),
-            keyEquivalent: ""
-        )
+        let access = NSMenuItem(title: "", action: #selector(requestAccess), keyEquivalent: "")
         accessItem = access
         access.target = self
-        access.isEnabled = !trusted
+        applyAccessState(to: access, trusted: trusted)
         menu.addItem(access)
         menu.addItem(NSMenuItem.separator())
         let quit = NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q")
@@ -139,8 +134,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         button?.action = nil
         button?.target = nil
         button?.image = idleImage()
-        button?.toolTip = "选区翻译"
-        button?.setAccessibilityLabel("选区翻译")
+        applyIdleLabel(to: button)
         reloadMenu()
     }
 
@@ -201,16 +195,26 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         // 显示器可能在两次打开菜单之间接入或断开，按当前系统顺序重建。
         displayMenu?.removeAllItems()
         for screen in NSScreen.screens {
-            guard let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
-            else { continue }
+            guard let id = screen.displayID else { continue }
             let item = NSMenuItem(title: screen.localizedName, action: #selector(captureDisplay(_:)), keyEquivalent: "")
             item.target = self
             item.tag = Int(id)
             displayMenu?.addItem(item)
         }
         let trusted = AccessibilitySelection.isTrusted(prompt: false)
-        accessItem?.title = trusted ? "辅助功能已开启" : "授予辅助功能权限…"
-        accessItem?.isEnabled = !trusted
+        if let accessItem { applyAccessState(to: accessItem, trusted: trusted) }
+    }
+
+    /// item 为辅助功能菜单项，trusted 为是否已获得辅助功能权限；已授权时显示已开启且不可点，无返回值。
+    private func applyAccessState(to item: NSMenuItem, trusted: Bool) {
+        item.title = trusted ? "辅助功能已开启" : "授予辅助功能权限…"
+        item.isEnabled = !trusted
+    }
+
+    /// button 为菜单栏图标按钮；写入空闲态的悬停提示与辅助功能名称，无返回值。
+    private func applyIdleLabel(to button: NSStatusBarButton?) {
+        button?.toolTip = "选区翻译"
+        button?.setAccessibilityLabel("选区翻译")
     }
 
     /// 无参数；打开普通设置窗口，无返回值。
