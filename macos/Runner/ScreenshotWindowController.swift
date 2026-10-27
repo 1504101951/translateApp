@@ -15,6 +15,9 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     private var engine: FlutterEngine?
     private var window: NSWindow?
     private var channel: FlutterMethodChannel?
+    /// 待确认引擎合并重复展示请求；显示模式取最后一次请求，草稿始终读取当前数据。
+    private var pendingStartup: WindowEngine.Startup?
+    private var pendingCompact = false
     private var textInputActive = false
     /// 标记本编辑会话曾设置原生光标，关闭时清除，避免污染其他窗口。
     private var hasNativeCursor = false
@@ -108,7 +111,13 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
     var liveCaptureID: String? { !capturing && displaysFrozenScreen && png != nil ? captureId : nil }
 
     /// 无参数；在用户选定录制目标后收起冻结编辑层，释放该截图会话，无返回值。
-    func closeForCapture() { window?.close() }
+    func closeForCapture() {
+        if let window { window.close() }
+        else {
+            // cancelCapture 在窗口尚未创建时也释放草稿，并撤销迟到展示。
+            cancelCapture()
+        }
+    }
 
     /// 无参数；准备采集时隐藏冻结画面并释放跨屏预览，保留编辑草稿供启动失败恢复。
     func hideForCapture() {
@@ -196,17 +205,32 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// 无参数；取消冻结帧任务并结束媒体选区回调，迟到帧不能再展示窗口。
+    /// 无参数；取消冻结帧与待启动窗口，清空草稿和媒体选区，迟到结果不能再展示窗口。
     func cancelCapture() {
-        clearTargetPreviews()
+        pendingStartup?.cancel()
+        pendingStartup = nil
+        pendingCompact = false
         captureTask?.cancel()
+        previewSource = nil
+        // clearTargetPreviews 撤下属于当前草稿的跨屏预览。
+        clearTargetPreviews()
+        captureSources.removeAll()
+        if hasNativeCursor { NSCursor.arrow.set(); hasNativeCursor = false }
+        // removeScreenshotKeys 解除草稿关闭后的按键拦截。
+        removeScreenshotKeys()
+        textInputActive = false
+        png = nil
+        captureId = nil
+        message = nil
+        initialCrop = nil
+        freezeView.image = nil
+        // snapshot 将已清空的草稿通知仍保留的编辑引擎。
+        channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
     }
 
     /// 无参数；关闭编辑窗并关闭引擎，保留已创建的贴图。
     func shutdown() {
         cancelCapture()
-        if hasNativeCursor { NSCursor.arrow.set(); hasNativeCursor = false }
-        removeScreenshotKeys()
         window?.delegate = nil
         window?.close()
         window = nil
@@ -214,9 +238,6 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         engine?.shutDownEngine()
         engine = nil
         channel = nil
-        textInputActive = false
-        png = nil
-        captureId = nil
         pins.closeAll()
     }
 
@@ -511,7 +532,8 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
                 result: result
             )
         case AppConstants.closeScreenshotMethod:
-            window?.close(); result(nil)
+            // closeForCapture 统一释放草稿，窗口待启动时同样可以关闭。
+            closeForCapture(); result(nil)
         case AppConstants.requestScreenAccessMethod:
             Task { @MainActor in
                 let granted = await ScreenCaptureService.requestAccess()
@@ -588,31 +610,42 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// compact为无权限/失败小窗；按冻结选区配置窗口，返回窗口是否已显示。
-    @discardableResult
-    private func show(compact: Bool) -> Bool {
+    /// compact为无权限/失败小窗；等待引擎就绪后按当前草稿配置并显示窗口，无返回值。
+    private func show(compact: Bool) {
+        pendingCompact = compact
         let overlay = compact || displaysFrozenScreen
         if engine == nil {
-            // WindowEngine 统一装配附属窗口引擎（#120）。
-            guard let started = WindowEngine.start(
+            guard pendingStartup == nil else { return }
+            // WindowEngine 等待 Dart 就绪；启动期间只保留最新展示模式。
+            pendingStartup = WindowEngine.start(
                 name: AppConstants.screenshotEngineName, entrypoint: AppConstants.screenshotEntrypoint,
                 channel: AppConstants.screenshotChannel,
-                handler: { [weak self] call, result in self?.handle(call, result: result) }) else {
-                let alert = NSAlert()
-                alert.messageText = "截图预览启动失败"
-                alert.informativeText = "请退出并重新打开 TranslateApp。"
-                alert.runModal()
-                return false
-            }
-            engine = started.engine
-            channel = started.channel
-            let flutter = started.flutter
-            flutter.view.wantsLayer = true
-            flutter.view.layer?.isOpaque = false
-            flutter.view.layer?.backgroundColor = CGColor.clear
-            window = makeWindow(content: flutter, overlay: overlay)
-            freezeView.imageScaling = .scaleAxesIndependently
-            freezeView.wantsLayer = true
+                handler: { [weak self] call, result in self?.handle(call, result: result) },
+                completion: { [weak self] started in
+                    guard let self else { return }
+                    self.pendingStartup = nil
+                    guard let started else {
+                        // reportStartFailure 统一提示截图预览未就绪，失败资源由启动对象释放。
+                        WindowEngine.reportStartFailure("截图预览")
+                        return
+                    }
+                    self.engine = started.engine
+                    self.channel = started.channel
+                    let flutter = started.flutter
+                    flutter.view.wantsLayer = true
+                    flutter.view.layer?.isOpaque = false
+                    flutter.view.layer?.backgroundColor = CGColor.clear
+                    // makeWindow 使用最新模式创建承载当前草稿的窗口。
+                    self.window = self.makeWindow(
+                        content: flutter, overlay: self.pendingCompact || self.displaysFrozenScreen)
+                    self.freezeView.imageScaling = .scaleAxesIndependently
+                    self.freezeView.wantsLayer = true
+                    // 换帧任务仍在读取系统画面时保持隐藏，由该任务完成后展示新草稿。
+                    guard !self.capturing else { return }
+                    // show 重新读取最新截图数据，避免展示启动时的旧草稿。
+                    self.show(compact: self.pendingCompact)
+                })
+            return
         }
         if let old = window, old.styleMask.contains(.nonactivatingPanel) != overlay {
             // 非激活标记由初始化决定；转移同一引擎的视图，不在切换时清理图片或重建引擎。
@@ -639,7 +672,6 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             window?.makeKeyAndOrderFront(nil)
         }
         installScreenshotKeys()
-        return window?.isVisible == true
     }
 
     /// content为共享编辑视图，overlay决定覆盖选区或普通结果；返回具备正确焦点与关闭契约的窗口。
@@ -887,18 +919,8 @@ final class ScreenshotPanel: NSPanel {
 extension ScreenshotWindowController {
     /// notification 为编辑窗关闭通知；释放原始图像并通知 Dart 清空，不撤销已导出文件或贴图。
     func windowWillClose(_ notification: Notification) {
-        previewSource = nil
-        clearTargetPreviews()
-        captureSources.removeAll()
-        if hasNativeCursor { NSCursor.arrow.set(); hasNativeCursor = false }
-        removeScreenshotKeys()
-        textInputActive = false
-        png = nil
-        captureId = nil
-        message = nil
-        initialCrop = nil
-        freezeView.image = nil
-        channel?.invokeMethod(AppConstants.screenshotChangedMethod, arguments: snapshot())
+        // cancelCapture 统一清理待启动窗口、冻结任务和当前草稿，保留引擎供下次截图复用。
+        cancelCapture()
     }
 }
 

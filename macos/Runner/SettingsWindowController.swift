@@ -7,6 +7,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var engine: FlutterEngine?
     private var window: NSWindow?
     private var channel: FlutterMethodChannel?
+    /// 保留尚未确认的启动，重复打开合并为同一次请求。
+    private var pendingStartup: WindowEngine.Startup?
     private var recordingMonitor: Any?
     private var recordingResult: FlutterResult?
 
@@ -17,8 +19,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             WindowEngine.present(window)
             return
         }
-        // WindowEngine 统一装配附属窗口引擎（#120）。
-        guard let started = WindowEngine.start(
+        guard pendingStartup == nil else { return }
+        // WindowEngine 等待 Dart 就绪确认；完成前不创建或显示设置窗口。
+        pendingStartup = WindowEngine.start(
             name: AppConstants.settingsEngineName, entrypoint: AppConstants.settingsEntrypoint,
             channel: AppConstants.settingsChannel, handler: { [weak self] call, result in
                 let bridge = MacPlatformBridge.Shared.instance!
@@ -29,18 +32,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                     // routeWindowRequest统一区分主引擎业务和系统操作，窗口仅保留快捷键录制。
                     bridge.routeWindowRequest(call, result: result)
                 }
-            }) else {
-            WindowEngine.reportStartFailure("设置窗口")
-            return
-        }
-        engine = started.engine
-        channel = started.channel
-        // WindowEngine.makeWindow 建出承载原生玻璃内容的普通窗口；设置窗关闭后保留引擎以便快速重开。
-        let window = WindowEngine.makeWindow(
-            flutter: started.flutter, title: "TranslateApp 设置", size: NSSize(width: 560, height: 720),
-            minSize: NSSize(width: 520, height: 500), delegate: self)
-        self.window = window
-        WindowEngine.present(window)
+            }, completion: { [weak self] started in
+                guard let self else { return }
+                self.pendingStartup = nil
+                guard let started else {
+                    // reportStartFailure 统一提示引擎未能就绪，失败资源由启动对象释放。
+                    WindowEngine.reportStartFailure("设置窗口")
+                    return
+                }
+                self.engine = started.engine
+                self.channel = started.channel
+                // makeWindow 建出普通窗口；设置窗关闭后保留引擎以便快速重开。
+                let window = WindowEngine.makeWindow(
+                    flutter: started.flutter, title: "TranslateApp 设置", size: NSSize(width: 560, height: 720),
+                    minSize: NSSize(width: 520, height: 500), delegate: self)
+                self.window = window
+                // present 激活并前置已经就绪的设置窗口。
+                WindowEngine.present(window)
+            })
     }
 
     /// result 接收 keyCode/modifiers/label，取消为 nil；仅在当前设置窗口录制一次组合。
@@ -105,11 +114,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         channel?.invokeMethod(AppConstants.refreshSettingsMethod, arguments: nil)
     }
 
-    deinit {
-        if let recordingMonitor { NSEvent.removeMonitor(recordingMonitor) }
-        MacPlatformBridge.Shared.instance?.shortcutRecorder = nil
+    /// 无参数；退出时撤销待启动窗口、结束录制并释放设置窗口和引擎，无返回值。
+    func shutdown() {
+        pendingStartup?.cancel()
+        pendingStartup = nil
+        // finishRecording 解除原生录制回调后通知 Dart 取消本次快捷键录制。
+        finishRecording(nil)
+        window?.delegate = nil
+        window?.close()
+        window = nil
         channel?.setMethodCallHandler(nil)
-        // Flutter 引擎必须显式停止，关闭窗口只隐藏以便快速重新打开。
         engine?.shutDownEngine()
+        channel = nil
+        engine = nil
     }
+
+    deinit { shutdown() }
 }

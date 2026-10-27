@@ -9,6 +9,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     private let screenshot: ScreenshotWindowController
     private var engine: FlutterEngine?
     private var channel: FlutterMethodChannel?
+    /// 启动期间合并预热和展示请求，退出或丢弃时撤销，避免迟到创建旧面板。
+    private var pendingStartup: WindowEngine.Startup?
     private var window: NSWindow?
     private var player: AVPlayer?
     private weak var playerView: AVPlayerView?
@@ -41,7 +43,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     }
 
     /// 无参数；有资源或结果时必须明确处理，不能被另一工具入口覆盖。
-    var hasPendingCapture: Bool { ![.idle, .failed].contains(service.phase) }
+    var hasPendingCapture: Bool { discarding || ![.idle, .failed].contains(service.phase) }
 
     /// screenshot为唯一截图选择/编辑控制器；监听资源状态以切换承载面板。
     init(screenshot: ScreenshotWindowController) {
@@ -78,6 +80,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     /// 无参数；终止任务并释放播放器文件引用，再关闭本工具的面板和引擎。
     func shutdown() async {
         shuttingDown = true
+        pendingStartup?.cancel()
+        pendingStartup = nil
         // 退出立即撤下可见遮罩，再等待媒体资源清理。
         updateCaptureShades()
         // 在等待媒体资源清理前，先阻止选区冻结任务创建新的窗口。
@@ -148,27 +152,61 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// 无参数；懒建透明Flutter面板，只承载当前状态，不负责选区或来源准备。
+    /// 无参数；等待 Dart 就绪后懒建透明 Flutter 面板，按当前状态展示，idle 预热保持隐藏，无返回值。
     private func createPanel() {
-        guard window == nil else { return }
+        guard window == nil, pendingStartup == nil, !shuttingDown, !discarding else { return }
         let started = ContinuousClock.now
         // 记录真实采集引擎初始化，便于区分界面准备与ScreenCaptureKit启动耗时。
         defer { CaptureStartupLog.record("capture-ui-create-sync", since: started) }
-        // WindowEngine 统一装配附属窗口引擎（#120）；采集窗口另行注册视频预览平台视图。
-        guard let started = WindowEngine.start(
+        // WindowEngine 等待 Dart 确认；采集窗口就绪后再注册视频预览平台视图。
+        pendingStartup = WindowEngine.start(
             name: AppConstants.captureEntrypoint, entrypoint: AppConstants.captureEntrypoint,
             channel: AppConstants.captureChannel,
-            handler: { [weak self] call, result in self?.handle(call, result: result) }) else { return }
-        engine = started.engine
-        channel = started.channel
-        let flutter = started.flutter
-        flutter.registrar(forPlugin: "CaptureVideoPreview").register(
-            CapturePreviewFactory(owner: self), withId: AppConstants.captureVideoPreview)
-        // makeWindow从创建时就明确是否非激活，避免结果窗口继承采集控制条的焦点约束。
-        let panel = Self.makeWindow(compact: true)
-        panel.delegate = self
-        NativeGlassFactory.installContent(flutter, in: panel)
-        window = panel
+            handler: { [weak self] call, result in self?.handle(call, result: result) },
+            completion: { [weak self] started in
+                guard let self else { return }
+                self.pendingStartup = nil
+                guard let started else {
+                    // 清理期间阻止资源通知重新启动面板；真实采集资源必须在失败提示前结束。
+                    self.discarding = true
+                    if self.liveControlID != nil {
+                        self.onLiveCancel?()
+                        // hideLiveControls/setLiveShade 立即撤销失去控制条的实时展示状态。
+                        self.hideLiveControls()
+                        self.setLiveShade(nil)
+                    }
+                    Task { @MainActor in
+                        // releasePlayer 先解除文件引用，再由 cancel 释放流与临时媒体。
+                        self.releasePlayer()
+                        await self.service.cancel()
+                        if self.preparingScreenshot {
+                            self.preparingScreenshot = false
+                            // restoreAfterCapturePreparation 恢复尚未开始采集的同一截图草稿。
+                            if !self.shuttingDown { self.screenshot.restoreAfterCapturePreparation() }
+                        }
+                        self.discarding = false
+                        // present 同步清理后的空闲状态，撤下采集遮罩并恢复激活策略。
+                        self.present()
+                        guard !self.shuttingDown else { return }
+                        // reportStartFailure 使用附属窗口统一的启动失败提示。
+                        WindowEngine.reportStartFailure("采集窗口")
+                    }
+                    return
+                }
+                self.engine = started.engine
+                self.channel = started.channel
+                let flutter = started.flutter
+                flutter.registrar(forPlugin: "CaptureVideoPreview").register(
+                    CapturePreviewFactory(owner: self), withId: AppConstants.captureVideoPreview)
+                // makeWindow 从创建时就明确非激活类型，随后 present 按当前媒体状态调整窗口。
+                let panel = Self.makeWindow(compact: true)
+                panel.delegate = self
+                NativeGlassFactory.installContent(flutter, in: panel)
+                self.window = panel
+                // present 读取确认时的真实阶段；预热完成仍处于 idle 时保持隐藏。
+                self.present()
+                self.channel?.invokeMethod(AppConstants.captureStateChangedMethod, arguments: self.captureState())
+            })
     }
 
     /// compact指定采集控制条或视频结果；返回非激活顶层面板或带系统控制的普通窗口。
@@ -278,12 +316,12 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
 
     /// force表示用户重新打开隐藏结果；资源通知只同步所需布局和可见录制范围。
     func present(force: Bool = false) {
+        guard !shuttingDown, !discarding else { return }
         let previous = lastPhase
         // 实时翻译不占用媒体阶段；进行中时与采集中一样显示紧凑控制条。
         let live = liveControlID != nil
         // 同步录制在实时翻译期间失败时先不记为已处理，实时翻译结束后的下一次调用才提示失败。
         if !(live && service.phase == .failed) { lastPhase = service.phase }
-        guard !shuttingDown else { return }
         let showingResult = !live && [.videoReady, .converting, .imageReady].contains(service.phase)
         // 结果先就位再撤遮罩；采集中仍立即更新选区阴影。
         if !showingResult { updateCaptureShades() }
@@ -303,6 +341,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             return
         }
         createPanel()
+        // 尚在等待 Dart 确认时由完成回调继续展示，不将暂无窗口当作启动失败。
+        guard pendingStartup == nil else { return }
         let compact = live || [.preparing, .recording, .scrolling, .pausing, .paused, .finalizing].contains(service.phase)
         // NSPanel的非激活标记必须在初始化时确定；仅转移内容，不重建Flutter引擎或媒体。
         if let old = window, old.styleMask.contains(.nonactivatingPanel) != compact {
@@ -316,10 +356,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             NativeGlassFactory.applyAppearance(to: replacement)
             window = replacement
         }
-        guard let window else {
-            if showingResult { showError(GIFExporter.ExportError(message: "无法打开结果窗口。")) }
-            return
-        }
+        guard let window else { return }
         let changed = compactPresentation != compact
         let controlSize = AppConstants.captureControlSize
         let sizeChanged = compact && window.contentView?.frame.size != controlSize
@@ -516,7 +553,13 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     private func discard() async {
         guard !discarding else { return }
         discarding = true
-        defer { discarding = false }
+        pendingStartup?.cancel()
+        pendingStartup = nil
+        defer {
+            discarding = false
+            // present 在资源清理完成后同步空闲状态，清理中的通知不能重建窗口。
+            present()
+        }
         // releasePlayer先撤销文件引用，再由cancel结束任务并清理临时目录。
         releasePlayer()
         await service.cancel()

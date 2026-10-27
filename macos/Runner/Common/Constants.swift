@@ -32,6 +32,12 @@ enum ScrollCaptureMode: String {
 /// 原生侧通道名、方法名、错误码、偏好键与平台视图类型等协议值；字面量与 Dart common/constants 下同名值一致，改名须两端同步。
 /// 只定义 Swift 端代码（含测试）实际使用的值。
 enum AppConstants {
+    /// 独立引擎入口就绪确认；五秒预算只覆盖入口执行，不等待首帧或业务加载。
+    static let windowStartupChannel = "translateapp/window_startup"
+    static let windowReadyMethod = "windowReady"
+    /// #120 的有限等待策略；实测条件与样本见工单，若新增入口或启动负载变化需重新测量。
+    static let windowStartupTimeout: TimeInterval = 5
+
     /// 连续采集独立通道与多引擎入口，和Dart常量一致。
     static let captureChannel = "translateapp/capture"
     static let captureEntrypoint = "captureMain"

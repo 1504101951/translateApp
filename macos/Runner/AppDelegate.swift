@@ -98,6 +98,10 @@ class AppDelegate: FlutterAppDelegate {
                 return .terminateCancel
             }
         }
+        // 用户已确认退出；先撤销附属窗口启动，媒体清理等待期间不能再出现迟到窗口。
+        settingsWindow.shutdown()
+        permissionWizard.close()
+        historyWindow.close()
         Task { @MainActor in
             // 不能在进程退出后期待流、编码器和临时目录的清理回调执行。
             await capture.shutdown()

@@ -6,6 +6,8 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
     private var engine: FlutterEngine?
     private var window: NSWindow?
     private var channel: FlutterMethodChannel?
+    /// 保留尚未确认的启动，关闭时撤销，防止迟到窗口重新出现。
+    private var pendingStartup: WindowEngine.Startup?
     private let engineName: String
     private let entrypoint: String
     private let title: String
@@ -34,23 +36,31 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
             WindowEngine.present(window)
             return
         }
-        // WindowEngine 统一装配附属窗口引擎（#120）；启动失败时提示并不显示窗口（#126）。
-        guard let started = WindowEngine.start(
+        guard pendingStartup == nil else { return }
+        // WindowEngine 等待 Dart 就绪；重复打开复用本次启动。
+        pendingStartup = WindowEngine.start(
             name: engineName, entrypoint: entrypoint, channel: AppConstants.settingsChannel,
             handler: { call, result in
                 let bridge = MacPlatformBridge.Shared.instance!
                 // routeWindowRequest负责跨引擎分发，辅助窗口不保存业务方法表。
                 bridge.routeWindowRequest(call, result: result)
-            }) else {
-            WindowEngine.reportStartFailure("\(title)窗口")
-            return
-        }
-        engine = started.engine
-        channel = started.channel
-        // WindowEngine.makeWindow 建出承载原生玻璃内容的普通窗口；附属窗口关闭即停止引擎。
-        let window = WindowEngine.makeWindow(flutter: started.flutter, title: title, size: size, minSize: nil, delegate: self)
-        self.window = window
-        WindowEngine.present(window)
+            }, completion: { [weak self] started in
+                guard let self else { return }
+                self.pendingStartup = nil
+                guard let started else {
+                    // reportStartFailure 统一提示未就绪；失败资源由启动对象释放。
+                    WindowEngine.reportStartFailure("\(self.title)窗口")
+                    return
+                }
+                self.engine = started.engine
+                self.channel = started.channel
+                // makeWindow 建出普通窗口；附属窗口关闭即停止引擎。
+                let window = WindowEngine.makeWindow(
+                    flutter: started.flutter, title: self.title, size: self.size, minSize: nil, delegate: self)
+                self.window = window
+                // present 激活并前置已经就绪的附属窗口。
+                WindowEngine.present(window)
+            })
     }
 
     /// 无参数；窗口引擎运行中且配置了 refreshMethod 时请 Dart 重新读取数据，无返回值。
@@ -65,17 +75,27 @@ final class AuxiliaryWindowController: NSObject, NSWindowDelegate {
         refresh()
     }
 
-    /// 无参数；关闭窗口但不销毁引擎标记，下次 show 可重建。
+    /// 无参数；撤销待启动窗口并关闭现有窗口，下次 show 可重建，无返回值。
     func close() {
+        pendingStartup?.cancel()
+        pendingStartup = nil
         window?.close()
     }
 
     /// notification 为窗口关闭事件；解除当前引擎回调并停止引擎，返回void。
     func windowWillClose(_ notification: Notification) {
+        pendingStartup?.cancel()
+        pendingStartup = nil
         channel?.setMethodCallHandler(nil)
         engine?.shutDownEngine()
         engine = nil
         channel = nil
         window = nil
+    }
+
+    deinit {
+        pendingStartup?.cancel()
+        channel?.setMethodCallHandler(nil)
+        engine?.shutDownEngine()
     }
 }

@@ -20,6 +20,16 @@ class RunnerTests: XCTestCase {
         return try XCTUnwrap(image.representation(using: .png, properties: [:]))
     }
 
+    /// 无参数；等待正式截图引擎入口确认并显示编辑器，返回可见窗口；六秒覆盖五秒启动预算。
+    @MainActor
+    private func waitForScreenshotEditor() async throws -> NSWindow {
+        let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            NSApp.windows.contains { $0 is ScreenshotPanel && $0.isVisible }
+        }, object: nil)
+        await fulfillment(of: [visible], timeout: 6)
+        return try XCTUnwrap(NSApp.windows.first { $0 is ScreenshotPanel && $0.isVisible })
+    }
+
     /// 无参数；真实标题材料和内容安全区随外观、透明度及窗口尺寸同步，测试后恢复偏好。
     @MainActor
     func testGlassTitlebarAppearanceAndContentLayout() throws {
@@ -59,13 +69,57 @@ class RunnerTests: XCTestCase {
         }
     }
 
+    /// 无参数；确认前取消或转入采集均清空旧草稿，随后只展示最新截图；无返回值。
+    /// 同一主队列内取消覆盖 run 尚未执行的边界，六秒窗口等待覆盖正常重新启动。
+    @MainActor
+    func testScreenshotPendingStartupCancellationKeepsOnlyLatestDraft() async throws {
+        let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        defer { controller.shutdown() }
+        let png = try screenshotFixture(width: 80, height: 60, color: .blue)
+        for id in ["cancel-pending", "capture-pending"] {
+            controller.seedCaptureForTesting(png: png, id: id, width: 80, height: 60, showEditor: true)
+            if id == "cancel-pending" { controller.cancelCapture() }
+            else { controller.closeForCapture() }
+            XCTAssertFalse(controller.isCurrentCapture(id))
+        }
+        controller.seedCaptureForTesting(png: png, id: "latest", width: 80, height: 60, showEditor: true)
+        // waitForScreenshotEditor 只等待正式入口确认后的真实窗口。
+        _ = try await waitForScreenshotEditor()
+        var state: [String: Any]?
+        controller.handle(FlutterMethodCall(methodName: AppConstants.getScreenshotMethod, arguments: nil)) {
+            state = $0 as? [String: Any]
+        }
+        XCTAssertEqual(state?["id"] as? String, "latest")
+        XCTAssertEqual((state?["bytes"] as? FlutterStandardTypedData)?.data, png)
+        XCTAssertEqual(NSApp.windows.filter { $0 is ScreenshotPanel && $0.isVisible }.count, 1)
+    }
+
+    /// 无参数；采集界面预热尚未确认时退出，不能迟到创建面板，媒体保持空闲；无返回值。
+    @MainActor
+    func testCaptureShutdownCancelsPendingWarmup() async {
+        let screenshot = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
+        let capture = CaptureWindowController(screenshot: screenshot)
+        let before = Set(NSApp.windows.filter { $0 is NSPanel && $0.styleMask.contains(.nonactivatingPanel) }.map(\.windowNumber))
+        capture.prepareControls()
+        capture.prepareControls()
+        // shutdown 在等待真实媒体清理前同步取消窗口启动。
+        await capture.shutdown()
+        await Task.yield()
+        let after = Set(NSApp.windows.filter { $0 is NSPanel && $0.styleMask.contains(.nonactivatingPanel) }.map(\.windowNumber))
+        XCTAssertEqual(after, before)
+        XCTAssertEqual(capture.service.phase, .idle)
+        screenshot.shutdown()
+    }
+
     /// 无参数；从真实截图方法入口验证两类对角原生光标，拒绝未知值并恢复关闭后的箭头。
     @MainActor
-    func testScreenshotDiagonalCursorUsesNativeFrameResize() throws {
+    func testScreenshotDiagonalCursorUsesNativeFrameResize() async throws {
         let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
         defer { controller.shutdown(); NSCursor.arrow.set() }
         let png = try screenshotFixture(width: 80, height: 60, color: .white)
         controller.seedCaptureForTesting(png: png, id: "diagonal", width: 80, height: 60, showEditor: true)
+        // waitForScreenshotEditor 等待入口确认，后续事件针对真实可见窗口。
+        _ = try await waitForScreenshotEditor()
         // 两个双向轴覆盖四角：左上/右下与右上/左下。检查真实NSCursor状态而非下游调用次数。
         for (direction, position) in [(AppConstants.resizeNorthWestSouthEast, NSCursor.FrameResizePosition.topLeft), (AppConstants.resizeNorthEastSouthWest, .topRight)] {
             NSCursor.arrow.set()
@@ -89,7 +143,7 @@ class RunnerTests: XCTestCase {
 
     /// 无参数；非激活截图的数字/Command组合在原生入口被消费，文本输入与关闭后原样放行。
     @MainActor
-    func testScreenshotConfiguredShortcutConsumesOnlyItsScope() throws {
+    func testScreenshotConfiguredShortcutConsumesOnlyItsScope() async throws {
         let previous = UserDefaults.standard.object(forKey: AppConstants.preferencesKey)
         defer {
             if let previous { UserDefaults.standard.set(previous, forKey: AppConstants.preferencesKey) }
@@ -103,6 +157,8 @@ class RunnerTests: XCTestCase {
         defer { controller.shutdown() }
         let png = try screenshotFixture(width: 80, height: 60, color: .white)
         controller.seedCaptureForTesting(png: png, id: "shortcut", width: 80, height: 60, showEditor: true)
+        // waitForScreenshotEditor 等待入口确认，后续事件针对真实可见窗口。
+        _ = try await waitForScreenshotEditor()
         // 实际UserDefaults到截图快照必须携带工具参数，否则重新截图后用户选择会丢失。
         var preferences = UserDefaults.standard.dictionary(forKey: AppConstants.preferencesKey)!
         let drawing: [String: Any] = ["shape": "filledCircle", "brushMode": "mosaic", "tools": ["arrow": ["color": 0xFF007AFF, "width": 5]]]
@@ -131,11 +187,13 @@ class RunnerTests: XCTestCase {
 
     /// 无参数；普通键和文本编辑命令原样放行，合法长按不去重；关闭后也无残留消费。
     @MainActor
-    func testScreenshotKeysPreserveTypingAndTextEditing() throws {
+    func testScreenshotKeysPreserveTypingAndTextEditing() async throws {
         let controller = ScreenshotWindowController(pasteboard: NSPasteboard.withUniqueName())
         defer { controller.shutdown() }
         let png = try screenshotFixture(width: 80, height: 60, color: .white)
         controller.seedCaptureForTesting(png: png, id: "typing", width: 80, height: 60, showEditor: true)
+        // waitForScreenshotEditor 等待入口确认，后续事件针对真实可见窗口。
+        _ = try await waitForScreenshotEditor()
         for repeated in [false, true] {
             let typed = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
             typed.setIntegerValueField(.keyboardEventAutorepeat, value: repeated ? 1 : 0)
@@ -178,6 +236,11 @@ class RunnerTests: XCTestCase {
             // 拼接失败后的交付入口就是这个结果，不能再打开截图编辑器。
             controller.service.publishFinishedScroll(png: png, width: 200, height: 2000, frames: 3,
                 failure: "相邻画面缺少稳定的重叠内容，请减小单次滚动幅度或避开动态内容。已保留确认部分。", token: token)
+            // 结果发布可以发生在引擎确认前，等待当前状态真正呈现。
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                NSApp.windows.contains { $0.title == "长截图结果" && $0.isVisible }
+            }, object: nil)
+            await fulfillment(of: [visible], timeout: 6)
             let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "长截图结果" && $0.isVisible })
             XCTAssertEqual(panel.level, .normal)
             XCTAssertTrue(panel.styleMask.contains(.titled))
@@ -231,7 +294,9 @@ class RunnerTests: XCTestCase {
             board.clearContents()
             board.setString("unchanged", forType: .string)
             controller.seedCaptureForTesting(png: png, id: phase, width: 80, height: 60, showEditor: true)
-            // cold 不让出主线程，直接覆盖窗口显示与 Dart handler 注册的启动交界。
+            // waitForScreenshotEditor 等待入口确认，后续事件针对真实可见窗口。
+            _ = try await waitForScreenshotEditor()
+            // cold 在入口确认后立即发 Esc；warm 另等待首帧，reused 覆盖同一引擎重开。
             if phase == "warm" { try await Task.sleep(nanoseconds: 500_000_000) }
             let panel = try XCTUnwrap(NSApp.windows.first { $0 is ScreenshotPanel && $0.isVisible })
             panel.makeFirstResponder(nil)
@@ -263,6 +328,8 @@ class RunnerTests: XCTestCase {
             let id = "return-\(keyCode)"
             board.clearContents()
             controller.seedCaptureForTesting(png: png, id: id, width: 80, height: 60, showEditor: true)
+            // waitForScreenshotEditor 等待入口确认，后续事件针对真实可见窗口。
+            _ = try await waitForScreenshotEditor()
             // 等待真实 Flutter 引擎首帧；这里不以纯 Dart widget 键事件替代原生入口。
             try await Task.sleep(nanoseconds: 1_000_000_000)
             let panel = try XCTUnwrap(NSApp.windows.first { $0 is ScreenshotPanel && $0.isVisible })
@@ -298,7 +365,6 @@ class RunnerTests: XCTestCase {
             XCTAssertLessThan(color.blueComponent, 0.05)
         }
     }
-
 
     /// 无参数；成功读取保留段落并恢复原内容；取消先于新写入、读取期间用户写入时保留用户的新内容；
     /// 复制结果不属于选区时剪贴板仍是本次复制的结果，还原为复制前的内容（#117）。
@@ -1262,4 +1328,132 @@ class RunnerTests: XCTestCase {
         )
     }
 
+}
+
+/// 用真实 Dart 入口验证启动终态和窗口生命周期，不依赖 engine.run 的布尔值。
+final class WindowStartupTests: XCTestCase {
+    /// entrypoint 为编译后的窗口入口；返回回调交付的资源或启动失败 nil，句柄保留到回调完成。
+    @MainActor
+    private func start(_ entrypoint: String) async -> WindowEngine.Started? {
+        var pending: WindowEngine.Startup?
+        let resources = await withCheckedContinuation { continuation in
+            pending = WindowEngine.start(name: "startup-test-\(UUID().uuidString)", entrypoint: entrypoint,
+                channel: AppConstants.settingsChannel, handler: { _, reply in reply(nil) }) { started in
+                    continuation.resume(returning: started)
+                }
+        }
+        withExtendedLifetime(pending) {}
+        return resources
+    }
+
+    /// 无参数；五个正式入口都必须确认就绪，绑定控制器但不创建窗口，证明确认不依赖首帧；无返回值。
+    @MainActor
+    func testAllWindowEntrypointsAcknowledgeWithoutAWindow() async throws {
+        for entrypoint in [AppConstants.settingsEntrypoint, AppConstants.permissionWizardEntrypoint,
+                           AppConstants.historyEntrypoint, AppConstants.screenshotEntrypoint,
+                           AppConstants.captureEntrypoint] {
+            // start 使用真实入口和二进制消息通道；计时包含创建、排队及确认，不等待首帧。
+            let begin = ContinuousClock.now
+            let outcome = await start(entrypoint)
+            let elapsed = (ContinuousClock.now - begin).components
+            let milliseconds = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
+            print("WINDOW_STARTUP_MEASURE entrypoint=\(entrypoint) milliseconds=\(milliseconds) ready=\(outcome != nil)")
+            let started = try XCTUnwrap(outcome)
+            XCTAssertNil(started.flutter.view.window)
+            started.channel.setMethodCallHandler(nil)
+            started.engine.shutDownEngine()
+        }
+    }
+
+    /// 无参数；不存在的入口在五秒预算后失败，同一进程随后能运行合法入口；无返回值。
+    @MainActor
+    func testMissingEntrypointFailsAndNextStartupSucceeds() async throws {
+        let clock = ContinuousClock.now
+        let failed = await start("missingWindowStartupTestEntrypoint")
+        XCTAssertNil(failed)
+        XCTAssertGreaterThanOrEqual(ContinuousClock.now - clock, .seconds(AppConstants.windowStartupTimeout))
+        let outcome = await start(AppConstants.settingsEntrypoint)
+        let retry = try XCTUnwrap(outcome)
+        retry.channel.setMethodCallHandler(nil)
+        retry.engine.shutDownEngine()
+    }
+
+    /// 无参数；排队前取消和运行后取消均不能交付，等待超过确认预算覆盖迟到终态；无返回值。
+    @MainActor
+    func testCancellationBeforeRunAndDuringStartupDoesNotDeliver() async throws {
+        let cancelled = expectation(description: "取消后不得交付资源或失败")
+        cancelled.isInverted = true
+        let beforeRun = WindowEngine.start(name: "cancel-before-run", entrypoint: AppConstants.settingsEntrypoint,
+            channel: AppConstants.settingsChannel, handler: { _, reply in reply(nil) }) { _ in cancelled.fulfill() }
+        beforeRun.cancel()
+        let duringRun = WindowEngine.start(name: "cancel-during-run", entrypoint: "missingWindowStartupTestEntrypoint",
+            channel: AppConstants.settingsChannel, handler: { _, reply in reply(nil) }) { _ in cancelled.fulfill() }
+        // 主队列先运行入口，再撤销仍在等待确认的启动。
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { duringRun.cancel(); continuation.resume() }
+        }
+        await fulfillment(of: [cancelled], timeout: AppConstants.windowStartupTimeout + 0.2)
+        withExtendedLifetime((beforeRun, duringRun)) {}
+    }
+
+    /// title 为本次窗口标题；等待可见窗口，返回该窗口；六秒覆盖五秒启动预算，失败由 XCTest 报告。
+    @MainActor
+    private func visibleWindow(title: String) async throws -> NSWindow {
+        let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            NSApp.windows.contains { $0.title == title && $0.isVisible }
+        }, object: nil)
+        await fulfillment(of: [visible], timeout: 6)
+        return try XCTUnwrap(NSApp.windows.first { $0.title == title && $0.isVisible })
+    }
+
+    /// 无参数；设置重复打开只显示一个窗口，关闭后复用同一引擎和窗口；无返回值。
+    @MainActor
+    func testSettingsMergesPendingOpenAndReusesClosedWindow() async throws {
+        let settings = SettingsWindowController()
+        settings.show()
+        // shutdown 撤销待启动窗口，后续显式打开才创建新的启动。
+        settings.shutdown()
+        await Task.yield()
+        XCTAssertFalse(NSApp.windows.contains { $0.title == "TranslateApp 设置" && $0.isVisible })
+        settings.show()
+        settings.show()
+        let window = try await visibleWindow(title: "TranslateApp 设置")
+        let flutter = try XCTUnwrap(window.contentViewController?.children.first as? FlutterViewController)
+        XCTAssertEqual(NSApp.windows.filter { $0.title == "TranslateApp 设置" && $0.isVisible }.count, 1)
+        window.close()
+        XCTAssertFalse(window.isVisible)
+        settings.show()
+        let reopened = try await visibleWindow(title: "TranslateApp 设置")
+        XCTAssertTrue(reopened === window)
+        XCTAssertTrue((reopened.contentViewController?.children.first as? FlutterViewController)?.engine === flutter.engine)
+        reopened.close()
+        withExtendedLifetime(settings) {}
+    }
+
+    /// 无参数；附属窗关闭待启动时不迟到显示，重开可成功，已显示窗口关闭后重建引擎；无返回值。
+    @MainActor
+    func testAuxiliaryCloseCancelsPendingAndReopensWithNewEngine() async throws {
+        let title = "startup-lifecycle-test"
+        let controller = AuxiliaryWindowController(engineName: "startup-lifecycle", entrypoint: AppConstants.historyEntrypoint,
+            title: title, size: NSSize(width: 560, height: 720), refreshMethod: AppConstants.historyChangedMethod)
+        defer { controller.close() }
+        controller.show()
+        controller.show()
+        controller.close()
+        // 下一轮主队列之后，已取消的启动也不能交付窗口。
+        await Task.yield()
+        XCTAssertFalse(NSApp.windows.contains { $0.title == title && $0.isVisible })
+        controller.show()
+        controller.show()
+        let window = try await visibleWindow(title: title)
+        let flutter = try XCTUnwrap(window.contentViewController?.children.first as? FlutterViewController)
+        XCTAssertEqual(NSApp.windows.filter { $0.title == title && $0.isVisible }.count, 1)
+        controller.refresh()
+        controller.close()
+        XCTAssertFalse(window.isVisible)
+        controller.show()
+        let reopened = try await visibleWindow(title: title)
+        let next = try XCTUnwrap(reopened.contentViewController?.children.first as? FlutterViewController)
+        XCTAssertFalse(next.engine === flutter.engine)
+    }
 }

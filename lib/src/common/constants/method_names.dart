@@ -1,5 +1,8 @@
 /// Dart 使用的平台方法名协议值；与 Swift AppConstants 同名值字面量一致，改名须两端同步。
 abstract final class MethodNames {
+  /// 初始化绑定并提交附属窗口 widget 后确认入口已执行。
+  static const windowReady = 'windowReady';
+
   /// 媒体采集协议，与Swift AppConstants逐项对应。
   static const getCaptureState = 'getCaptureState';
   static const previewLiveRegion = 'previewLiveRegion';

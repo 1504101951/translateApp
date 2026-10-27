@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'src/capture/capture_app.dart';
+import 'src/common/constants/channel_names.dart';
 import 'src/common/constants/live_region.dart';
 import 'src/common/constants/method_names.dart';
 import 'src/history/history_app.dart';
@@ -212,37 +213,46 @@ Future<void> main() async {
   await bridge.appReady();
 }
 
-/// 无参数；设置引擎入口只创建表单，不创建监听器或翻译会话。
+/// 无参数；设置引擎入口只创建表单，不创建监听器或翻译会话；返回就绪确认完成的 Future。
 @pragma('vm:entry-point')
-void settingsMain() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const SettingsApp());
+Future<void> settingsMain() async {
+  // _runWindow 提交窗口根组件后通知原生入口已执行。
+  await _runWindow(const SettingsApp());
 }
 
-/// 无参数；截图引擎只创建图片预览，不初始化翻译或全局监听。
+/// 无参数；截图引擎只创建图片预览，不初始化翻译或全局监听；返回就绪确认完成的 Future。
 @pragma('vm:entry-point')
-void screenshotMain() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ScreenshotApp());
+Future<void> screenshotMain() async {
+  // _runWindow 提交窗口根组件后通知原生入口已执行。
+  await _runWindow(const ScreenshotApp());
 }
 
-/// 无参数；采集引擎只管理录制、GIF 与长截图界面，原生持有媒体资源。
+/// 无参数；采集引擎只管理录制、GIF 与长截图界面，原生持有媒体资源；返回就绪确认完成的 Future。
 @pragma('vm:entry-point')
-void captureMain() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const CaptureApp());
+Future<void> captureMain() async {
+  // _runWindow 提交窗口根组件后通知原生入口已执行。
+  await _runWindow(const CaptureApp());
 }
 
-/// 无参数；启动权限向导界面，由原生处理系统授权。
+/// 无参数；启动权限向导界面，由原生处理系统授权；返回就绪确认完成的 Future。
 @pragma('vm:entry-point')
-void permissionWizardMain() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const PermissionWizardApp());
+Future<void> permissionWizardMain() async {
+  // _runWindow 提交窗口根组件后通知原生入口已执行。
+  await _runWindow(const PermissionWizardApp());
 }
 
-/// 无参数；启动独立历史引擎，历史读写仍委托主引擎。
+/// 无参数；启动独立历史引擎，历史读写仍委托主引擎；返回就绪确认完成的 Future。
 @pragma('vm:entry-point')
-void historyMain() {
+Future<void> historyMain() async {
+  // _runWindow 提交窗口根组件后通知原生入口已执行。
+  await _runWindow(const HistoryApp());
+}
+
+/// app 为附属窗口根组件；初始化绑定并提交组件后确认入口已执行，返回确认完成的 Future。
+/// 确认只覆盖入口，不等待首帧或页面业务数据。
+Future<void> _runWindow(Widget app) async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const HistoryApp());
+  runApp(app);
+  const startup = MethodChannel(ChannelNames.windowStartup);
+  await startup.invokeMethod<void>(MethodNames.windowReady);
 }
