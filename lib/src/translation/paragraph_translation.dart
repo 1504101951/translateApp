@@ -229,7 +229,9 @@ Stream<TranslationEvent> translateParagraphBatches(
             }
             // 每段都必须有译文；缺少时说明返回的段落数与原文不一致，整片失败由用户重试。
             if (buffers.any((buffer) => buffer.toString().trim().isEmpty)) {
-              output.add(const TranslationFailure('服务返回的段落数与原文不一致，请重试。'));
+              output.add(
+                const TranslationFailure(paragraphCountMismatchMessage),
+              );
               return;
             }
             for (final (offset, buffer) in buffers.indexed) {

@@ -9,18 +9,19 @@ sealed class MacosBridgeEvent {
   final String sessionId;
 
   /// map为Swift事件字典；按type构造事件，未知类型返回UnknownBridgeEvent，由调用方判断会话身份。
+  /// Swift 每个事件都带 type 与 sessionId，选区事件另带 text、gesture、x、y；缺失即两端协议不一致，按类型错误抛出（#132）。
   factory MacosBridgeEvent.fromMap(Map<Object?, Object?> map) {
-    final type = map['type'] as String? ?? '';
-    final sessionId = map['sessionId'] as String? ?? '';
+    final type = map['type'] as String;
+    final sessionId = map['sessionId'] as String;
     switch (type) {
       case BridgeEventTypes.selectionCaptured:
         return SelectionCaptured(
           sessionId: sessionId,
-          text: map['text'] as String? ?? '',
-          gesture: map['gesture'] as String? ?? '',
+          text: map['text'] as String,
+          gesture: map['gesture'] as String,
           sourceAppName: map['sourceAppName'] as String?,
-          x: (map['x'] as num?)?.toDouble() ?? 0,
-          y: (map['y'] as num?)?.toDouble() ?? 0,
+          x: (map['x'] as num).toDouble(),
+          y: (map['y'] as num).toDouble(),
         );
       case BridgeEventTypes.selectionInvalidated:
         return SelectionInvalidated(sessionId: sessionId);

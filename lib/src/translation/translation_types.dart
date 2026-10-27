@@ -106,6 +106,9 @@ const translationTimeoutMessage = '翻译请求超时，请重试。';
 /// 服务结束响应却没有给出完成事件时的用户可读原因；各翻译路径共用（#124）。
 const incompleteTranslationMessage = '服务未返回完整译文。';
 
+/// 服务返回的段落或行数与原文不一致时的用户可读原因；分批翻译与截图翻译文字共用（#132）。
+const paragraphCountMismatchMessage = '服务返回的段落数与原文不一致，请重试。';
+
 /// 段落批量请求的通用上限：每批最多 batchItemLimit 段、batchCharLimit 字符，先到为准；
 /// 实时翻译、模型服务单篇分批与非官方 Google 共用（#113、#124）。
 const batchItemLimit = 20;

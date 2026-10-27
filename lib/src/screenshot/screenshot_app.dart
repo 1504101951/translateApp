@@ -29,6 +29,7 @@ import 'recognized_text_panel.dart';
 import 'screenshot_editor_layout.dart';
 import '../settings/screenshot_toolbar_preferences.dart';
 import '../common/constants/screenshot_actions.dart';
+import '../translation/translation_types.dart';
 import '../upload/s3_upload.dart';
 
 /// handle 为控制点方向，plusWhenIdle控制空白十字；channel为截图引擎，返回系统或原生对角光标。
@@ -634,8 +635,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   /// 无参数；拉取内存截图，失败保留可见错误，无返回值。
   Future<void> _load() async {
     try {
-      final snapshot =
-          await widget.channel.invokeMapMethod(MethodNames.getScreenshot) ?? {};
+      // 原生截图窗口总返回快照字典；为空即协议错误，直接抛出（#132）。
+      final snapshot = (await widget.channel.invokeMapMethod(
+        MethodNames.getScreenshot,
+      ))!;
       if (_capture.isEmpty) _replace(snapshot);
     } on PlatformException catch (error) {
       if (mounted) {
@@ -1222,12 +1225,22 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         MethodNames.translatePlainText,
         {'text': joined, 'id': id},
       );
-      final lines = (translated ?? '').split('\n');
+      // 识别块各占一行发送，译文须逐行对应；行数不符即整次失败，不用原文充当译文（#132）。
+      final lines = translated!.split('\n');
+      if (lines.length != blocks.length) {
+        if (mounted && _capture['id'] == id) {
+          setState(() {
+            _message = paragraphCountMismatchMessage;
+            _failed = true;
+          });
+        }
+        return;
+      }
       final overlays = <_OcrOverlay>[
         for (var i = 0; i < blocks.length; i++)
           _OcrOverlay(
             source: blocks[i].source,
-            translation: i < lines.length ? lines[i] : blocks[i].source,
+            translation: lines[i],
             rect: blocks[i].rect,
           ),
       ];

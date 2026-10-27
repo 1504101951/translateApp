@@ -16,6 +16,7 @@ import 'package:translate_app/src/history/screenshot_history.dart';
 import 'package:translate_app/src/screenshot/edit_document.dart';
 import 'package:translate_app/src/screenshot/recognized_text_panel.dart';
 import 'package:translate_app/src/screenshot/screenshot_app.dart';
+import 'package:translate_app/src/translation/translation_types.dart';
 import 'package:translate_app/src/settings/app_settings.dart';
 
 /// 无参数；验证文件名、编辑文档像素结果与编辑器导出反馈，无返回值。
@@ -621,6 +622,50 @@ void main() {
     await _tapExport(tester, const Key('screenshot-ocr-translate'));
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('已在图上显示译文'), findsOneWidget);
+  });
+
+  testWidgets('截图翻译返回的行数少于识别块时整次失败，不用原文充当译文（#132）', (tester) async {
+    // 作用：识别块与译文逐行对应，服务少返回一行时显示失败原因，图上不出现任何译文覆盖。
+    // 边界：两个识别块只收到一行译文，是行数不符的最小情形。
+    tester.view.physicalSize = const Size(960, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = await tester.runAsync(_pngCheckerboard);
+    const channel = MethodChannel('test/screenshot-ocr-mismatch');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case MethodNames.getScreenshot:
+          return {
+            'id': 'shot-ocr-mismatch',
+            'bytes': bytes,
+            'capturedAt': 1788662400000,
+            'width': 8,
+            'height': 8,
+            'directory': '',
+          };
+        case MethodNames.recognizeBlocks:
+          return [
+            {'text': 'Hello', 'x': 0, 'y': 0, 'width': 4, 'height': 2},
+            {'text': 'World', 'x': 0, 'y': 4, 'width': 4, 'height': 2},
+          ];
+        case MethodNames.translatePlainText:
+          return '你好';
+        default:
+          return null;
+      }
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(const ScreenshotApp(channel: channel));
+    await tester.pump();
+    await _tapExport(tester, const Key('screenshot-ocr-translate'));
+    expect(find.text(paragraphCountMismatchMessage), findsOneWidget);
+    expect(find.text('你好'), findsNothing);
+    expect(find.text('World'), findsNothing);
+    expect(find.text('已在图上显示译文'), findsNothing);
   });
 
   testWidgets('截图翻译的迟到识别结果不在替换后的截图上显示，也不发起翻译（#115）', (tester) async {

@@ -65,6 +65,9 @@ class ApiTranslationProvider implements BatchTranslationProvider {
   /// 百度按字符计，官方上限本次未能读取，取保守值 2000；模型使用段落批量通用上限（#113）。
   static const _googleBatchLimits = (items: 128, chars: 5000);
   static const _baiduBatchLimits = (items: null, chars: 2000);
+
+  /// 百度 54005（长文本请求频繁）按其文档「3s后再试」等待的时长（#118）。
+  static const _baiduLongQueryRetryAfter = Duration(seconds: 3);
   static const _modelBatchLimits = (
     items: batchItemLimit,
     chars: batchCharLimit,
@@ -641,7 +644,7 @@ class ApiTranslationProvider implements BatchTranslationProvider {
         '54005' => const _ApiFailure(
           _rateLimitMessage,
           kind: TranslationFailureKind.rateLimited,
-          retryAfter: Duration(seconds: 3),
+          retryAfter: _baiduLongQueryRetryAfter,
         ),
         '54004' => const _ApiFailure(
           _quotaMessage,
