@@ -94,6 +94,8 @@ void main() {
       'gesture': SelectionGestureTypes.hotkey,
       'text': '你好',
       'sourceAppName': 'Safari',
+      'x': 0,
+      'y': 0,
     });
     expect(session.snapshot.phase, TranslationPhase.translating);
     // 检测期间修改设置，结果仍须记录激活时的服务及次要目标语言。
@@ -122,6 +124,8 @@ void main() {
         'gesture': SelectionGestureTypes.hotkey,
         'text': 'Other',
         'sourceAppName': 'Notes',
+        'x': 0,
+        'y': 0,
       });
       stream.add(const TranslationUpdate('部分'));
       if (ending == 'failed') stream.add(const TranslationFailure('翻译失败'));
@@ -199,6 +203,8 @@ void main() {
           'gesture': SelectionGestureTypes.inputHotkey,
           'text': '你好',
           'sourceAppName': 'Notes',
+          'x': 0,
+          'y': 0,
         }),
         (_) {},
       );
@@ -273,6 +279,8 @@ void main() {
         'gesture': SelectionGestureTypes.hotkey,
         'text': 'hello',
         'sourceAppName': 'Notes',
+        'x': 0,
+        'y': 0,
       }),
       (_) {},
     );
@@ -352,6 +360,8 @@ void main() {
           'gesture': SelectionGestureTypes.hotkey,
           'text': text,
           'sourceAppName': 'Notes',
+          'x': 0,
+          'y': 0,
         }),
         (_) {},
       );

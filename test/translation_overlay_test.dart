@@ -87,6 +87,8 @@ void main() {
       'sessionId': 'first',
       'gesture': SelectionGestureTypes.hotkey,
       'text': 'Hello',
+      'x': 0,
+      'y': 0,
     });
     expect(session.snapshot.phase, TranslationPhase.translating);
     await send({
@@ -98,6 +100,8 @@ void main() {
       'sessionId': 'passive',
       'gesture': SelectionGestureTypes.selectAll,
       'text': 'Ignored',
+      'x': 0,
+      'y': 0,
     });
     expect(session.sessionId, 'first');
     expect(session.snapshot.phase, TranslationPhase.translating);
@@ -123,6 +127,8 @@ void main() {
       'sessionId': 'replacement',
       'gesture': SelectionGestureTypes.hotkey,
       'text': 'Next',
+      'x': 0,
+      'y': 0,
     });
     await tester.pumpAndSettle();
     expect(session.sessionId, 'replacement');
@@ -136,6 +142,8 @@ void main() {
       'sessionId': 'close',
       'gesture': SelectionGestureTypes.hotkey,
       'text': 'Close',
+      'x': 0,
+      'y': 0,
     });
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭'));
@@ -149,6 +157,8 @@ void main() {
       'sessionId': 'empty-hotkey',
       'gesture': SelectionGestureTypes.hotkey,
       'text': '',
+      'x': 0,
+      'y': 0,
     });
     await tester.pumpAndSettle();
     expect(session.snapshot.phase, TranslationPhase.failed);
