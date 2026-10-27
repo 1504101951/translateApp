@@ -55,6 +55,8 @@ struct ApplicationCaptureCanvas: Equatable {
 
 /// 串行处理每屏最新帧与视频编码；所有可变字段仅在queue读写，内存不积累历史帧。
 final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendable {
+    // 写入轨道与帧时间量化共用刻度，避免两处精度不同造成时间折叠。
+    private static let mediaTimeScale: CMTimeScale = 600
     let queue = DispatchQueue(label: "TranslateApp.application-video")
     let canvas: ApplicationCaptureCanvas
     private let writer: AVAssetWriter
@@ -65,7 +67,8 @@ final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendab
     private var frames: [CGDirectDisplayID: CIImage] = [:]
     private var timer: DispatchSourceTimer?
     private var epoch: CMTime?
-    private var lastTime = CMTime.zero
+    // 有效时间只代表成功写入的帧，启动会话与编码背压都不能提前进入可保留状态。
+    private var lastTime = CMTime.invalid
     private var ready: CheckedContinuation<Void, Error>?
     private var failure: Error?
     private var finishing = false
@@ -88,6 +91,8 @@ final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendab
         }
         input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
+        // 轨道与帧时间使用同一刻度，保留30fps及主机时钟延迟的真实间隔。
+        input.mediaTimeScale = Self.mediaTimeScale
         adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
             sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
                 kCVPixelBufferWidthKey as String: Int(canvas.size.width),
@@ -102,14 +107,14 @@ final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendab
     /// identities将每个流映射到显示器；启动前注册，无返回值。
     func register(_ identities: [ObjectIdentifier: CGDirectDisplayID]) { queue.sync { streams = identities } }
 
-    /// 无参数；等待全部显示器第一张完整帧，超时明确失败，避免开始录制时静默遗漏某个屏幕。
+    /// 无参数；等待全部显示器的合成首帧实际写入，成功无返回数据，超时明确失败。
     func waitUntilReady() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async {
                 // 启动与放弃可交错入队；结束后不得注册永远收不到首帧的等待者。
                 guard !self.finishing else { continuation.resume(throwing: CancellationError()); return }
                 if let failure = self.failure { continuation.resume(throwing: failure); return }
-                if self.epoch != nil { continuation.resume(); return }
+                if self.lastTime.isValid { continuation.resume(); return }
                 self.ready = continuation
                 self.queue.asyncAfter(deadline: .now() + 5) {
                     guard self.ready != nil else { return }
@@ -147,14 +152,11 @@ final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendab
         timer.setEventHandler { [weak self] in self?.appendFrame() }
         self.timer = timer
         timer.resume()
-        // 首帧真实写入后才解除准备状态；快速点击暂停也有可保留画面。
+        // appendFrame在首帧真实写入后解除准备状态；背压时由定时器继续尝试。
         appendFrame()
-        guard failure == nil else { return }
-        ready?.resume()
-        ready = nil
     }
 
-    /// 无参数；将当前每屏帧按同一主机时钟合成，编码背压时保留后续真实时间而不缩短视频。
+    /// 无参数/返回值；合成当前每屏帧，首帧从零开始，后续时间量化到轨道刻度且严格递增。
     private func appendFrame() {
         guard !finishing, failure == nil, let epoch else { return }
         guard input.isReadyForMoreMediaData else {
@@ -168,11 +170,16 @@ final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendab
         // composite唯一负责桌面坐标映射；输出始终覆盖完整黑色底画布。
         context.render(canvas.composite(frames), to: buffer, bounds: CGRect(origin: .zero, size: canvas.size),
                        colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
-        let time = CMTimeSubtract(CMClockGetTime(CMClockGetHostTimeClock()), epoch)
+        // 首帧固定为零；后续保留主机经过时间，略过量化后不能推进轨道时间的紧邻回调。
+        let elapsed = CMTimeSubtract(CMClockGetTime(CMClockGetHostTimeClock()), epoch)
+        let time = lastTime.isValid ? CMTimeConvertScale(elapsed, timescale: Self.mediaTimeScale, method: .roundTowardZero) : .zero
+        guard !lastTime.isValid || CMTimeCompare(time, lastTime) > 0 else { return }
         guard adaptor.append(buffer, withPresentationTime: time) else {
             report(writer.error ?? GIFExporter.ExportError(message: "无法追加应用录制画面。")); return
         }
         lastTime = time
+        ready?.resume()
+        ready = nil
     }
 
     /// error为实际失败；仅报告一次，完成首帧等待并停止产生新输出，已有可解码内容由finish交付。
@@ -186,7 +193,7 @@ final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendab
         onFailure(error)
     }
 
-    /// discard为明确放弃；结束串行写入并等待MP4尾部完成，失败不交付坏文件。
+    /// discard为明确放弃；成功无返回数据，保留时必须有实际写入帧并等待MP4尾部完成，否则抛错。
     func finish(discard: Bool) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async {
@@ -196,7 +203,8 @@ final class ApplicationVideoEncoder: NSObject, SCStreamOutput, @unchecked Sendab
                 self.ready?.resume(throwing: CancellationError())
                 self.ready = nil
                 self.frames = [:]
-                if discard || self.epoch == nil {
+                // 放弃及无有效帧都取消写入，不向AVAssetWriter提交无效的结束时间。
+                if discard || !self.lastTime.isValid {
                     self.writer.cancelWriting()
                     if discard { continuation.resume() }
                     else { continuation.resume(throwing: self.failure ?? GIFExporter.ExportError(message: "没有可保留的应用录制画面。")) }

@@ -415,7 +415,151 @@ final class CaptureMediaTests: XCTestCase {
         }
     }
 
-    /// 无参数；放弃先于首帧等待入队时必须返回取消，不能留下无法完成的启动任务。
+    /// 无参数/返回值；真实编码器的快速结束、红蓝变化及150ms队列延迟均能导出可解码GIF/APNG。
+    /// 边界：首帧PTS为零、轨道600刻度且严格递增；1/10/30fps覆盖最低、默认与最高采样率，32px验证缩小。
+    func testApplicationEncoderExportsReadableAnimationsAcrossTimingBoundaries() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ApplicationMedia-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let canvas = try ApplicationCaptureCanvas(displays: [
+            .init(id: 1, frame: CGRect(x: 0, y: 0, width: 64, height: 64), scale: 1),
+        ])
+        for scenario in ["immediate", "changing", "delayed"] {
+            let video = folder.appendingPathComponent("\(scenario).mp4")
+            let encoder = try ApplicationVideoEncoder(canvas: canvas, url: video) { XCTFail($0.localizedDescription) }
+            encoder.queue.async {
+                // receive使用与系统采集相同的真实图像入口，不申请屏幕权限。
+                encoder.receive(CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64)), display: 1)
+            }
+            try await encoder.waitUntilReady()
+            if scenario != "immediate" {
+                if scenario == "delayed" {
+                    // 150ms跨过四个30fps定时边界；输出时长必须保留排队经过时间。
+                    encoder.queue.asyncAfter(deadline: .now() + 0.1) { Thread.sleep(forTimeInterval: 0.15) }
+                }
+                try await Task.sleep(nanoseconds: 350_000_000)
+                encoder.queue.async {
+                    encoder.receive(CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64)), display: 1)
+                }
+                try await Task.sleep(nanoseconds: 400_000_000)
+            }
+            try await encoder.finish(discard: false)
+            let info = try await GIFExporter.metadata(video)
+            XCTAssertEqual([info.width, info.height], [64, 64])
+            if scenario != "immediate" { XCTAssertGreaterThanOrEqual(info.duration, 0.70) }
+            let original = try Data(contentsOf: video)
+            let asset = AVURLAsset(url: video)
+            let tracks = try await asset.loadTracks(withMediaType: .video)
+            let track = try XCTUnwrap(tracks.first)
+            let scale = try await track.load(.naturalTimeScale)
+            XCTAssertEqual(scale, 600)
+            // 读取解码后的帧序列，验证实际容器时间而非私有字段或append调用次数。
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(track: track,
+                outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+            reader.add(output)
+            XCTAssertTrue(reader.startReading())
+            var previous = CMTime.invalid
+            while let sample = output.copyNextSampleBuffer() {
+                let time = CMSampleBufferGetPresentationTimeStamp(sample)
+                XCTAssertTrue(time.isValid)
+                if previous.isValid { XCTAssertGreaterThan(CMTimeCompare(time, previous), 0) }
+                else { XCTAssertEqual(CMTimeCompare(time, .zero), 0) }
+                previous = time
+            }
+            XCTAssertTrue(previous.isValid)
+            XCTAssertEqual(reader.status, .completed)
+            for fps in [1, 10, 30] {
+                for format in [GIFExporter.Format.gif, .apng] {
+                    let animation = folder.appendingPathComponent("\(scenario)-\(fps).\(format.kind.fileExtension)")
+                    let count = try await GIFExporter.export(source: video, destination: animation,
+                        options: .init(framesPerSecond: fps, maximumWidth: 32), format: format) { _ in }
+                    XCTAssertEqual(count, max(1, Int(ceil(info.duration * Double(fps) - 1e-9))))
+                    let source = try XCTUnwrap(CGImageSourceCreateWithURL(animation as CFURL, nil))
+                    XCTAssertEqual(CGImageSourceGetCount(source), count)
+                    var colors: [Int] = []
+                    var delay = 0.0
+                    for index in 0..<count {
+                        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
+                        XCTAssertEqual([image.width, image.height], [32, 32])
+                        // pixels统一解码通道；主色需超过200且另一主色低于40，容纳H264与动图量化误差。
+                        let rgb = Array(try pixels(image).prefix(3))
+                        let color = try XCTUnwrap(rgb.indices.max(by: { rgb[$0] < rgb[$1] }))
+                        XCTAssertTrue(color == 0 || color == 2)
+                        XCTAssertGreaterThan(rgb[color], 200)
+                        XCTAssertLessThan(rgb[color == 0 ? 2 : 0], 40)
+                        colors.append(color)
+                        // 单帧PNG无需动画延时；累计取整最多误差0.005秒，末帧最少0.01秒可再延长不足0.01秒。
+                        if count > 1 {
+                            let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any])
+                            let key = format == .gif ? kCGImagePropertyGIFDictionary : kCGImagePropertyPNGDictionary
+                            let delayKey = format == .gif ? kCGImagePropertyGIFUnclampedDelayTime : kCGImagePropertyAPNGUnclampedDelayTime
+                            let frame = try XCTUnwrap(properties[key] as? [CFString: Any])
+                            delay += try XCTUnwrap(frame[delayKey] as? Double)
+                        }
+                    }
+                    XCTAssertEqual(colors.first, 0)
+                    XCTAssertEqual(colors, colors.sorted())
+                    if scenario != "immediate" && fps >= 10 { XCTAssertEqual(colors.last, 2) }
+                    if count > 1 { XCTAssertEqual(delay, info.duration, accuracy: 0.015000001) }
+                }
+            }
+            if scenario != "immediate" {
+                for format in [GIFExporter.Format.gif, .apng] {
+                    let animation = folder.appendingPathComponent("\(scenario)-crop.\(format.kind.fileExtension)")
+                    // 0.5–0.7秒完全落在0.35秒后的蓝段，10fps恰好两帧，裁剪不得回到红色首帧。
+                    let count = try await GIFExporter.export(source: video, destination: animation,
+                        options: .init(framesPerSecond: 10), format: format,
+                        range: CMTimeRange(start: CMTime(value: 5, timescale: 10), duration: CMTime(value: 2, timescale: 10))) { _ in }
+                    XCTAssertEqual(count, 2)
+                    let source = try XCTUnwrap(CGImageSourceCreateWithURL(animation as CFURL, nil))
+                    XCTAssertEqual(CGImageSourceGetCount(source), 2)
+                    for index in 0..<count {
+                        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, index, nil))
+                        let rgb = Array(try pixels(image).prefix(3))
+                        XCTAssertEqual([image.width, image.height], [64, 64])
+                        XCTAssertGreaterThan(rgb[2], 200)
+                        XCTAssertLessThan(rgb[0], 40)
+                    }
+                }
+            }
+            XCTAssertEqual(try Data(contentsOf: video), original)
+        }
+    }
+
+    /// 无参数/返回值；零屏及仅收到一屏均没有完整合成帧，保留结束必须明确失败，不能交付空MP4。
+    /// 边界：画布要求两屏；0/2与1/2都不能建立有效帧时间，2/2成功路径由真实合成视频用例覆盖。
+    func testApplicationEncoderRejectsFinishWithoutCompleteFrames() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ApplicationEmpty-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let canvas = try ApplicationCaptureCanvas(displays: [
+            .init(id: 1, frame: CGRect(x: 0, y: 0, width: 64, height: 64), scale: 1),
+            .init(id: 2, frame: CGRect(x: 64, y: 0, width: 64, height: 64), scale: 1),
+        ])
+        for partial in [false, true] {
+            let video = folder.appendingPathComponent("empty-\(partial).mp4")
+            let encoder = try ApplicationVideoEncoder(canvas: canvas, url: video) { XCTFail($0.localizedDescription) }
+            if partial {
+                encoder.queue.async {
+                    encoder.receive(CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64)), display: 1)
+                }
+            }
+            do {
+                try await encoder.finish(discard: false)
+                XCTFail("没有完整合成帧不能成功结束录制。")
+            } catch {
+                XCTAssertEqual(error.localizedDescription, "没有可保留的应用录制画面。")
+            }
+            do {
+                _ = try await GIFExporter.metadata(video)
+                XCTFail("无帧录制不能成为可交付媒体。")
+            } catch { }
+        }
+    }
+
+    /// 无参数/返回值；首帧前后放弃均取消后续准备，不留下启动等待或可交付MP4。
+    /// 边界：无帧放弃不得提交无效结束时间；已有一帧放弃仍必须取消整个编码结果。
     func testDiscardBeforeFirstFrameCancelsReadiness() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -423,16 +567,27 @@ final class CaptureMediaTests: XCTestCase {
         let canvas = try ApplicationCaptureCanvas(displays: [
             .init(id: 1, frame: CGRect(x: 0, y: 0, width: 64, height: 64), scale: 1),
         ])
-        let encoder = try ApplicationVideoEncoder(canvas: canvas, url: folder.appendingPathComponent("cancel.mp4")) { error in
-            XCTFail(error.localizedDescription)
-        }
-        // finish模拟真实放弃先完成的状态；waitUntilReady必须观察已结束的编码器身份。
-        try await encoder.finish(discard: true)
-        do {
-            try await encoder.waitUntilReady()
-            XCTFail("已放弃的录制不能继续等待或进入可录制状态。")
-        } catch is CancellationError {
-            // 取消为预期业务结果，不要求调用方等待首帧超时。
+        for hasFrame in [false, true] {
+            let video = folder.appendingPathComponent("cancel-\(hasFrame).mp4")
+            let encoder = try ApplicationVideoEncoder(canvas: canvas, url: video) { XCTFail($0.localizedDescription) }
+            if hasFrame {
+                encoder.queue.async {
+                    encoder.receive(CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64)), display: 1)
+                }
+                try await encoder.waitUntilReady()
+            }
+            // finish模拟真实放弃先完成的状态；waitUntilReady必须观察已结束的编码器身份。
+            try await encoder.finish(discard: true)
+            do {
+                try await encoder.waitUntilReady()
+                XCTFail("已放弃的录制不能继续等待或进入可录制状态。")
+            } catch is CancellationError {
+                // 取消为预期业务结果，不要求调用方等待首帧超时。
+            }
+            do {
+                _ = try await GIFExporter.metadata(video)
+                XCTFail("放弃的录制不能成为可交付媒体。")
+            } catch { }
         }
     }
 
