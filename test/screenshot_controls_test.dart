@@ -396,6 +396,47 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
+  testWidgets('原生转发的方向键微调当前选区，⇧ 10 像素、⌥ 调整大小，过期捕获忽略（#106）', (tester) async {
+    // 作用：非激活截图面板收不到方向键，原生按键路由以 nudgeScreenshotCrop 转发；验证该入口与键盘入口结果一致。
+    // 边界：→ 移动 1、⇧↓ 移动 10、⌥⇧→ 加宽 10；id 不是当前捕获时选区不变。
+    final pumped = await _pumpSelectedCrop(tester, 'test/crop-native-nudge');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    Future<void> nudge(
+      int dx,
+      int dy, {
+      bool shift = false,
+      bool option = false,
+      String id = 'crop',
+    }) async {
+      await messenger.handlePlatformMessage(
+        pumped.channel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          MethodCall(MethodNames.nudgeScreenshotCrop, {
+            'id': id,
+            'dx': dx,
+            'dy': dy,
+            'shift': shift,
+            'option': option,
+          }),
+        ),
+        (_) {},
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await nudge(1, 0);
+    await nudge(0, 1, shift: true);
+    await nudge(1, 0, shift: true, option: true);
+    await nudge(1, 0, id: 'stale');
+    expect(find.text('410 × 300'), findsOneWidget);
+    expect(await _copyCrop(tester, pumped.calls), (
+      const Size(410, 300),
+      const Rect.fromLTWH(201, 190, 410, 300),
+    ));
+    await tester.pump(const Duration(seconds: 2));
+  });
+
   testWidgets('文字输入中与选中标注时方向键不移动选区，取消选中后恢复', (tester) async {
     // 边界：输入框打开时隐藏尺寸标签且方向键留给输入框；光标工具选中矩形后方向键无效；
     // 点击空白取消选中后同一按键移动 1 像素，证明前两次是被条件拦下（#106）。

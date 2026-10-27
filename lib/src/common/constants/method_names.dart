@@ -69,6 +69,9 @@ abstract final class MethodNames {
 
   static const confirmScreenshot = 'confirmScreenshot';
 
+  /// 原生按键路由转发方向键微调截图选区；参数 id、dx、dy（单位方向）、shift、option（#106）。
+  static const nudgeScreenshotCrop = 'nudgeScreenshotCrop';
+
   static const copyScreenshot = 'copyScreenshot';
 
   static const copyText = 'copyText';

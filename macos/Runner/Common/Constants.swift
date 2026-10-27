@@ -159,6 +159,10 @@ enum AppConstants {
     /// 小键盘 Enter 键的硬件键码（kVK_ANSI_KeypadEnter）。
     static let keypadEnterKeyCode: UInt16 = 76
     static let confirmScreenshotMethod = "confirmScreenshot"
+    /// 方向键硬件键码（kVK_LeftArrow…kVK_UpArrow）到截图像素单位方向的映射（#106）。
+    static let arrowKeyDirections: [UInt16: (dx: Int, dy: Int)] = [123: (-1, 0), 124: (1, 0), 125: (0, 1), 126: (0, -1)]
+    /// nudgeScreenshotCrop 协议值；原生按键路由把方向键交给截图引擎微调选区，参数 id、dx、dy、shift、option（#106），与Dart常量同步。
+    static let nudgeScreenshotCropMethod = "nudgeScreenshotCrop"
     static let appReadyMethod = "appReady"
     static let appearanceChangedMethod = "appearanceChanged"
     static let applicationSupportPathMethod = "applicationSupportPath"

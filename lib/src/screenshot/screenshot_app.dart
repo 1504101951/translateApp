@@ -285,6 +285,22 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           return;
         }
         _toolbarActions()[args['action']]?.call();
+      } else if (call.method == MethodNames.nudgeScreenshotCrop) {
+        final args = call.arguments as Map;
+        // 非激活截图面板的方向键由原生转发；只作用于当前捕获，文字输入时留给输入框（#106）。
+        if (_capture['id'] == null ||
+            _capture['id'] != args['id'] ||
+            _textInputOpen) {
+          return;
+        }
+        _nudgeCrop(
+          Offset(
+            (args['dx'] as int).toDouble(),
+            (args['dy'] as int).toDouble(),
+          ),
+          large: args['shift'] as bool,
+          resize: args['option'] as bool,
+        );
       } else if (call.method == MethodNames.confirmScreenshot) {
         final id = (call.arguments as Map)['id'];
         if (_capture['id'] == null || _capture['id'] != id) return;
@@ -1682,27 +1698,26 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     );
   }
 
-  /// direction 为方向键的单位方向；在截图或光标工具、未选中标注时移动或调整选区。
-  /// ⇧ 使用大步长，⌥ 以左上角为锚点调整宽高（锁定比例时另一边按比例推算）；返回是否已处理该按键（#106）。
-  bool _nudgeCrop(Offset direction) {
-    final keyboard = HardwareKeyboard.instance;
+  /// direction 为方向键的单位方向，large 为 ⇧ 大步长，resize 为 ⌥ 以左上角为锚点调整宽高（锁定比例时另一边按比例推算）；
+  /// 在截图或光标工具、未选中标注时移动或调整选区，返回是否已处理该按键（#106）。
+  bool _nudgeCrop(
+    Offset direction, {
+    required bool large,
+    required bool resize,
+  }) {
     if (!_document.hasImage ||
         _busy ||
         (_tool != ScreenshotTool.crop && _tool != ScreenshotTool.cursor) ||
         _selectedShapeId != null ||
-        _selectedTextId != null ||
-        keyboard.isMetaPressed ||
-        keyboard.isControlPressed) {
+        _selectedTextId != null) {
       return false;
     }
     final step = direction *
-        (keyboard.isShiftPressed
-            ? CropMetrics.nudgeLargeStep
-            : CropMetrics.nudgeStep);
+        (large ? CropMetrics.nudgeLargeStep : CropMetrics.nudgeStep);
     final crop = _document.cropRect;
     final bounds = Size(_document.width.toDouble(), _document.height.toDouble());
     final Rect next;
-    if (!keyboard.isAltPressed) {
+    if (!resize) {
       // 移动保持尺寸，停在截图边缘。
       next = Rect.fromLTWH(
         (crop.left + step.dx).clamp(0, bounds.width - crop.width).toDouble(),
@@ -2096,9 +2111,17 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
           }
           // 文字输入中把 ⌘Z 与方向键留给输入框；否则与工具栏共用标注历史。
           if (_textInputOpen) return KeyEventResult.ignored;
-          // _nudgeCrop 按方向键微调选区；不满足条件时交给后续处理（#106）。
+          // _nudgeCrop 按方向键微调选区；⌘/⌃ 组合与不满足条件时交给后续处理（#106）。
           final direction = _arrowDirections[event.logicalKey];
-          if (direction != null && _nudgeCrop(direction)) {
+          final keyboard = HardwareKeyboard.instance;
+          if (direction != null &&
+              !keyboard.isMetaPressed &&
+              !keyboard.isControlPressed &&
+              _nudgeCrop(
+                direction,
+                large: keyboard.isShiftPressed,
+                resize: keyboard.isAltPressed,
+              )) {
             return KeyEventResult.handled;
           }
           if (event.logicalKey == LogicalKeyboardKey.enter ||

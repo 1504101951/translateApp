@@ -812,6 +812,18 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             }
             return true
         }
+        // 非激活面板收不到方向键，会话级拦截放行后会落到来源应用；转发给截图引擎微调选区，
+        // 由Dart判断工具与选中状态；连按重复事件同样转发（#106）。⌘/⌃ 组合留给系统。
+        if let direction = AppConstants.arrowKeyDirections[event.keyCode],
+           event.modifierFlags.intersection([.command, .control]).isEmpty,
+           let id = captureId {
+            channel?.invokeMethod(AppConstants.nudgeScreenshotCropMethod, arguments: [
+                "id": id, "dx": direction.dx, "dy": direction.dy,
+                "shift": event.modifierFlags.contains(.shift),
+                "option": event.modifierFlags.contains(.option),
+            ])
+            return true
+        }
         // 非激活面板不保证收到Flutter键盘事件；直接派发语义动作，禁止重放字符。
         guard let id = captureId,
               let character = event.characters(byApplyingModifiers: [])?.lowercased(),
