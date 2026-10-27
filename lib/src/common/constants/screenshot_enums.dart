@@ -89,3 +89,9 @@ enum ScrollCaptureMode {
 
 /// 录制目标协议；name与原生CaptureTarget逐项对应，应用包含全部可见窗口。
 enum CaptureTarget { region, application, display }
+
+/// 录制选项的取值。
+abstract final class RecordingOptions {
+  /// 开始录制前可选的倒计时秒数，0 为不延时；与 Swift AppConstants.recordingDelays 同步（#129）。
+  static const delays = [0, 3, 5, 10];
+}

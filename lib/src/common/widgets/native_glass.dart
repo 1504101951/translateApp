@@ -443,61 +443,20 @@ class _NativeGlassMenuButtonState<T> extends State<NativeGlassMenuButton<T>> {
           }
         });
       },
-      style: const MenuStyle(
-        padding: WidgetStatePropertyAll(EdgeInsets.zero),
-        backgroundColor: WidgetStatePropertyAll(Colors.transparent),
-        elevation: WidgetStatePropertyAll(0),
-      ),
+      style: NativeGlassMenuPanel.anchorStyle,
       menuChildren: [
-        NativeGlassSurface(
-          material: true,
-          radius: GlassMetrics.menuRadius,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minWidth: GlassMetrics.menuMinWidth,
-              maxWidth: GlassMetrics.menuMaxWidth,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final option in items.entries)
-                    _GlassButtonFeedback(
-                      radius: GlassMetrics.menuItemRadius,
-                      enabled: onChanged != null,
-                      inset: const EdgeInsets.symmetric(vertical: 2),
-                      child: MenuItemButton(
-                        focusNode: option.key == value ? _selectedFocus : null,
-                        onPressed: onChanged == null
-                            ? null
-                            : () => onChanged(option.key),
-                        style: ButtonStyle(
-                          overlayColor: const WidgetStatePropertyAll(
-                            Colors.transparent,
-                          ),
-                          minimumSize: const WidgetStatePropertyAll(
-                            Size(0, GlassMetrics.hitSize),
-                          ),
-                          padding: const WidgetStatePropertyAll(
-                            EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                          ),
-                          shape: WidgetStatePropertyAll(
-                            RoundedSuperellipseBorder(
-                              borderRadius: BorderRadius.circular(
-                                GlassMetrics.menuItemRadius,
-                              ),
-                            ),
-                          ),
-                        ),
-                        child: Text(option.value),
-                      ),
-                    ),
-                ],
+        // NativeGlassMenuPanel/NativeGlassMenuItem提供与其他玻璃菜单一致的材料和选项样式。
+        NativeGlassMenuPanel(
+          children: [
+            for (final option in items.entries)
+              NativeGlassMenuItem(
+                label: option.value,
+                focusNode: option.key == value ? _selectedFocus : null,
+                onPressed: onChanged == null
+                    ? null
+                    : () => onChanged(option.key),
               ),
-            ),
-          ),
+          ],
         ),
       ],
       builder: (context, controller, _) => ConstrainedBox(
@@ -529,6 +488,94 @@ class _NativeGlassMenuButtonState<T> extends State<NativeGlassMenuButton<T>> {
       ),
     );
   }
+}
+
+/// 玻璃菜单的共享材料面板；下拉菜单按钮与截图「录制选项」共用。
+class NativeGlassMenuPanel extends StatelessWidget {
+  /// children 为自上而下的菜单项或分隔线。
+  const NativeGlassMenuPanel({super.key, required this.children});
+  final List<Widget> children;
+
+  /// MenuAnchor 自身不绘制材料、阴影与内边距，外观全部由面板提供。
+  static const anchorStyle = MenuStyle(
+    padding: WidgetStatePropertyAll(EdgeInsets.zero),
+    backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+    elevation: WidgetStatePropertyAll(0),
+  );
+
+  /// context 未使用；返回一层玻璃材料包裹的纵向菜单，宽度受菜单最小与最大宽度约束。
+  @override
+  Widget build(BuildContext context) => NativeGlassSurface(
+    material: true,
+    radius: GlassMetrics.menuRadius,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(
+        minWidth: GlassMetrics.menuMinWidth,
+        maxWidth: GlassMetrics.menuMaxWidth,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      ),
+    ),
+  );
+}
+
+/// 玻璃菜单的单个选项；命中高 32pt、圆角与按压反馈与下拉选项一致。
+class NativeGlassMenuItem extends StatelessWidget {
+  /// label 为选项文字；onPressed 为空表示禁用；checked 非空时在文字前保留 16pt 勾选位，
+  /// true 显示勾选；focusNode 用于打开菜单时聚焦当前项。
+  const NativeGlassMenuItem({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.checked,
+    this.focusNode,
+  });
+  final String label;
+  final VoidCallback? onPressed;
+  final bool? checked;
+  final FocusNode? focusNode;
+
+  /// context 未使用；返回带统一按压反馈的菜单按钮。
+  @override
+  Widget build(BuildContext context) => _GlassButtonFeedback(
+    radius: GlassMetrics.menuItemRadius,
+    enabled: onPressed != null,
+    inset: const EdgeInsets.symmetric(vertical: 2),
+    child: MenuItemButton(
+      focusNode: focusNode,
+      onPressed: onPressed,
+      // 勾选位固定宽度，同组未勾选项的文字仍左对齐。
+      leadingIcon: checked == null
+          ? null
+          : SizedBox.square(
+              dimension: GlassMetrics.icon,
+              child: checked!
+                  ? const Icon(Icons.check, size: GlassMetrics.icon)
+                  : null,
+            ),
+      style: ButtonStyle(
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        minimumSize: const WidgetStatePropertyAll(
+          Size(0, GlassMetrics.hitSize),
+        ),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        ),
+        shape: WidgetStatePropertyAll(
+          RoundedSuperellipseBorder(
+            borderRadius: BorderRadius.circular(GlassMetrics.menuItemRadius),
+          ),
+        ),
+      ),
+      child: Text(label),
+    ),
+  );
 }
 
 /// 常规设置行；文字与右侧控件不足时按Spec换行，不压缩字号。

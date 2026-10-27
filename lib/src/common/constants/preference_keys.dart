@@ -21,6 +21,9 @@ abstract final class PreferenceKeys {
   /// 区域与显示器录制是否由系统绘制鼠标点击高亮；Swift 开始录制时读取（#110）。
   static const recordingShowsClicks = 'recordingShowsClicks';
 
+  /// 开始录制前的倒计时秒数，取值见 RecordingOptions.delays；截图工具栏「录制选项」写入（#129）。
+  static const recordingDelay = 'recordingDelay';
+
   /// 长截图滚动方式：manual 或 automatic；Swift 开始长截图时读取（#112）。
   static const scrollCaptureMode = 'scrollCaptureMode';
 

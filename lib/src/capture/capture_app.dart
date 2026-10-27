@@ -158,7 +158,9 @@ class _CaptureAppState extends State<CaptureApp> {
         ? '长截图：${_state['height'] ?? 0} 像素'
         : '录制：$elapsed';
     final label = switch (_phase) {
-      CapturePhase.preparing => '正在准备采集…',
+      // 录制倒计时期间显示剩余秒数，其余准备过程显示通用文案（#129）。
+      CapturePhase.preparing =>
+        _state['countdown'] is int ? '${_state['countdown']} 秒后开始' : '正在准备采集…',
       CapturePhase.pausing => '正在暂停…',
       CapturePhase.finalizing => '正在完成采集…',
       _ => paused ? '已暂停 · $progress' : progress,

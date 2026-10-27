@@ -95,6 +95,8 @@ enum AppConstants {
     static let cancelRecordingExportMethod = "cancelRecordingExport"
     static let captureFailedError = "capture_failed"
     static let saveDrawingPreferencesMethod = "saveDrawingPreferences"
+    /// saveRecordingOptions 协议值；截图引擎经主引擎设置队列保存录制延时与点击高亮（#129），与Dart常量同步。
+    static let saveRecordingOptionsMethod = "saveRecordingOptions"
     static let screenshotDrawingKey = "screenshotDrawing"
     /// screenshotConfirmAction 偏好键；确认截图时的动作，随截图快照与工具栏变更通知交给截图引擎（#111），与Dart常量同步。
     static let screenshotConfirmActionKey = "screenshotConfirmAction"
@@ -141,8 +143,10 @@ enum AppConstants {
     static let scrollCaptureModeKey = "scrollCaptureMode"
     /// 上次导出的截图选区（显示器 ID、显示器像素尺寸与选区像素矩形），只由原生读写（#105）。
     static let lastScreenshotRegionKey = "lastScreenshotRegion"
-    /// 菜单栏「延时截图」子菜单的可选秒数（#105）。
-    static let screenshotDelays = [3, 5, 10]
+    /// recordingDelay 偏好键；开始录制前的倒计时秒数，随截图快照与工具栏变更通知交给截图引擎（#129），与Dart常量同步。
+    static let recordingDelayKey = "recordingDelay"
+    /// 录制延时的可选秒数，0 为不延时；prepareCapture 的 delay 只接受这些值（#129），与Dart常量同步。
+    static let recordingDelays = [0, 3, 5, 10]
     static let gifMaximumWidthKey = "gifMaximumWidth"
     /// Escape 键的硬件键码（kVK_Escape）。
     static let escapeKeyCode: UInt16 = 53

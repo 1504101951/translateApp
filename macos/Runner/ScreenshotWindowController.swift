@@ -135,9 +135,9 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
 
     /// target 为冻结目标与初始选区（默认指针所在屏）；创建冻结编辑会话，无返回值。
     func capture(_ target: ScreenshotTarget = .pointerDisplay) {
-        // 任何截图请求都结束未到时的延时截图，避免倒计时结束后重复截图（#105）。
+        // 任何截图请求都结束未到时的录制倒计时，新截图替换旧草稿，不再恢复它（#129）。
         // 截图入口都在主线程调用（菜单、热键与通道回调），不在主线程时直接中止。
-        MainActor.assumeIsolated { StatusBarController.shared.cancelDelayedCapture() }
+        MainActor.assumeIsolated { MacPlatformBridge.Shared.instance?.capture.cancelCountdown() }
         guard !capturing, window?.attachedSheet == nil else { return }
         displaysFrozenScreen = true
         capturing = true
@@ -289,10 +289,10 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         return value
     }
 
-    /// 无参数；返回已保存的工具栏配置与确认截图动作子集，缺省值由Dart领域对象提供。
+    /// 无参数；返回已保存的工具栏配置、确认截图动作与录制选项子集，缺省值由Dart领域对象提供。
     private func toolbarPreferences() -> [String: Any] {
         let preferences = AppPreferences.current
-        return preferences.filter { [AppConstants.screenshotToolbarOrderKey, AppConstants.screenshotToolbarChildrenKey, AppConstants.screenshotToolbarShortcutsKey, AppConstants.screenshotToolbarHiddenKey, AppConstants.screenshotDrawingKey, AppConstants.screenshotConfirmActionKey].contains($0.key) }
+        return preferences.filter { [AppConstants.screenshotToolbarOrderKey, AppConstants.screenshotToolbarChildrenKey, AppConstants.screenshotToolbarShortcutsKey, AppConstants.screenshotToolbarHiddenKey, AppConstants.screenshotDrawingKey, AppConstants.screenshotConfirmActionKey, AppConstants.recordingDelayKey, AppConstants.recordingShowsClicksKey].contains($0.key) }
     }
 
     /// 无参数；只广播工具偏好，保留图像与标注，关闭窗口时无订阅者。
@@ -365,6 +365,8 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             guard !capturing, let id = args["id"] as? String, id == liveCaptureID,
                   let kind = args["kind"] as? String, [CaptureTarget.region.rawValue, CaptureTarget.display.rawValue, CaptureTarget.application.rawValue].contains(kind),
                   let scrolling = args["scrolling"] as? Bool, !scrolling || kind == CaptureTarget.region.rawValue,
+                  // 只有录制携带延时，取值限定为录制选项提供的秒数（#129）。
+                  scrolling || args["live"] as? Bool == true || AppConstants.recordingDelays.contains(args["delay"] as? Int ?? -1),
                   let prepare = onPrepareCapture else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "请在当前屏幕截图中选择采集工具。", details: nil))
                 return
@@ -414,6 +416,13 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
         case AppConstants.saveDrawingPreferencesMethod:
             // routeWindowRequest把绘图偏好交给唯一设置提交入口。
             MacPlatformBridge.Shared.instance?.routeWindowRequest(call, result: result)
+        case AppConstants.saveRecordingOptionsMethod:
+            // routeWindowRequest交给唯一设置提交入口；成功后刷新设置页，使「录制时显示鼠标点击」同步（#129）。
+            MacPlatformBridge.Shared.instance?.routeWindowRequest(call) { value in
+                // Flutter在主线程回调结果。
+                if !(value is FlutterError) { MainActor.assumeIsolated { StatusBarController.shared.refreshSettings?() } }
+                result(value)
+            }
         case AppConstants.getScreenshotMethod:
             result(snapshot())
         case AppConstants.recognizeBlocksMethod:

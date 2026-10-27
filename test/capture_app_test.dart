@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:translate_app/src/capture/capture_app.dart';
 import 'package:translate_app/src/common/constants/channel_names.dart';
 import 'package:translate_app/src/common/constants/method_names.dart';
+import 'package:translate_app/src/common/constants/preference_keys.dart';
 import 'package:translate_app/src/common/constants/screenshot_actions.dart';
 import 'package:translate_app/src/screenshot/screenshot_app.dart';
 import 'package:translate_app/src/settings/screenshot_toolbar_preferences.dart';
@@ -494,7 +495,7 @@ void main() {
         expect(targetRow, findsOneWidget);
         expect(
           find.descendant(of: targetRow, matching: find.byType(AppKitView)),
-          findsNWidgets(5),
+          findsNWidgets(6),
         );
         // 原生Esc收起目标行后保留冻结帧和裁剪；再次展开仍可启动同一个选区。
         await messenger.handlePlatformMessage(
@@ -518,6 +519,8 @@ void main() {
       expect(selected!['y'], closeTo(60, 1));
       expect(selected!['width'], closeTo(160, 1));
       expect(selected!['height'], closeTo(120, 1));
+      // 录制携带缺省的不延时，长截图不携带延时（#129）。
+      expect(selected!['delay'], scrolling ? isNull : 0);
       expect(find.byTooltip('开始长截图'), findsNothing);
       expect(tester.takeException(), isNull);
     }
@@ -795,6 +798,115 @@ void main() {
     expect(find.textContaining('录制'), findsNothing);
   });
 
+  testWidgets('录制倒计时期间状态气泡显示剩余秒数，只能放弃（#129）', (tester) async {
+    // 边界：preparing 且 countdown 为 3 时显示「3 秒后开始」，暂停与结束禁用、放弃可用；
+    // 没有 countdown 的 preparing 仍显示通用准备文案。
+    tester.view.physicalSize = const Size(320, 84);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    state = {
+      'id': 'countdown',
+      'kind': 'recording',
+      'phase': 'preparing',
+      'countdown': 3,
+    };
+    await tester.pumpWidget(const CaptureApp(channel: channel));
+    await tester.pumpAndSettle();
+    expect(find.text('3 秒后开始'), findsOneWidget);
+    VoidCallback? press(String description) => tester
+        .widget<IconButton>(
+          find.descendant(
+            of: find.byTooltip(description),
+            matching: find.byType(IconButton),
+          ),
+        )
+        .onPressed;
+    expect(press('暂停'), isNull);
+    expect(press('结束'), isNull);
+    expect(press('放弃'), isNotNull);
+    await notify(tester, {
+      'id': 'countdown',
+      'kind': 'recording',
+      'phase': 'preparing',
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('正在准备采集…'), findsOneWidget);
+  });
+
+  testWidgets('录制选项：选择延时即保存，开始录制携带所选延时，窗口目标禁用显示鼠标点击（#129）', (tester) async {
+    // 边界：快照中延时为 0 时按钮未选中；选「延时 5 秒」后保存参数为 5 且保留点击设置 true，
+    // 按钮提示变为「录制选项：延时 5 秒」，开始录制的 delay 为 5；切到窗口目标后「显示鼠标点击」不可用。
+    final png = await tester.runAsync(_selectionImage);
+    const selectionChannel = MethodChannel('test/recording-options');
+    Map? saved;
+    Map? started;
+    messenger.setMockMethodCallHandler(selectionChannel, (call) async {
+      switch (call.method) {
+        case MethodNames.getScreenshot:
+          return {
+            'id': 'options',
+            'bytes': png,
+            'width': 320,
+            'height': 240,
+            'canCaptureMedia': true,
+            'cropActive': true,
+            PreferenceKeys.recordingDelay: 0,
+            PreferenceKeys.recordingShowsClicks: true,
+          };
+        case MethodNames.saveRecordingOptions:
+          saved = call.arguments as Map;
+        case MethodNames.prepareCapture:
+          started = call.arguments as Map;
+        case MethodNames.captureSources:
+          return <Object?>[];
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(selectionChannel, null),
+    );
+    await tester.pumpWidget(const ScreenshotApp(channel: selectionChannel));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key(ScreenshotActions.record)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('录制选项'));
+    await tester.pumpAndSettle();
+    expect(find.text('不延时'), findsOneWidget);
+    expect(find.text('延时 10 秒'), findsOneWidget);
+    await tester.tap(find.text('延时 5 秒'));
+    await tester.pumpAndSettle();
+    expect(saved, {
+      PreferenceKeys.recordingDelay: 5,
+      PreferenceKeys.recordingShowsClicks: true,
+    });
+    expect(find.text('不延时'), findsNothing);
+    await tester.tap(find.byTooltip('录制选项：延时 5 秒'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('延时 5 秒'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('开始录制'));
+    await tester.pumpAndSettle();
+    expect(started!['delay'], 5);
+
+    await tester.tap(find.byTooltip('窗口'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('录制选项：延时 5 秒'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<MenuItemButton>(
+            find.ancestor(
+              of: find.text('显示鼠标点击'),
+              matching: find.byType(MenuItemButton),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('实时翻译是顶层工具，任意工具下点击都进入目标选择并可开始', (tester) async {
     // 作用：实时翻译不依赖先选中截图工具。
     // 边界：当前工具为画笔时点击实时翻译，直接出现目标选择行；开始请求带 live 且不再携带录制参数。
@@ -927,13 +1039,14 @@ void main() {
     final confirm = find.byTooltip('开始录制');
     expect(confirm, findsOneWidget);
     final targetRow = find.byKey(const Key('recording-targets-row'));
+    // 三个目标、录制选项、开始与取消各自使用独立材料（#129）。
     expect(
       find.descendant(of: targetRow, matching: find.byType(AppKitView)),
-      findsNWidgets(5),
+      findsNWidgets(6),
     );
     final screen =
         Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
-    for (final tooltip in ['开始录制', '取消录制']) {
+    for (final tooltip in ['录制选项', '开始录制', '取消录制']) {
       final rect = tester.getRect(find.byTooltip(tooltip));
       expect(screen.contains(rect.topLeft), isTrue);
       expect(screen.contains(rect.bottomRight), isTrue);

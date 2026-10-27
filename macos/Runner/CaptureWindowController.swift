@@ -37,9 +37,17 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
     /// 长截图实时缩略图窗口；只在滚动、暂停中存在，属于本应用而不进入采集像素。
     private var scrollPreviewWindow: NSPanel?
 
-    /// 无参数；返回菜单与悬浮条停止可作用的真实资源阶段。
+    /// 无参数；返回菜单与悬浮条停止可作用的真实资源阶段，录制倒计时也可停止（#129）。
     var canStop: Bool {
-        liveControlID != nil || [.recording, .scrolling, .paused].contains(service.phase)
+        liveControlID != nil || service.isCountingDown || [.recording, .scrolling, .paused].contains(service.phase)
+    }
+
+    /// 无参数；新截图开始时结束录制倒计时，不恢复旧截图草稿，没有倒计时时保持原状，无返回值（#129）。
+    func cancelCountdown() {
+        guard service.isCountingDown else { return }
+        // 先放弃旧草稿的恢复权，discard回到idle时不再显示被替换的截图。
+        preparingScreenshot = false
+        Task { @MainActor in await discard() }
     }
 
     /// 无参数；有资源或结果时必须明确处理，不能被另一工具入口覆盖。
@@ -62,6 +70,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                 if [.recording, .scrolling].contains(self.service.phase) { self.screenshot.closeForCapture() }
                 else if !self.shuttingDown { self.screenshot.restoreAfterCapturePreparation() }
             }
+            // 菜单栏图标跟随录制倒计时剩余秒数，会话清理后快照不含倒计时即恢复（#129）。
+            StatusBarController.shared.showCountdown(self.service.snapshot()["countdown"] as? Int)
             // 准备态由present在缩放前发布，提供可提交的新帧；媒体结果待窗口几何就绪后再布局。
             self.present()
             self.showScrollHintIfNeeded()
@@ -139,7 +149,8 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
                     originScreen = NSScreen.screens.first { $0.displayID == id.uint32Value }
                 }
                 if scrolling { try await service.startScrolling() }
-                else { try await service.startRecording(source) }
+                // delay已由截图通道校验为录制选项中的秒数（#129）。
+                else { try await service.startRecording(source, delay: source["delay"] as! Int) }
             } catch is CancellationError {
                 // 准备期间用户停止已清理会话，不把明确取消显示成采集故障。
             } catch {
@@ -565,10 +576,14 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
         await service.cancel()
     }
 
-    /// 无参数；由菜单发出停止请求，完成后的状态通知负责展示结果。
+    /// 无参数；由菜单发出停止请求，完成后的状态通知负责展示结果；倒计时期间停止即放弃并恢复截图编辑（#129）。
     func stop() {
         if liveControlID != nil {
             onLiveStop?()
+            return
+        }
+        if service.isCountingDown {
+            Task { @MainActor in await discard() }
             return
         }
         Task { @MainActor in

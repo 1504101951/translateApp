@@ -228,7 +228,8 @@ final class LiveRegionCoordinator {
                 // 录制与识别各用一路捕获；录制把译文盖层窗口加入画面，控制条和遮罩仍被排除。
                 controls.service.includedWindowIDs = overlay.windowIDs
                 if let region { try controls.service.select(region) }
-                try await controls.service.startRecording(source)
+                // 实时翻译的同步录制随翻译立即开始，不延时（#129）。
+                try await controls.service.startRecording(source, delay: 0)
             }
         } catch {
             generation += 1

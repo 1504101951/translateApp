@@ -77,6 +77,31 @@ void main() {
     });
   });
 
+  test('录制选项：截图工具栏保存延时与点击高亮，其他设置保持不变，非法延时不提交（#129）', () async {
+    // 边界：5 秒与显示点击写入后修订加一、主语言不变；4 秒不在 0/3/5/10 中，校验失败且保留上一修订的值。
+    final committed = await controller.handle(
+      MethodCall(MethodNames.saveRecordingOptions, {
+        PreferenceKeys.recordingDelay: 5,
+        PreferenceKeys.recordingShowsClicks: true,
+      }),
+    ) as Map;
+    expect(committed['revision'], 1);
+    expect(controller.current.recordingDelay, 5);
+    expect(controller.current.recordingShowsClicks, isTrue);
+    expect(controller.current.primaryLanguage, 'zh-CN');
+    await expectLater(
+      controller.handle(
+        MethodCall(MethodNames.saveRecordingOptions, {
+          PreferenceKeys.recordingDelay: 4,
+          PreferenceKeys.recordingShowsClicks: false,
+        }),
+      ),
+      throwsFormatException,
+    );
+    expect(controller.current.recordingDelay, 5);
+    expect(controller.current.recordingShowsClicks, isTrue);
+  });
+
   test('存储目录不可用时不发布配置，修复目录后下一次提交成功', () async {
     // 用真实文件阻断父目录；失败来自文件系统，不伪造平台异常或检查下游调用次数。
     saved.parent.deleteSync();

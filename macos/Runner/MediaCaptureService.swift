@@ -62,6 +62,9 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
     /// 无参数；返回仍占有采集/编码资源的状态，供菜单和窗口关闭判断。
     var isBusy: Bool { [.preparing, .recording, .pausing, .paused, .finalizing, .scrolling, .converting].contains(phase) }
 
+    /// 无参数；返回是否处于录制前倒计时，此时尚未建立捕获流（#129）。
+    var isCountingDown: Bool { phase == .preparing && details["countdown"] != nil }
+
     /// 无参数；返回会话身份、实际阶段、预览或错误元数据，不携带外部凭据。
     func snapshot() -> [String: Any] {
         var value = details
@@ -218,13 +221,22 @@ final class MediaCaptureService: NSObject, SCStreamDelegate, SCRecordingOutputDe
         onActiveChanged?(true)
     }
 
-    /// args为当前目标；创建独立会话并开始第一段无音轨MP4，暂停恢复保留同一会话。
-    func startRecording(_ args: [String: Any]) async throws {
+    /// args为当前目标，delay为开始前倒计时秒数（0 不延时）；创建独立会话并开始第一段无音轨MP4，暂停恢复保留同一会话。
+    func startRecording(_ args: [String: Any], delay: Int) async throws {
         let started = ContinuousClock.now
         defer { CaptureStartupLog.record("start-recording-await", since: started) }
         try begin()
         recordingArguments = args
         details["kind"] = "recording"
+        let token = id
+        // 倒计时在建立捕获流之前进行，倒计时画面不进入视频；快照中的countdown驱动控制条与菜单栏图标（#129）。
+        for remaining in stride(from: delay, to: 0, by: -1) {
+            update(.preparing, ["countdown": remaining])
+            try await Task.sleep(for: .seconds(1))
+            // 放弃或停止经cancel清理会话并更换身份，到时不再开始录制。
+            guard token == id else { throw CancellationError() }
+        }
+        details.removeValue(forKey: "countdown")
         try await startRecordingSegment()
     }
 

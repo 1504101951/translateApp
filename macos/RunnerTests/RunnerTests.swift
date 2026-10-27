@@ -778,19 +778,6 @@ class RunnerTests: XCTestCase {
         XCTAssertNil(ScreenshotTarget.pointerDisplay.displayID)
     }
 
-    /// 无参数；延时截图开始后处于倒计时，取消后结束倒计时且不再截图，无返回值（#105）。
-    @MainActor
-    func testDelayedCaptureCancelStopsCountdown() async throws {
-        let status = StatusBarController.shared
-        status.startDelayedCapture(seconds: 1)
-        XCTAssertTrue(status.isDelayingCapture)
-        status.cancelDelayedCapture()
-        XCTAssertFalse(status.isDelayingCapture)
-        // 边界：超过倒计时时长后仍无截图任务被重新挂起。
-        try await Task.sleep(for: .milliseconds(1200))
-        XCTAssertFalse(status.isDelayingCapture)
-    }
-
     /// 无参数；朗读声音按语言的默认地区补全，系统没有该地区声音时退回语言本身，无返回值。
     func testSpeechVoiceUsesDefaultRegion() {
         // 边界：只给语言码（en）应补全为美式发音；带地区的繁体中文保持地区；阿拉伯语默认地区无声音时仍能取到声音。

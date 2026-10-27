@@ -20,7 +20,7 @@
 
 设置模块接收初始配置、公开当前配置和发送提交通知时使用独立副本；协议快照复制可变排除项字典，外部草稿修改不能绕过提交队列。连接测试由设置模块内的独立流程处理，队列只等待其结果。采集启动、暂停、停止、取消和失败清理在异步等待后核对会话或分段资源身份；旧请求不清理新会话或恢复后的新流。
 
-Swift附属窗口由 `WindowEngine.start` 统一装配引擎（建引擎与通道、运行入口、注册插件与原生玻璃），设置、权限向导与历史窗口经 `WindowEngine.makeWindow` 建窗口，启动失败统一提示；历史窗口在新记录写入和重开时经 `refreshMethod` 刷新，通过`MacPlatformBridge.routeWindowRequest`统一路由：先交本进程的系统能力处理，本地未实现的方法再转主引擎，跨引擎业务方法表只在 `lib/main.dart` 维护一份；设置窗口只额外处理快捷键录制。截图窗口先验证捕获身份，再转发截图翻译；绘图偏好使用相同的主引擎设置队列。窗口不另建业务状态或复制通用转发表。
+Swift附属窗口由 `WindowEngine.start` 统一装配引擎（建引擎与通道、运行入口、注册插件与原生玻璃），设置、权限向导与历史窗口经 `WindowEngine.makeWindow` 建窗口，启动失败统一提示；历史窗口在新记录写入和重开时经 `refreshMethod` 刷新，通过`MacPlatformBridge.routeWindowRequest`统一路由：先交本进程的系统能力处理，本地未实现的方法再转主引擎，跨引擎业务方法表只在 `lib/main.dart` 维护一份；设置窗口只额外处理快捷键录制。截图窗口先验证捕获身份，再转发截图翻译；绘图偏好与录制选项使用相同的主引擎设置队列。窗口不另建业务状态或复制通用转发表。
 
 附属窗口由 `WindowEngine.start` 返回可取消的启动句柄，调用方必须持有至完成，忽略返回值会产生编译警告。原生先注册 `windowStartup` 通道，Dart 五个入口在初始化绑定并提交根组件后发送 `windowReady`；收到确认后才交付引擎与控制器，不等待首帧或业务加载。五秒内未确认或运行失败时解除处理器并停止引擎；预算的测量条件和适用范围见 #120。各窗口合并重复打开，关闭或退出取消待启动任务，迟到确认不能打开旧窗口；采集界面启动失败同时释放采集资源。截图窗口启动失败先清空草稿与采集身份，再显示失败提示。
 
@@ -97,7 +97,7 @@ AX 读取优先使用文本标记范围获取跨节点选区，再读取普通�
 
 ## 连续采集与本地媒体
 
-截图工具栏的“录制”“滚动长截图”默认挂在“截图”之下（`ScreenshotActions.defaultChildren`），通过截图通道交给 `CaptureWindowController`；路线与范围见 `docs/capture-roadmap.md`。录制目标与应用图标使用同工具栏动态行及独立按钮材料；开始按钮提交冻结帧身份、目标和选区像素坐标，长截图携带冻结帧身份和像素坐标直接开始。`captureMain` 使用独立Flutter引擎呈现四个独立气泡控制条和视频结果，通过 `translateapp/capture` 交换实际状态。`MediaCaptureService` 在主执行器管理会话ID、ScreenCaptureKit流与临时目录；暂停、结束、放弃与恢复均校验真实阶段和会话。采集期间暂停被动选区翻译并隐藏翻译浮层。
+截图工具栏的“录制”“滚动长截图”默认挂在“截图”之下（`ScreenshotActions.defaultChildren`），通过截图通道交给 `CaptureWindowController`；路线与范围见 `docs/capture-roadmap.md`。录制目标与应用图标使用同工具栏动态行及独立按钮材料；开始按钮提交冻结帧身份、目标、选区像素坐标与录制延时，长截图携带冻结帧身份和像素坐标直接开始。录制延时（#129）由 `MediaCaptureService.startRecording` 在建立捕获流前以准备阶段倒计时，快照的 `countdown` 驱动控制条文案与 `StatusBarController.showCountdown` 的菜单栏图标；放弃或「停止采集」走准备阶段的取消路径，恢复同一截图草稿。截图工具栏「录制选项」经 `saveRecordingOptions` 进入主引擎设置队列，偏好 `recordingDelay` 与 `recordingShowsClicks` 随截图快照与工具栏变更通知回到截图引擎，保存成功后刷新设置页。`captureMain` 使用独立Flutter引擎呈现四个独立气泡控制条和视频结果，通过 `translateapp/capture` 交换实际状态。`MediaCaptureService` 在主执行器管理会话ID、ScreenCaptureKit流与临时目录；暂停、结束、放弃与恢复均校验真实阶段和会话。采集期间暂停被动选区翻译并隐藏翻译浮层。
 
 显示器、应用可见窗口与选区开始前重新校验。原生配置给出屏幕点坐标范围，`CaptureShadeView` 绘制穿透鼠标的实时边框和选区外阴影；采集与暂停都保持可见，所有控制窗口由捕获过滤器排除。区域和全屏通过 `SCRecordingOutput` 写入同会话MP4分段；应用通过每屏仅包含所选应用的 `SCStream` 采集，由 `ApplicationRecorder` 将每屏最新帧按桌面位置合成到固定联合画布，以最高显示倍率编码，其他区域填黑；暂停完成当前段、恢复追加下一段，结束按顺序无间隙合并并验证解码后交付。区域与全屏录制按偏好 `recordingShowsClicks` 设置 `SCStreamConfiguration.showMouseClicks`。结果页裁剪由 `AVPlayerView.beginTrimming` 取得首尾时间，区间由 `MediaCaptureService` 持有并随会话清空。`GIFExporter` 按截图设置中的帧率与最大宽度、在裁剪区间（未裁剪为完整视频）内逐帧编码 GIF 或 APNG；裁剪后的 MP4 由 `AVAssetExportSession` 按区间重新编码。`WebMExporter` 用 `AVAssetReader` 按区间读取 NV12 帧，在后台经 `VTPixelTransferSession` 转为 BT.601 矩阵（VP8 码流只能按 BT.601 解释颜色），交给不挂窗口的 `WKWebView` 以 WebCodecs 编码 VP8，再由 `WebMWriter` 写成保持原分辨率与原帧时间的 WebM，输出帧数少于读入帧数时失败；编码会话与写文件在主线程，`WKWebView` 只在主线程创建与释放；隐藏页面在没有宿主请求时会被 WebKit 挂起，因此由宿主逐帧调用页面，帧经应用自定义 URL 协议交给页面，编码块以 base64 随返回值交回。四种导出共用同一后台转换流程，转换中快照的 `exporting` 为共享枚举 `RecordingExport`，`cancelRecordingExport` 统一取消。结果在完整可读后由`ScreenshotStorage`原子发布到截图根目录下的视频、gif、apng、webm 分类日期目录，PNG使用截图分类；重名追加序号，失败保留源媒体。
 
@@ -115,7 +115,7 @@ Swift 的系统截图模块用本进程 ScreenCaptureKit 申请屏幕录制并�
 
 固定目录保存在 UserDefaults 的 `screenshotSaveDirectory`，只通过设置页修改。ScreenshotStorage 通过拒绝覆盖的实际写入和序号处理重名。翻译、输入翻译与截图热键由同一 Carbon 注册事务管理，已有组合交换用途时复用注册，全部新注册成功才更新配置。
 
-`ScreenshotWindowController.capture(_:)` 接收 `ScreenshotTarget`：指针所在屏以前台窗口为建议选区，指定显示器选中整屏，上次区域选中记录的像素矩形；后两者经快照 `cropSelected` 让 Dart 直接进入选中状态。截图编辑导出成功后 Dart 发送 `rememberScreenshotRegion`，Swift 核对 captureId 后把显示器 ID、该显示器冻结帧像素尺寸与选区写入 UserDefaults `lastScreenshotRegion`；`ScreenshotRegion` 在显示器断开或像素尺寸变化时抛出失效提示，不改截其他屏幕。延时截图由 `StatusBarController` 持有倒计时任务并把菜单栏图标换为剩余秒数，结束时先恢复图标再在下一拍截图；`capture(_:)` 入口统一取消未结束的倒计时。冻结帧是否包含指针取偏好字典 `screenshotIncludesCursor`，`captureDisplayImage` 显式接收该选项，MCP 固定不含指针。
+`ScreenshotWindowController.capture(_:)` 接收 `ScreenshotTarget`：指针所在屏以前台窗口为建议选区，指定显示器选中整屏，上次区域选中记录的像素矩形；后两者经快照 `cropSelected` 让 Dart 直接进入选中状态。截图编辑导出成功后 Dart 发送 `rememberScreenshotRegion`，Swift 核对 captureId 后把显示器 ID、该显示器冻结帧像素尺寸与选区写入 UserDefaults `lastScreenshotRegion`；`ScreenshotRegion` 在显示器断开或像素尺寸变化时抛出失效提示，不改截其他屏幕。`capture(_:)` 入口经 `CaptureWindowController.cancelCountdown` 结束未到时的录制倒计时，被替换的截图草稿不再恢复。冻结帧是否包含指针取偏好字典 `screenshotIncludesCursor`，`captureDisplayImage` 显式接收该选项，MCP 固定不含指针。
 
 区域框选时暂停文本手势采集并隐藏翻译浮层，完成后只恢复仍有效的浮层。截图的复制与保存不经过翻译层；“识别文字”“翻译文字”（`ScreenshotActions.ocrTranslate`，`_translateOcr`）经本地 OCR 取得文字后，由 `translateScreenshotText` 进入同一翻译层。
 

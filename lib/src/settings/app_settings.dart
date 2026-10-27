@@ -28,6 +28,7 @@ class AppSettings {
     this.liveRecording = false,
     this.screenshotIncludesCursor = false,
     this.recordingShowsClicks = false,
+    this.recordingDelay = 0,
     this.screenshotConfirmAction = ScreenshotConfirmAction.copy,
     this.scrollCaptureMode = ScrollCaptureMode.manual,
     this.mcpEnabled = false,
@@ -79,6 +80,9 @@ class AppSettings {
 
   /// 区域与显示器录制是否显示鼠标点击高亮；默认关闭，应用录制不含指针因此不显示（#110）。
   bool recordingShowsClicks;
+
+  /// 开始录制前的倒计时秒数，取值见 RecordingOptions.delays，默认 0 不延时（#129）。
+  int recordingDelay;
 
   /// 确认截图（回车或双击）时的动作：复制图片或复制并保存（#111）。
   ScreenshotConfirmAction screenshotConfirmAction;
@@ -168,6 +172,7 @@ class AppSettings {
           map[PreferenceKeys.screenshotIncludesCursor] as bool? ?? false,
       recordingShowsClicks:
           map[PreferenceKeys.recordingShowsClicks] as bool? ?? false,
+      recordingDelay: map[PreferenceKeys.recordingDelay] as int? ?? 0,
       screenshotConfirmAction: ScreenshotConfirmAction.parse(
         map[PreferenceKeys.screenshotConfirmAction] as String?,
       ),
@@ -199,6 +204,10 @@ class AppSettings {
         gifFramesPerSecond > 30 ||
         (gifMaximumWidth != null && gifMaximumWidth! < 1)) {
       throw const FormatException('GIF帧率须为1–30，最大宽度须为正整数或留空。');
+    }
+    // 录制延时只接受录制选项提供的秒数（#129）。
+    if (!RecordingOptions.delays.contains(recordingDelay)) {
+      throw const FormatException('录制延时须为 0、3、5 或 10 秒。');
     }
     if (!AppearanceModes.values.contains(glassAppearance) ||
         !glassOpacity.isFinite ||
@@ -280,6 +289,7 @@ class AppSettings {
     PreferenceKeys.liveRecording: liveRecording,
     PreferenceKeys.screenshotIncludesCursor: screenshotIncludesCursor,
     PreferenceKeys.recordingShowsClicks: recordingShowsClicks,
+    PreferenceKeys.recordingDelay: recordingDelay,
     PreferenceKeys.screenshotConfirmAction: screenshotConfirmAction.name,
     PreferenceKeys.scrollCaptureMode: scrollCaptureMode.name,
     PreferenceKeys.mcpEnabled: mcpEnabled,

@@ -105,6 +105,19 @@ class SettingsController {
             }),
             {},
           );
+        case MethodNames.saveRecordingOptions:
+          // 截图工具栏「录制选项」与设置页共用同一组偏好，经同一队列合并最新快照提交（#129）。
+          final options = call.arguments as Map;
+          return _save(
+            AppSettings.fromMap({
+              ..._current.toMap(),
+              PreferenceKeys.recordingDelay:
+                  options[PreferenceKeys.recordingDelay],
+              PreferenceKeys.recordingShowsClicks:
+                  options[PreferenceKeys.recordingShowsClicks],
+            }),
+            {},
+          );
         case MethodNames.toggleAutomatic:
           // _save使用当前开关状态，连续菜单请求按顺序产生独立修订。
           return _save(

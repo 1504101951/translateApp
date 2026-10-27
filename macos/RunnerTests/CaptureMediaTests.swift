@@ -670,6 +670,29 @@ final class CaptureMediaTests: XCTestCase {
         XCTAssertEqual(ready.phase, .imageReady)
     }
 
+    /// 无参数；录制延时期间处于准备阶段且快照携带剩余秒数，放弃后回到空闲且到时不再开始录制，无返回值（#129）。
+    @MainActor
+    func testRecordingCountdownCancelReturnsIdle() async throws {
+        let service = MediaCaptureService()
+        // 边界：倒计时在建立捕获流之前进行，不申请屏幕录制权限即可观察；3 秒为最短的非零延时。
+        let start = Task { @MainActor in
+            try await service.startRecording(["kind": CaptureTarget.display.rawValue], delay: 3)
+        }
+        while !service.isCountingDown { await Task.yield() }
+        XCTAssertEqual(service.phase, .preparing)
+        XCTAssertEqual(service.snapshot()["countdown"] as? Int, 3)
+        await service.cancel()
+        XCTAssertEqual(service.phase, .idle)
+        XCTAssertFalse(service.isCountingDown)
+        XCTAssertNil(service.snapshot()["countdown"])
+        // 边界：被放弃的倒计时在下一秒醒来后以取消结束，会话仍为空闲。
+        do {
+            try await start.value
+            XCTFail("倒计时被放弃后不应开始录制")
+        } catch is CancellationError {}
+        XCTAssertEqual(service.phase, .idle)
+    }
+
     /// 无参数；保存后重复放弃只清空当前结果，已保存文件和下一份会话不受旧交付影响。
     @MainActor
     func testSavedScrollSurvivesRepeatedDiscardAndRejectsOldDelivery() async throws {

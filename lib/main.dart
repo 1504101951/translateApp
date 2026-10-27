@@ -89,6 +89,7 @@ Future<void> main() async {
       case MethodNames.getSettings:
       case MethodNames.saveSettings:
       case MethodNames.saveDrawingPreferences:
+      case MethodNames.saveRecordingOptions:
       case MethodNames.toggleAutomatic:
       case MethodNames.testService:
         // handle拥有唯一设置队列，校验和系统事务成功后才发布新修订。

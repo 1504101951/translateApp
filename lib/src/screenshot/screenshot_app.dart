@@ -107,6 +107,10 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   /// 本次截图的美化参数；null 表示不美化，新截图重置。
   BeautifyStyle? _beautify;
   CaptureTarget _recordingTarget = CaptureTarget.region;
+
+  /// 「录制选项」的已保存值：开始前倒计时秒数与是否显示鼠标点击，随快照与工具栏变更通知更新（#129）。
+  int _recordingDelay = 0;
+  bool _recordingShowsClicks = false;
   Map<Object?, Object?>? _recordingApplication;
   List<Map<Object?, Object?>> _recordingApplications = [];
   bool _loadingApplications = false;
@@ -265,6 +269,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
             _confirmAction = ScreenshotConfirmAction.parse(
               map[PreferenceKeys.screenshotConfirmAction] as String?,
             );
+            _recordingDelay = map[PreferenceKeys.recordingDelay] as int? ?? 0;
+            _recordingShowsClicks =
+                map[PreferenceKeys.recordingShowsClicks] as bool? ?? false;
           });
         }
       } else if (call.method == MethodNames.screenshotChanged) {
@@ -359,6 +366,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _confirmAction = ScreenshotConfirmAction.parse(
         value[PreferenceKeys.screenshotConfirmAction] as String?,
       );
+      _recordingDelay = value[PreferenceKeys.recordingDelay] as int? ?? 0;
+      _recordingShowsClicks =
+          value[PreferenceKeys.recordingShowsClicks] as bool? ?? false;
       _drawing = DrawingPreferences.fromMap(
         value[PreferenceKeys.screenshotDrawing] as Map?,
       );
@@ -778,6 +788,8 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         'kind': kind.name,
         'scrolling': scrolling,
         'live': live,
+        // 只有录制按「录制选项」延时，长截图与实时翻译立即开始（#129）。
+        if (!scrolling && !live) 'delay': _recordingDelay,
         if (kind == CaptureTarget.application)
           'applicationID': _recordingApplication!['applicationID'],
         if (kind == CaptureTarget.region) ...{
@@ -802,6 +814,39 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       }
     } finally {
       if (mounted && _capture['id'] == id) setState(() => _busy = false);
+    }
+  }
+
+  /// delay为开始前倒计时秒数，showsClicks为是否显示鼠标点击；经主引擎设置队列保存「录制选项」，
+  /// 保存期间禁止开始录制，成功后更新本地选项，失败显示错误并保留原选项，返回保存结束的 Future（#129）。
+  Future<void> _saveRecordingOptions({
+    required int delay,
+    required bool showsClicks,
+  }) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.channel.invokeMethod<void>(
+        MethodNames.saveRecordingOptions,
+        {
+          PreferenceKeys.recordingDelay: delay,
+          PreferenceKeys.recordingShowsClicks: showsClicks,
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _recordingDelay = delay;
+        _recordingShowsClicks = showsClicks;
+      });
+    } on PlatformException catch (error) {
+      if (mounted) {
+        setState(() {
+          _message = error.message;
+          _failed = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -2770,6 +2815,46 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               Icon(target.value.$2, size: 16),
               () => _selectRecordingTarget(target.key),
               selected: _recordingTarget == target.key,
+            ),
+          if (!_liveExpanded)
+            // 录制选项：延时单选与显示鼠标点击，选择即保存并关闭菜单（#129）。
+            MenuAnchor(
+              style: NativeGlassMenuPanel.anchorStyle,
+              menuChildren: [
+                NativeGlassMenuPanel(
+                  children: [
+                    for (final delay in RecordingOptions.delays)
+                      NativeGlassMenuItem(
+                        label: delay == 0 ? '不延时' : '延时 $delay 秒',
+                        checked: delay == _recordingDelay,
+                        onPressed: () => _saveRecordingOptions(
+                          delay: delay,
+                          showsClicks: _recordingShowsClicks,
+                        ),
+                      ),
+                    const Divider(height: 9, thickness: 1),
+                    NativeGlassMenuItem(
+                      label: '显示鼠标点击',
+                      checked: _recordingShowsClicks,
+                      // 应用录制不含指针，不显示点击。
+                      onPressed: _recordingTarget == CaptureTarget.application
+                          ? null
+                          : () => _saveRecordingOptions(
+                              delay: _recordingDelay,
+                              showsClicks: !_recordingShowsClicks,
+                            ),
+                    ),
+                  ],
+                ),
+              ],
+              builder: (context, controller, _) => captureButton(
+                _recordingDelay == 0
+                    ? '录制选项'
+                    : '录制选项：延时 $_recordingDelay 秒',
+                const Icon(Icons.tune, size: 16),
+                () => controller.isOpen ? controller.close() : controller.open(),
+                selected: _recordingDelay != 0,
+              ),
             ),
           captureButton(
             _liveExpanded ? '开始实时翻译' : '开始录制',
