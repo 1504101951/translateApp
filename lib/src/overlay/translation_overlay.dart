@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../common/widgets/native_glass.dart';
 
 import '../selection/selection_session.dart';
+import 'dictionary_definition.dart';
 import '../translation/translation_types.dart';
 
 /// 当前选区的触发按钮和译文卡片；窗口位置由 macOS 管理。
@@ -363,18 +364,23 @@ class _TranslationOverlayState extends State<TranslationOverlay> {
                                             : Colors.transparent,
                                         borderRadius: BorderRadius.circular(6),
                                       ),
-                                      child: SelectableText(
-                                        pairs[index].source,
-                                        style: TextStyle(
-                                          fontSize: GlassMetrics.bodyFont,
-                                          height:
-                                              GlassMetrics.bodyLine /
-                                              GlassMetrics.bodyFont,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                        ),
-                                      ),
+                                      // DictionaryDefinitionView把词典纯文本按词条、词性、义项与例句分行（#135）。
+                                      child: definition != null
+                                          ? DictionaryDefinitionView(
+                                              definition: definition,
+                                            )
+                                          : SelectableText(
+                                              pairs[index].source,
+                                              style: TextStyle(
+                                                fontSize: GlassMetrics.bodyFont,
+                                                height:
+                                                    GlassMetrics.bodyLine /
+                                                    GlassMetrics.bodyFont,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                            ),
                                     ),
                                   ),
                                 ],

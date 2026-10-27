@@ -87,7 +87,7 @@ AX 读取优先使用文本标记范围获取跨节点选区，再读取普通�
 
 ## 翻译历史实现
 
-生词本 `VocabularyStore` 与翻译历史共用主引擎同一个 SQLite（`vocabulary` 表，单词不区分大小写唯一）。翻译模式下原文满足 `SelectionSession.isDictionaryTerm` 时，会话在翻译的同时经 `lookupDefinition` 调用 Swift `DCSCopyTextDefinition` 离线查询，释义到达后卡片右栏改为词典。历史窗口的生词本分段经 `vocabularyList`、`deleteVocabulary`、`vocabularyCsv` 请求主引擎，导出经 Swift `saveTextFile` 的系统保存面板写入；增删后与历史共用 `historyChanged` 通知刷新。
+生词本 `VocabularyStore` 与翻译历史共用主引擎同一个 SQLite（`vocabulary` 表，单词不区分大小写唯一）。翻译模式下原文满足 `SelectionSession.isDictionaryTerm` 时，会话在翻译的同时经 `lookupDefinition` 调用 Swift `DCSCopyTextDefinition` 离线查询，释义到达后卡片右栏改为词典；`overlay/dictionary_definition.dart` 的 `parseDefinition` 按英汉词典与汉语词典的符号格式把纯文本拆成词条、词性、义项、例句行，未识别片段原样保留。历史窗口的生词本分段经 `vocabularyList`、`deleteVocabulary`、`vocabularyCsv` 请求主引擎，导出经 Swift `saveTextFile` 的系统保存面板写入；增删后与历史共用 `historyChanged` 通知刷新。
 
 截图历史 `ScreenshotHistoryStore` 同样由主引擎持有：元数据写入同一 SQLite 的 `screenshot_history` 表（`capture_id` 唯一，同一截图再次导出覆盖为最后一次），图片写入 Application Support 的 `ScreenshotHistory` 目录，先写临时文件再改名；「记录截图历史」开关保存在 `history_meta`，默认关闭。截图窗口在复制、保存、贴图成功后发送 `recordScreenshotHistory`，Swift 核对 captureId 后经 `requestApplication` 转交主引擎；截图窗口不等待主引擎回复，导出反馈与关闭不受记录结果影响，通道按发送顺序先核对身份再关闭编辑层。每次写入后按 100 条、30 天清理，只删除历史目录内的文件。历史窗口的截图历史分段经 `screenshotHistoryList`、`deleteScreenshotHistory`、`clearScreenshotHistory` 与开关请求主引擎；打开、复制图片、在 Finder 中显示由 Swift `openFile`、`copyImageFile`、`revealFile` 直接处理，文件不可读时复制返回 `copy_failed` 且不改剪贴板。变更同样经 `historyChanged` 通知刷新。拼接、拆分与比较（#109）由 Swift `ScreenshotComposer` 用 CoreGraphics 在后台队列按原始像素处理（沿用源图色彩空间、关闭插值），历史窗口经 `stitchScreenshots`、`splitScreenshot`、`compareScreenshots` 直接调用；结果经主引擎 `addScreenshotHistory` 加入历史，与导出记录共用写文件与清理逻辑但不检查记录开关，勾选状态只属于历史窗口页面。
 
