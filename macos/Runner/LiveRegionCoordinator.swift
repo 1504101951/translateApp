@@ -382,20 +382,23 @@ final class LiveRegionCoordinator {
 
     /// state 为主引擎快照。只在运行中把已归属译文盖到段落块上。
     func publish(_ state: [String: Any]) {
-        // metrics 为主引擎给出的批次计时，每个批次只出现一次。
-        for item in state["metrics"] as? [[String: Any]] ?? [] {
+        // 主引擎快照总带 phase、status、overlays、metrics 四个字段（LiveRegionView.toMap）；
+        // 缺少或类型不符即两端协议不一致，直接终止，不补默认值（#127、#132）。
+        guard let raw = state["phase"] as? String, let phase = LiveRegionPhase(rawValue: raw),
+              let status = state["status"] as? String,
+              let overlays = state["overlays"] as? [[String: Any]],
+              let metrics = state["metrics"] as? [[String: Any]] else {
+            preconditionFailure("实时翻译快照缺少可识别的字段")
+        }
+        // metrics 为主引擎给出的批次计时，每个批次只出现一次；字段固定由主引擎写入，逐项记入日志。
+        for item in metrics {
             let fields = ["blocks", "chars", "waitMs", "firstMs", "totalMs", "inflight", "outcome"]
-                .map { "\($0)=\(item[$0] ?? "")" }
+                .map { "\($0)=\(item[$0]!)" }
                 .joined(separator: " ")
             LiveRegionLog.note("batch \(fields)")
         }
-        // 主引擎快照总带阶段；缺少或不认识即两端协议不一致，直接终止（#127）。
-        guard let raw = state["phase"] as? String, let phase = LiveRegionPhase(rawValue: raw) else {
-            preconditionFailure("实时翻译快照缺少可识别的阶段")
-        }
         let runningNow = phase == .running
-        let chips = runningNow ? (state["overlays"] as? [[String: Any]] ?? []) : []
-        overlay.apply(chips)
-        controls.setLiveDetail(runningNow ? (state["status"] as? String ?? "") : "")
+        overlay.apply(runningNow ? overlays : [])
+        controls.setLiveDetail(runningNow ? status : "")
     }
 }

@@ -440,7 +440,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             NotificationCenter.default.post(name: AppConstants.historyChangedNotification, object: nil)
             result(nil)
         case AppConstants.publishLiveRegionMethod:
-            let state = call.arguments as? [String: Any] ?? [:]
+            // 快照字段由 LiveRegionCoordinator.publish 逐项校验，缺失即终止（#132）。
+            let state = call.arguments as! [String: Any]
             Task { @MainActor in
                 self.live.publish(state)
                 result(nil)
