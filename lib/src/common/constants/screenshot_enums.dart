@@ -70,8 +70,7 @@ enum ShapeVariant {
 /// 确认截图（回车或双击）时执行的动作；name 为偏好值，缺省为复制图片（#111）。
 enum ScreenshotConfirmAction {
   copy,
-  copyAndSave,
-  upload;
+  copyAndSave;
 
   /// wire为偏好原文；返回对应动作，缺省按复制图片处理，未知值直接抛错。
   static ScreenshotConfirmAction parse(String? wire) =>

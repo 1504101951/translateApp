@@ -30,7 +30,6 @@ import 'screenshot_editor_layout.dart';
 import '../settings/screenshot_toolbar_preferences.dart';
 import '../common/constants/screenshot_actions.dart';
 import '../translation/translation_types.dart';
-import '../upload/s3_upload.dart';
 
 /// handle 为控制点方向，plusWhenIdle控制空白十字；channel为截图引擎，返回系统或原生对角光标。
 MouseCursor cursorForEditHandle(
@@ -132,7 +131,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
   ShapeVariant get _styleShape => _styleSelection?.shape ?? _drawing.shape;
   String? _selectedShapeId;
   bool _shapeSelecting = false;
-  /// 样式或上传确认弹窗打开中：Esc 关闭弹窗、回车不导出、新截图先关闭弹窗。
+  /// 样式弹窗打开中：Esc 关闭弹窗、回车不导出、新截图先关闭弹窗。
   bool _dialogOpen = false;
   ui.Image? _sourceImage;
 
@@ -837,8 +836,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
         await _export('copy', closeAfterCopy: true);
       case ScreenshotConfirmAction.copyAndSave:
         await _export('copySave', closeAfterCopy: true);
-      case ScreenshotConfirmAction.upload:
-        await _upload(closeAfter: true);
     }
   }
 
@@ -929,87 +926,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       _feedbackTimer?.cancel();
       setState(() {
         _savedPath = saved ?? _savedPath;
-        _message = error.message;
-        _failed = true;
-      });
-    } finally {
-      if (mounted && _capture['id'] == id) setState(() => _busy = false);
-    }
-  }
-
-  /// closeAfter 为成功后是否关闭截图（确认截图动作）；向主引擎查询上传目标，用户确认后上传导出图并复制分享链接，无返回值（#111）。
-  /// 未配置目标时只提示去设置、不发送图像；取消确认或上传失败保留编辑。
-  Future<void> _upload({bool closeAfter = false}) async {
-    final id = _capture['id'];
-    if (id == null || !_document.hasImage || _busy) return;
-    setState(() {
-      _busy = true;
-      _message = null;
-      _failed = false;
-    });
-    try {
-      // 主引擎按已提交设置返回「主机/存储桶」，未配置为 null。
-      final target = await widget.channel.invokeMethod<String>(
-        MethodNames.uploadTarget,
-        {'id': id},
-      );
-      if (!mounted || _capture['id'] != id) return;
-      if (target == null) {
-        setState(() {
-          _message = uploadUnconfiguredMessage;
-          _failed = true;
-        });
-        return;
-      }
-      _dialogOpen = true;
-      final confirmed = await showDialog<bool>(
-        context: _editorKey.currentContext!,
-        builder: (dialogContext) => NativeGlassDialog(
-          title: const Text('上传截图'),
-          content: Text('将上传到 $target，并复制分享链接。'),
-          actions: [
-            NativeGlassSurface(
-              material: true,
-              child: TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('取消'),
-              ),
-            ),
-            NativeGlassSurface(
-              material: true,
-              child: FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('上传'),
-              ),
-            ),
-          ],
-        ),
-      );
-      _dialogOpen = false;
-      if (confirmed != true || !mounted || _capture['id'] != id) return;
-      // 上传与复制使用同一张导出图（含美化）。
-      final bytes = await _document.renderPng(
-        beautify: _beautify,
-        unit: _pixelRatio,
-      );
-      if (!mounted || _capture['id'] != id) return;
-      final link = await widget.channel.invokeMethod<String>(
-        MethodNames.uploadScreenshot,
-        {'id': id, 'bytes': bytes},
-      );
-      if (!mounted || _capture['id'] != id) return;
-      await widget.channel.invokeMethod<void>(MethodNames.copyText, {
-        'text': link,
-      });
-      if (!mounted || _capture['id'] != id) return;
-      _afterExport(id, bytes);
-      _showCopyFeedback('已上传，链接已复制');
-      if (closeAfter) {
-        await widget.channel.invokeMethod<void>(MethodNames.closeScreenshot);
-      }
-    } on PlatformException catch (error) {
-      if (!mounted || _capture['id'] != id) return;
-      setState(() {
         _message = error.message;
         _failed = true;
       });
@@ -2582,7 +2498,6 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
       ScreenshotActions.pin: _document.hasImage ? () => _export('pin') : null,
       ScreenshotActions.save: _document.hasImage ? () => _export('save') : null,
       ScreenshotActions.copy: _document.hasImage ? () => _export('copy') : null,
-      ScreenshotActions.upload: _document.hasImage ? _upload : null,
       ScreenshotActions.ocrCopy: _document.hasImage ? _showRecognizedText : null,
       ScreenshotActions.ocrTranslate: _document.hasImage ? _translateOcr : null,
       ScreenshotActions.close: _close,

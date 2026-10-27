@@ -36,11 +36,9 @@ class SettingsController {
     // toMap中的排除项仍是可变字典；协议快照不得暴露内部配置引用。
     PreferenceKeys.excludedApps: Map<String, String>.of(_current.excludedApps),
     'revision': _revision,
-    MethodNames.credentialIds: await platform.credentialIds([
-      ..._current.services.map((service) => service.id),
-      // 上传访问密钥与翻译服务共用钥匙串，设置页据此显示「已保存」（#111）。
-      PreferenceKeys.uploadCredentials,
-    ]),
+    MethodNames.credentialIds: await platform.credentialIds(
+      _current.services.map((service) => service.id).toList(),
+    ),
     'error': ?error,
   };
 
@@ -51,21 +49,12 @@ class SettingsController {
   ) async {
     // validate检查完整配置，prepareCredentialChanges只准备当前事务所需的凭据变更。
     candidate.validate();
-    final upload = drafts[PreferenceKeys.uploadCredentials];
-    final credentials = {
-      ...await prepareCredentialChanges(
-        previous: _current.services,
-        current: candidate.services,
-        drafts: drafts,
-        readCredentials: platform.readCredentials,
-      ),
-      // 上传访问密钥不属于翻译服务：草稿覆盖已保存值后整体写入，留空的字段保留原值（#111）。
-      if (upload != null && upload.isNotEmpty)
-        PreferenceKeys.uploadCredentials: {
-          ...await platform.readCredentials(PreferenceKeys.uploadCredentials),
-          ...upload,
-        },
-    };
+    final credentials = await prepareCredentialChanges(
+      previous: _current.services,
+      current: candidate.services,
+      drafts: drafts,
+      readCredentials: platform.readCredentials,
+    );
     // applySettings原子提交系统偏好和凭据；成功前不改变主引擎状态。
     await platform.applySettings(candidate.toMap(), credentials: credentials);
     // onSaved只取得副本，通知接收方不能绕过提交队列改写本次配置。

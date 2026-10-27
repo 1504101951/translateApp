@@ -65,7 +65,7 @@ Codex-Thread: 01a0db40-8de9-76f2-91d6-674a344135ee
 | 屏幕二维码与条码识别 | 从画面提取链接或文本 | ShareX | [#108](https://github.com/1504101951/translateApp/issues/108) |
 | 图片拼接、拆分与比较 | 合并多张截图、查看差异 | ShareX | [#109](https://github.com/1504101951/translateApp/issues/109) |
 | 录制裁剪、点击高亮、APNG/WebM 导出 | 制作演示与问题复现素材，扩展 #21、#23 | Kap | [#110](https://github.com/1504101951/translateApp/issues/110) |
-| 取色器、屏幕标尺、上传分享与自动工作流 | 设计辅助与文件分享，偏离文字翻译主线 | ShareX | [#111](https://github.com/1504101951/translateApp/issues/111) |
+| 取色器、屏幕标尺与确认截图动作 | 设计辅助，偏离文字翻译主线 | ShareX | [#111](https://github.com/1504101951/translateApp/issues/111) |
 
 ## 开源参考
 

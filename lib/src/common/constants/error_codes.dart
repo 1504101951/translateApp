@@ -4,9 +4,6 @@ abstract final class ErrorCodes {
 
   static const ocrEmpty = 'ocr_empty';
 
-  /// upload_failed：主 Dart 引擎上传截图失败或未配置目标，截图引擎显示其 message（#111）。
-  static const uploadFailed = 'upload_failed';
-
   static const saveFailed = 'save_failed';
 
   static const settingsConflict = 'settings_conflict';

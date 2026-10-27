@@ -511,12 +511,6 @@ final class ScreenshotWindowController: NSObject, NSWindowDelegate {
             MacPlatformBridge.Shared.instance?.requestApplication(
                 AppConstants.recordScreenshotHistoryMethod, arguments: args, result: result
             )
-        case AppConstants.uploadTargetMethod, AppConstants.uploadScreenshotMethod:
-            guard let id = args["id"] as? String, id == captureId else {
-                result(Self.staleCaptureFailure); return
-            }
-            // 主 Dart 引擎持有上传设置与钥匙串凭据，签名并上传后返回分享链接（#111）。
-            MacPlatformBridge.Shared.instance?.requestApplication(call.method, arguments: args, result: result)
         case AppConstants.translatePlainTextMethod:
             guard let id = args["id"] as? String, id == captureId else {
                 result(Self.staleCaptureFailure); return

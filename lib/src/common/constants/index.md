@@ -22,6 +22,6 @@
 17. [mcp_constants.dart](mcp_constants.dart)：定义 MCP 客户端配置使用的服务名。
 18. [system_translation.dart](system_translation.dart)：定义Apple系统翻译语言包状态与模型策略的协议值。
 19. [text_mode.dart](text_mode.dart)：定义译文卡片的翻译、润色、纠错与解释模式。
-20. [network_limits.dart](network_limits.dart)：定义翻译服务与截图上传共用的网络连接时限。
+20. [network_limits.dart](network_limits.dart)：定义翻译服务的网络连接时限。
 21. [live_region.dart](live_region.dart)：定义实时翻译会话阶段与原生命令的协议枚举。
 22. [shortcut_keys.dart](shortcut_keys.dart)：定义全局快捷键的修饰键位、键码、组合规则与提示文案。

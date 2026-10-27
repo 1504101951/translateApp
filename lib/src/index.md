@@ -12,4 +12,3 @@
 8. [translation/](translation/index.md)：语言方向、翻译数据契约、段落对照及分片流程。
 9. [index.md](index.md)：索引本目录直接子文件和子目录的用途。
 10. [capture/](capture/index.md)：统一采集悬浮条、视频结果与全视频GIF导出。
-11. [upload/](upload/index.md)：截图上传到 S3 兼容存储的签名、请求与主引擎请求处理。

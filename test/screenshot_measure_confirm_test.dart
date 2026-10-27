@@ -8,7 +8,7 @@ import 'package:translate_app/src/common/constants/preference_keys.dart';
 import 'package:translate_app/src/common/constants/screenshot_actions.dart';
 import 'package:translate_app/src/screenshot/screenshot_app.dart';
 
-/// 无参数；验证截图编辑器的取色、标尺、上传与确认截图动作（#111）。
+/// 无参数；验证截图编辑器的取色、标尺与确认截图动作（#111）。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -58,42 +58,9 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
-  testWidgets('上传：未配置只提示不发送；确认弹窗显示目标，取消不发送，确认后复制链接', (tester) async {
-    // 边界：uploadTarget 为 null 时不出现弹窗、不发出 uploadScreenshot；有目标时弹窗正文含「主机/存储桶」，
-    // 点「取消」仍不发送；点「上传」发送导出图并把返回的链接写入剪贴板。
-    final editor = await _pumpEditor(tester, 'test/upload');
-    final upload = find.byKey(const Key(ScreenshotActions.upload));
-    await tester.ensureVisible(upload);
-    await tester.tap(upload);
-    await tester.pumpAndSettle();
-    expect(find.text('未配置上传目标，请在「设置 → 截图 → 上传分享」中填写。'), findsOneWidget);
-    expect(find.text('上传截图'), findsNothing);
-    expect(editor.uploads, isEmpty);
-
-    editor.target.value = 's3.example.com/shots';
-    await tester.pump(const Duration(seconds: 2));
-    await tester.tap(upload);
-    await tester.pumpAndSettle();
-    expect(find.text('将上传到 s3.example.com/shots，并复制分享链接。'), findsOneWidget);
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-    expect(editor.uploads, isEmpty);
-
-    await tester.tap(upload);
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, '上传'));
-    await _settle(tester);
-    expect(editor.uploads, hasLength(1));
-    expect(editor.uploads.single, isNotEmpty);
-    expect(editor.texts, ['https://cdn.example.com/shot.png']);
-    expect(find.text('已上传，链接已复制'), findsOneWidget);
-    expect(_closes(editor), 0);
-    await tester.pump(const Duration(seconds: 2));
-  });
-
-  testWidgets('确认截图按设置执行：复制并保存先保存再复制并关闭，设置为上传时按上传处理', (tester) async {
+  testWidgets('确认截图按设置执行：复制并保存先保存再复制并关闭，改为复制图片后只复制并关闭', (tester) async {
     // 边界：快照中的 screenshotConfirmAction 为 copyAndSave 时，确认依次发出保存、复制、关闭；
-    // 工具栏变更通知把动作改为 upload 后，确认走上传，未配置目标只提示且不关闭。
+    // 工具栏变更通知把动作改为 copy 后，再次确认只新增复制与关闭，保存次数仍为 1。
     final editor = await _pumpEditor(
       tester,
       'test/confirm-action',
@@ -133,7 +100,7 @@ void main() {
       editor.channel.name,
       codec.encodeMethodCall(
         const MethodCall(MethodNames.screenshotToolbarChanged, {
-          PreferenceKeys.screenshotConfirmAction: 'upload',
+          PreferenceKeys.screenshotConfirmAction: 'copy',
         }),
       ),
       (_) {},
@@ -141,8 +108,12 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await confirm();
     await tester.pumpAndSettle();
-    expect(find.text('未配置上传目标，请在「设置 → 截图 → 上传分享」中填写。'), findsOneWidget);
-    expect(_closes(editor), 1);
+    expect(
+      editor.calls.where((method) => method == MethodNames.saveScreenshot),
+      hasLength(1),
+    );
+    expect(editor.copies, hasLength(2));
+    expect(_closes(editor), 2);
     await tester.pump(const Duration(seconds: 2));
   });
 }
@@ -158,14 +129,12 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
-/// 截图编辑测试通道：方法调用顺序、复制图片、上传图片、复制文字与可改写的上传目标。
+/// 截图编辑测试通道：方法调用顺序、复制图片与复制文字。
 typedef _Editor = ({
   MethodChannel channel,
   List<String> calls,
   List<Uint8List> copies,
-  List<Uint8List> uploads,
   List<String> texts,
-  ValueNotifier<String?> target,
 });
 
 /// editor 为编辑器通道；返回已请求关闭截图的次数。
@@ -175,7 +144,6 @@ int _closes(_Editor editor) => editor.calls
 
 /// tester 为测试驱动，name 为通道名，confirmAction 为快照中的确认动作（缺省不提供）；
 /// 以左半 #3366CC、右半白色的 640×480 截图装载编辑器，返回记录通道调用的 [_Editor]。
-/// 上传目标初始为 null，uploadScreenshot 返回固定链接。
 Future<_Editor> _pumpEditor(
   WidgetTester tester,
   String name, {
@@ -189,10 +157,7 @@ Future<_Editor> _pumpEditor(
   final channel = MethodChannel(name);
   final calls = <String>[];
   final copies = <Uint8List>[];
-  final uploads = <Uint8List>[];
   final texts = <String>[];
-  final target = ValueNotifier<String?>(null);
-  addTearDown(target.dispose);
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(channel, (call) async {
@@ -214,11 +179,6 @@ Future<_Editor> _pumpEditor(
         return '/tmp/截图.png';
       case MethodNames.copyText:
         texts.add(arguments!['text'] as String);
-      case MethodNames.uploadTarget:
-        return target.value;
-      case MethodNames.uploadScreenshot:
-        uploads.add(arguments!['bytes'] as Uint8List);
-        return 'https://cdn.example.com/shot.png';
     }
     return null;
   });
@@ -228,14 +188,7 @@ Future<_Editor> _pumpEditor(
   // 编辑器的源图解码使用真实图像线程，取色读取它的像素。
   await tester.runAsync(() => Future<void>.delayed(_decode));
   await tester.pump();
-  return (
-    channel: channel,
-    calls: calls,
-    copies: copies,
-    uploads: uploads,
-    texts: texts,
-    target: target,
-  );
+  return (channel: channel, calls: calls, copies: copies, texts: texts);
 }
 
 /// tester 为测试驱动，editor 为编辑器通道；点击复制并等待导出完成，无返回值。

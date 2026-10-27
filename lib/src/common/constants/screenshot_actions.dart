@@ -27,7 +27,6 @@ abstract final class ScreenshotActions {
   static const pin = 'screenshot-pin';
   static const save = 'screenshot-save';
   static const copy = 'screenshot-copy';
-  static const upload = 'screenshot-upload';
   static const ocrCopy = 'screenshot-ocr-copy';
   static const ocrTranslate = 'screenshot-ocr-translate';
   static const close = 'screenshot-close';
@@ -63,8 +62,6 @@ abstract final class ScreenshotActions {
     pin: (icon: Icons.push_pin_outlined, hostsChildren: false),
     save: (icon: Icons.save_outlined, hostsChildren: false),
     copy: (icon: Icons.copy_outlined, hostsChildren: false),
-    // 上传到设置中的 S3 兼容存储并复制分享链接（#111）。
-    upload: (icon: Icons.cloud_upload_outlined, hostsChildren: false),
     ocrCopy: (icon: Icons.text_snippet_outlined, hostsChildren: false),
     ocrTranslate: (icon: Icons.translate, hostsChildren: false),
     live: (icon: Icons.subtitles_outlined, hostsChildren: false),
@@ -112,7 +109,6 @@ abstract final class ScreenshotActions {
     pin: '贴图',
     save: '保存',
     copy: '复制图片',
-    upload: '上传',
     ocrCopy: '识别文字',
     ocrTranslate: '翻译文字',
     close: '关闭',

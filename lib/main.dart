@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,8 +25,6 @@ import 'src/settings/settings_app.dart';
 import 'src/settings/settings_controller.dart';
 import 'src/translation/live_region_session.dart';
 import 'src/translation/provider_selection.dart';
-import 'src/common/constants/preference_keys.dart';
-import 'src/upload/upload_requests.dart';
 
 /// 无参数；装配主引擎唯一的配置、翻译会话、历史存储与跨窗口请求入口，无返回值。
 Future<void> main() async {
@@ -101,17 +98,6 @@ Future<void> main() async {
       case MethodNames.setHistoryRecording:
         // handleHistoryRequest访问同一个历史库，不等待设置提交或服务测试。
         return handleHistoryRequest(history, call);
-      case MethodNames.uploadTarget:
-      case MethodNames.uploadScreenshot:
-        // handleUploadRequest 按已提交设置的目标与钥匙串密钥上传截图（#111）。
-        return handleUploadRequest(
-          call,
-          target: settings.current.uploadTarget,
-          credentials: () =>
-              bridge.readCredentials(PreferenceKeys.uploadCredentials),
-          now: DateTime.now(),
-          random: Random.secure(),
-        );
       case MethodNames.vocabularyList:
       case MethodNames.deleteVocabulary:
       case MethodNames.vocabularyCsv:

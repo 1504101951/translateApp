@@ -244,10 +244,6 @@ enum AppConstants {
     static let rememberScreenshotRegionMethod = "rememberScreenshotRegion"
     /// recordScreenshotHistory 协议值；截图导出成功后转发主引擎记录，与Dart常量同步。
     static let recordScreenshotHistoryMethod = "recordScreenshotHistory"
-    /// uploadTarget 协议值；截图引擎经主引擎读取上传目标描述，未配置返回 nil（#111），与Dart常量同步。
-    static let uploadTargetMethod = "uploadTarget"
-    /// uploadScreenshot 协议值；截图引擎把 PNG 交给主引擎上传，返回分享链接（#111），与Dart常量同步。
-    static let uploadScreenshotMethod = "uploadScreenshot"
     /// stitchScreenshots 协议值；按顺序拼接截图历史图片（#109），与Dart常量同步。
     static let stitchScreenshotsMethod = "stitchScreenshots"
     /// splitScreenshot 协议值；按高度等分一张截图历史图片（#109），与Dart常量同步。

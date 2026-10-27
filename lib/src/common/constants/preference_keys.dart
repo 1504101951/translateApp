@@ -24,18 +24,8 @@ abstract final class PreferenceKeys {
   /// 长截图滚动方式：manual 或 automatic；Swift 开始长截图时读取（#112）。
   static const scrollCaptureMode = 'scrollCaptureMode';
 
-  /// 确认截图时的动作：copy、copyAndSave 或 upload；仅 Dart 读取（#111）。
+  /// 确认截图时的动作：copy 或 copyAndSave；仅 Dart 读取（#111）。
   static const screenshotConfirmAction = 'screenshotConfirmAction';
-
-  /// S3 兼容上传目标的服务地址、区域、存储桶、对象键前缀与分享链接前缀；仅 Dart 读取，访问密钥在钥匙串（#111）。
-  static const uploadEndpoint = 'uploadEndpoint';
-  static const uploadRegion = 'uploadRegion';
-  static const uploadBucket = 'uploadBucket';
-  static const uploadPrefix = 'uploadPrefix';
-  static const uploadPublicBase = 'uploadPublicBase';
-
-  /// 上传访问密钥的钥匙串账户；值为 {accessKeyId, secretAccessKey}，随 saveSettings 的 credentials 提交（#111）。
-  static const uploadCredentials = 'upload-s3';
 
   /// 术语表；值为 {term, translation, language} 字典列表，仅 Dart 读取（#104）。
   static const glossary = 'glossary';
