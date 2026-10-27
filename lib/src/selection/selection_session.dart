@@ -89,6 +89,15 @@ class SelectionSession extends ChangeNotifier {
 
   /// 无参数；返回当前请求的输出语言（翻译为目标语言，解释为主要语言，润色与纠错为原文语言），未发出请求时为 null。
   String? get outputLanguage => _progress?.request.targetLanguage;
+
+  /// 无参数；返回翻译模式下原文是否已是目标语言，此时卡片只显示原文一栏（#134）。
+  bool get sourceIsTarget {
+    final target = outputLanguage;
+    return mode == TextMode.translate &&
+        target != null &&
+        LanguageDirection.isTarget(snapshot.detectedLanguage, target);
+  }
+
   int _generation = 0;
   StreamSubscription<TranslationEvent>? _translation;
   Completer<void>? _completion;

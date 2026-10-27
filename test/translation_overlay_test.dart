@@ -229,10 +229,11 @@ void main() {
       expect(find.byTooltip('复制原文'), findsOneWidget);
       expect(find.byTooltip('复制译文'), findsOneWidget);
       // 标题下缘空白也能拖动；正文/关闭保持独立，拖动不改变结果内容或会话。
+      // 边界：标题区高 44pt（#134），在距顶 40pt 处起拖仍属拖动区。
       final dragArea = find.byKey(const ValueKey('result-drag-area'));
-      expect(tester.getSize(dragArea).height, 56);
+      expect(tester.getSize(dragArea).height, 44);
       await tester.dragFrom(
-        tester.getTopLeft(dragArea) + const Offset(180, 50),
+        tester.getTopLeft(dragArea) + const Offset(180, 40),
         const Offset(40, 0),
       );
       await tester.pumpAndSettle();
@@ -356,5 +357,81 @@ void main() {
       find.byKey(const ValueKey('source-paragraph-1')),
     );
     expect((source.decoration! as BoxDecoration).color, Colors.transparent);
+  });
+
+  /// tester 为测试驱动，session 为已激活的会话；以 720×420 结果窗口装载卡片并等待翻译与查词完成，无返回值。
+  Future<void> pumpCard(WidgetTester tester, SelectionSession session) async {
+    tester.view.physicalSize = const Size(720, 420);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TranslationOverlay(
+          session: session,
+          onActivate: session.activate,
+          onDismiss: session.dismiss,
+          onDrag: () {},
+          onMode: session.switchMode,
+          onSpeak: (_) {},
+          onAddVocabulary: () {},
+        ),
+      ),
+    );
+    await session.activate();
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('查到词典：左 2/5 上译文下原文用 18pt，右 3/5 词典栏头依次为生词本、朗读、复制（#134）', (
+    tester,
+  ) async {
+    // 边界：720pt 宽卡片左栏占 288pt，词典栏从 x=288 起；译文在原文上方且同在左栏；
+    // 词典栏头三个按钮从左到右为加入生词本、朗读词典、复制词典，可见按钮 24pt。
+    final session = SelectionSession(
+      provider: _Provider(),
+      detectLanguage: (_) async => 'en',
+      language: const LanguageDirection(
+        primaryCode: 'zh-CN',
+        secondaryCode: 'en',
+      ),
+      lookupDefinition: (_) async => 'pot | BrE pɒt | A. noun ① 锅 guō',
+    );
+    addTearDown(session.dispose);
+    session.begin(sessionId: 'dict', text: 'pot');
+    await pumpCard(tester, session);
+    final translated = tester.getTopLeft(find.text('你好'));
+    final source = tester.getTopLeft(find.text('pot'));
+    expect(translated.dx, source.dx);
+    expect(translated.dy, lessThan(source.dy));
+    expect(tester.widget<EditableText>(find.text('你好')).style.fontSize, 18);
+    final dictionaryX = tester.getTopLeft(find.text('词典')).dx;
+    expect(dictionaryX, greaterThan(288));
+    expect(translated.dx, lessThan(288));
+    final buttons = [
+      '加入生词本',
+      '朗读词典',
+      '复制词典',
+    ].map((tooltip) => tester.getRect(find.byTooltip(tooltip))).toList();
+    expect(buttons[0].left, lessThan(buttons[1].left));
+    expect(buttons[1].left, lessThan(buttons[2].left));
+    expect(buttons[1].left - buttons[0].right, 4);
+    expect(buttons[0].size, const Size(24, 24));
+    expect(find.text('A. noun'), findsOneWidget);
+  });
+
+  testWidgets('原文已是目标语言时只显示原文一栏，没有译文栏（#134）', (tester) async {
+    // 边界：未设置次要语言且识别为主要语言时目标语言等于原文语言；卡片只保留「复制原文」。
+    final session = SelectionSession(
+      provider: _Provider(),
+      detectLanguage: (_) async => 'zh-CN',
+      language: const LanguageDirection(primaryCode: 'zh-CN'),
+    );
+    addTearDown(session.dispose);
+    session.begin(sessionId: 'same', text: '今天天气很好');
+    await pumpCard(tester, session);
+    expect(session.sourceIsTarget, isTrue);
+    expect(find.byTooltip('复制原文'), findsOneWidget);
+    expect(find.byTooltip('复制译文'), findsNothing);
+    expect(find.text('今天天气很好'), findsOneWidget);
   });
 }
