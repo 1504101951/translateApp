@@ -506,7 +506,7 @@ final class CaptureWindowController: NSObject, NSWindowDelegate {
             return false
         }
         Task { @MainActor in
-            // discard统一系统关闭和Flutter操作；内部窗口切换已移除delegate，不经过此入口。
+            // discard统一系统关闭和Flutter操作；内部窗口切换时不设delegate，不经过此入口。
             await discard()
         }
         return false

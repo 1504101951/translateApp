@@ -91,7 +91,7 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
-  testWidgets('确认截图按设置执行：复制并保存先保存再复制并关闭，改为上传后按上传处理', (tester) async {
+  testWidgets('确认截图按设置执行：复制并保存先保存再复制并关闭，设置为上传时按上传处理', (tester) async {
     // 边界：快照中的 screenshotConfirmAction 为 copyAndSave 时，确认依次发出保存、复制、关闭；
     // 工具栏变更通知把动作改为 upload 后，确认走上传，未配置目标只提示且不关闭。
     final editor = await _pumpEditor(

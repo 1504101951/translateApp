@@ -1,4 +1,4 @@
-/// 持久化偏好字段；与Swift对应值保持一致，调用方不重复定义。
+/// Dart 使用的持久化偏好键协议值；与 Swift AppConstants 同名值字面量一致，改名须两端同步。
 abstract final class PreferenceKeys {
   /// 每工具独立绘图参数。
   static const screenshotDrawing = 'screenshotDrawing';
@@ -9,13 +9,10 @@ abstract final class PreferenceKeys {
   static const screenshotToolbarChildren = 'screenshotToolbarChildren';
   static const screenshotToolbarShortcuts = 'screenshotToolbarShortcuts';
 
-  /// automatic 的稳定协议值，变更须同步两端及持久化调用方。
   static const automatic = 'automatic';
 
-  /// defaultServiceId 的稳定协议值，变更须同步两端及持久化调用方。
   static const defaultServiceId = 'defaultServiceId';
 
-  /// excludedApps 的稳定协议值，变更须同步两端及持久化调用方。
   static const excludedApps = 'excludedApps';
 
   /// 区域截图冻结帧是否包含鼠标指针；Swift 冻结画面时读取（#105）。
@@ -43,19 +40,14 @@ abstract final class PreferenceKeys {
   /// 术语表；值为 {term, translation, language} 字典列表，仅 Dart 读取（#104）。
   static const glossary = 'glossary';
 
-  /// glassAppearance 的稳定协议值，变更须同步两端及持久化调用方。
   static const glassAppearance = 'glassAppearance';
 
-  /// glassOpacity 的稳定协议值，变更须同步两端及持久化调用方。
   static const glassOpacity = 'glassOpacity';
 
-  /// launchAtLogin 的稳定协议值，变更须同步两端及持久化调用方。
   static const launchAtLogin = 'launchAtLogin';
 
-  /// primaryLanguage 的稳定协议值，变更须同步两端及持久化调用方。
   static const primaryLanguage = 'primaryLanguage';
 
-  /// screenshotSaveDirectory 的稳定协议值，变更须同步两端及持久化调用方。
   static const screenshotSaveDirectory = 'screenshotSaveDirectory';
 
   /// GIF完整视频导出的每秒采样帧数；与原生偏好键一致。
@@ -70,28 +62,20 @@ abstract final class PreferenceKeys {
   /// GIF最大像素宽度；省略表示不限制，输出仍不会放大原视频。
   static const gifMaximumWidth = 'gifMaximumWidth';
 
-  /// screenshotShortcutKeyCode 的稳定协议值，变更须同步两端及持久化调用方。
   static const screenshotShortcutKeyCode = 'screenshotShortcutKeyCode';
 
-  /// screenshotShortcutLabel 的稳定协议值，变更须同步两端及持久化调用方。
   static const screenshotShortcutLabel = 'screenshotShortcutLabel';
 
-  /// screenshotShortcutModifiers 的稳定协议值，变更须同步两端及持久化调用方。
   static const screenshotShortcutModifiers = 'screenshotShortcutModifiers';
 
-  /// secondaryLanguage 的稳定协议值，变更须同步两端及持久化调用方。
   static const secondaryLanguage = 'secondaryLanguage';
 
-  /// services 的稳定协议值，变更须同步两端及持久化调用方。
   static const services = 'services';
 
-  /// shortcutKeyCode 的稳定协议值，变更须同步两端及持久化调用方。
   static const shortcutKeyCode = 'shortcutKeyCode';
 
-  /// shortcutLabel 的稳定协议值，变更须同步两端及持久化调用方。
   static const shortcutLabel = 'shortcutLabel';
 
-  /// shortcutModifiers 的稳定协议值，变更须同步两端及持久化调用方。
   static const shortcutModifiers = 'shortcutModifiers';
 
   /// 输入翻译快捷键键码；变更须同步两端及持久化调用方。

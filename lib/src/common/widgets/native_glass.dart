@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
-/// 普通窗口的连续阅读底色；四角由AppKit统一裁剪，Flutter不再形成第二个面板。
+/// 普通窗口的连续阅读底色；四角由AppKit统一裁剪，Flutter只绘制内容，不另画面板。
 class NativeGlassWindowPage extends StatelessWidget {
   /// child为窗口内容；与原生标题区使用同一不透明语义色。
   const NativeGlassWindowPage({super.key, required this.child});

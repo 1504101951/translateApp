@@ -11,7 +11,7 @@ import 'package:translate_app/src/common/widgets/native_glass.dart';
 import 'package:translate_app/src/settings/settings_app.dart';
 import 'package:translate_app/src/settings/service_config.dart';
 
-/// 验证用户六项修订的可见行为，边界为520×500最小设置窗口与滚动后导航可达。
+/// 验证设置窗口的导航、权限位置、服务类型、分段、开关与布局等可见行为，边界为520×500最小设置窗口与滚动后导航可达。
 void main() {
   testWidgets('导航滚动后仍固定，权限仅在通用，新建服务为五类', (tester) async {
     tester.view.physicalSize = const Size(520, 500);

@@ -114,7 +114,7 @@ void main() {
     matching: find.text(text),
   );
 
-  testWidgets('MCP 与通用、翻译、截图平级，截图页不再包含 MCP 内容', (tester) async {
+  testWidgets('MCP 与通用、翻译、截图平级，截图页不包含 MCP 内容', (tester) async {
     await open(tester, section: '截图');
     expect(find.text('MCP 接口'), findsNothing);
     expect(find.text('允许 agent 截图'), findsNothing);

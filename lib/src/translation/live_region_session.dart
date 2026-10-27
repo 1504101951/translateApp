@@ -242,7 +242,7 @@ class LiveRegionSession {
   /// 建立空的运行快照并发布，无返回值。不继承上一次的文字、译文、缓存或计时。
   void start(AppSettings settings, int generation) {
     if (generation <= _generation && _phase != LiveRegionPhase.idle) return;
-    // 新会话不再等待上一次取消；旧完成回调不能减少这次的进行计数。
+    // 新会话不等待上一次的取消完成；epoch 递增后，旧完成回调不能减少这次的进行计数。
     _epoch += 1;
     _pending = 0;
     for (final waiter in List<Completer<void>>.of(_waiters)) {

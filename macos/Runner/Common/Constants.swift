@@ -29,7 +29,8 @@ enum ScrollCaptureMode: String {
     case manual, automatic
 }
 
-/// 原生侧通道名、方法名与偏好键；与 Dart `ChannelNames` / `MethodNames` 对齐。
+/// 原生侧通道名、方法名、错误码、偏好键与平台视图类型等协议值；字面量与 Dart common/constants 下同名值一致，改名须两端同步。
+/// 只定义 Swift 端代码（含测试）实际使用的值。
 enum AppConstants {
     /// 连续采集独立通道与多引擎入口，和Dart常量一致。
     static let captureChannel = "translateapp/capture"
@@ -99,33 +100,28 @@ enum AppConstants {
     static let setBrushCursorMethod = "setBrushCursor"
     static let resizeNorthWestSouthEast = "nwse"
     static let resizeNorthEastSouthWest = "nesw"
-    /// 跨引擎外观模式与通知名称；与Dart AppearanceModes一致。
-    /// 截图局部工具配置独立广播，不替换截图编辑草稿。
     static let screenshotTextInputMethod = "screenshotTextInput"
     static let screenshotToolbarHiddenKey = "screenshotToolbarHidden"
     static let screenshotToolbarOrderKey = "screenshotToolbarOrder"
     static let screenshotToolbarChildrenKey = "screenshotToolbarChildren"
     static let screenshotToolbarShortcutsKey = "screenshotToolbarShortcuts"
+    /// 截图局部工具配置独立广播，不替换截图编辑草稿。
     static let screenshotToolbarChangedMethod = "screenshotToolbarChanged"
     static let screenshotToolbarActionMethod = "screenshotToolbarAction"
+    /// 跨引擎外观模式与通知名称；与Dart AppearanceModes一致。
     static let appearanceSystem = "system"
     static let appearanceLight = "light"
     static let appearanceDark = "dark"
     static let appearanceChangedNotification = Notification.Name("TranslateAppAppearanceChanged")
-    /// settingsChannel 的平台约定；调用方共享同一协议或硬件定义。
     static let settingsChannel = "translateapp/settings"
-    /// screenshotChannel 的平台约定；调用方共享同一协议或硬件定义。
     static let screenshotChannel = "translateapp/screenshot"
-    /// screenshotEntrypoint 的平台约定；调用方共享同一协议或硬件定义。
     static let screenshotEntrypoint = "screenshotMain"
     /// 附属窗口的 Flutter 引擎名，经 WindowEngine 创建时使用（#120、#124）。
     static let screenshotEngineName = "screenshot"
     static let settingsEngineName = "settings"
     static let permissionWizardEngineName = "permission-wizard"
     static let historyEngineName = "history"
-    /// permissionWizardFinishedKey 的平台约定；调用方共享同一协议或硬件定义。
     static let permissionWizardFinishedKey = "permissionWizardFinished"
-    /// screenshotSaveDirectoryKey 的平台约定；调用方共享同一协议或硬件定义。
     static let screenshotSaveDirectoryKey = "screenshotSaveDirectory"
     /// GIF导出偏好；最大宽度缺省表示原始宽度。
     static let gifFramesPerSecondKey = "gifFramesPerSecond"
@@ -142,157 +138,91 @@ enum AppConstants {
     /// 菜单栏「延时截图」子菜单的可选秒数（#105）。
     static let screenshotDelays = [3, 5, 10]
     static let gifMaximumWidthKey = "gifMaximumWidth"
-    /// escapeKeyCode 的平台约定；调用方共享同一协议或硬件定义。
+    /// Escape 键的硬件键码（kVK_Escape）。
     static let escapeKeyCode: UInt16 = 53
     /// 全局快捷键必须包含其中至少一个修饰键（Carbon 修饰键位）。
     static let shortcutRequiredModifiers = UInt32(cmdKey | optionKey | controlKey)
     /// 全局快捷键允许出现的全部修饰键（Carbon 修饰键位）。
     static let shortcutAllowedModifiers = shortcutRequiredModifiers | UInt32(shiftKey)
-    /// returnKeyCode 的平台约定；调用方共享同一协议或硬件定义。
+    /// Return 键的硬件键码（kVK_Return）。
     static let returnKeyCode: UInt16 = 36
-    /// keypadEnterKeyCode 的平台约定；调用方共享同一协议或硬件定义。
+    /// 小键盘 Enter 键的硬件键码（kVK_ANSI_KeypadEnter）。
     static let keypadEnterKeyCode: UInt16 = 76
-    /// confirmScreenshotMethod 的平台约定；调用方共享同一协议或硬件定义。
     static let confirmScreenshotMethod = "confirmScreenshot"
-    /// appReady 协议值；与Dart常量及持久化调用方同步。
     static let appReadyMethod = "appReady"
-    /// appearanceChanged 协议值；与Dart常量及持久化调用方同步。
     static let appearanceChangedMethod = "appearanceChanged"
-    /// applicationSupportPath 协议值；与Dart常量及持久化调用方同步。
     static let applicationSupportPathMethod = "applicationSupportPath"
-    /// applySettings 协议值；与Dart常量及持久化调用方同步。
     static let applySettingsMethod = "applySettings"
-    /// automatic 协议值；与Dart常量及持久化调用方同步。
     static let automaticKey = "automatic"
-    /// bad_app 协议值；与Dart常量及持久化调用方同步。
     static let badAppError = "bad_app"
-    /// bad_args 协议值；与Dart常量及持久化调用方同步。
     static let badArgsError = "bad_args"
-    /// bad_settings 协议值；与Dart常量及持久化调用方同步。
     static let badSettingsError = "bad_settings"
-    /// chooseExcludedApp 协议值；与Dart常量及持久化调用方同步。
     static let chooseExcludedAppMethod = "chooseExcludedApp"
-    /// chooseScreenshotDirectory 协议值；与Dart常量及持久化调用方同步。
     static let chooseScreenshotDirectoryMethod = "chooseScreenshotDirectory"
-    /// closePermissionWizard 协议值；与Dart常量及持久化调用方同步。
     static let closePermissionWizardMethod = "closePermissionWizard"
-    /// closeScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let closeScreenshotMethod = "closeScreenshot"
-    /// copyScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let copyScreenshotMethod = "copyScreenshot"
-    /// copyText 协议值；与Dart常量及持久化调用方同步。
     static let copyTextMethod = "copyText"
-    /// copy_failed 协议值；与Dart常量及持久化调用方同步。
     static let copyFailedError = "copy_failed"
-    /// credentialIds 协议值；与Dart常量及持久化调用方同步。
     static let credentialIdsMethod = "credentialIds"
-    /// detectLanguage 协议值；与Dart常量及持久化调用方同步。
     static let detectLanguageMethod = "detectLanguage"
-    /// dragOverlay 协议值；与Dart常量及持久化调用方同步。
     static let dragOverlayMethod = "dragOverlay"
-    /// escapePressed 协议值；与Dart常量及持久化调用方同步。
     static let escapePressedMethod = "escapePressed"
-    /// excludedApps 协议值；与Dart常量及持久化调用方同步。
     static let excludedAppsKey = "excludedApps"
-    /// finishPermissionWizard 协议值；与Dart常量及持久化调用方同步。
     static let finishPermissionWizardMethod = "finishPermissionWizard"
-    /// getAppearance 协议值；与Dart常量及持久化调用方同步。
     static let getAppearanceMethod = "getAppearance"
-    /// getScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let getScreenshotMethod = "getScreenshot"
-    /// glassAppearance 协议值；与Dart常量及持久化调用方同步。
     static let glassAppearanceKey = "glassAppearance"
-    /// glassOpacity 协议值；与Dart常量及持久化调用方同步。
     static let glassOpacityKey = "glassOpacity"
-    /// hideOverlay 协议值；与Dart常量及持久化调用方同步。
     static let hideOverlayMethod = "hideOverlay"
-    /// historyMain 协议值；与Dart常量及持久化调用方同步。
     static let historyEntrypoint = "historyMain"
-    /// isCurrentScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let isCurrentScreenshotMethod = "isCurrentScreenshot"
-    /// keychain_failed 协议值；与Dart常量及持久化调用方同步。
     static let keychainFailedError = "keychain_failed"
     /// 凭据在钥匙串中的服务名；凭据列举、读取与写入共用，改动会使已存凭据读不到（#122）。
     static let credentialsKeychainService = "com.coolyang.translateApp.credentials"
-    /// launchAtLogin 协议值；与Dart常量及持久化调用方同步。
     static let launchAtLoginKey = "launchAtLogin"
-    /// loadSettings 协议值；与Dart常量及持久化调用方同步。
     static let loadSettingsMethod = "loadSettings"
-    /// ocr_empty 协议值；与Dart常量及持久化调用方同步。
     static let ocrEmptyError = "ocr_empty"
-    /// ocr_failed 协议值；与Dart常量及持久化调用方同步。
     static let ocrFailedError = "ocr_failed"
-    /// openAccessibility 协议值；与Dart常量及持久化调用方同步。
     static let openAccessibilityMethod = "openAccessibility"
-    /// openLoginItems 协议值；与Dart常量及持久化调用方同步。
     static let openLoginItemsMethod = "openLoginItems"
     /// openLink 协议值；截图识别结果中的链接交给默认浏览器（#108），与Dart常量同步。
     static let openLinkMethod = "openLink"
     /// 识别结果中允许打开的链接协议；其他协议只可复制（#108），与Dart常量同步。
     static let openableLinkSchemes: Set<String> = ["http", "https"]
-    /// permissionStatusChanged 协议值；与Dart常量及持久化调用方同步。
     static let permissionStatusChangedMethod = "permissionStatusChanged"
-    /// permissionWizardMain 协议值；与Dart常量及持久化调用方同步。
     static let permissionWizardEntrypoint = "permissionWizardMain"
-    /// permissionWizardStatus 协议值；与Dart常量及持久化调用方同步。
     static let permissionWizardStatusMethod = "permissionWizardStatus"
-    /// pinScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let pinScreenshotMethod = "pinScreenshot"
-    /// preferences 协议值；与Dart常量及持久化调用方同步。
     static let preferencesKey = "preferences"
-    /// readCredentials 协议值；与Dart常量及持久化调用方同步。
     static let readCredentialsMethod = "readCredentials"
-    /// readSelectionForTranslation 协议值；与Dart常量及持久化调用方同步。
     static let readSelectionForTranslationMethod = "readSelectionForTranslation"
-    /// recognizeBlocks 协议值；与Dart常量及持久化调用方同步。
     static let recognizeBlocksMethod = "recognizeBlocks"
-    /// recognizeText 协议值；与Dart常量及持久化调用方同步。
     static let recognizeTextMethod = "recognizeText"
-    /// recordShortcut 协议值；与Dart常量及持久化调用方同步。
     static let recordShortcutMethod = "recordShortcut"
-    /// redoPressed 协议值；与Dart常量及持久化调用方同步。
     static let redoPressedMethod = "redoPressed"
-    /// refreshSettings 协议值；与Dart常量及持久化调用方同步。
     static let refreshSettingsMethod = "refreshSettings"
-    /// requestScreenAccess 协议值；与Dart常量及持久化调用方同步。
     static let requestScreenAccessMethod = "requestScreenAccess"
-    /// retainOverlay 协议值；与Dart常量及持久化调用方同步。
     static let retainOverlayMethod = "retainOverlay"
     /// replaceSelection 协议值；输入翻译完成后把译文粘贴回来源应用，与Dart常量同步。
     static let replaceSelectionMethod = "replaceSelection"
     /// 输入翻译粘贴后等待来源应用读取剪贴板的时长，之后才还原原剪贴板（#99）。
     static let pasteRestoreDelay = Duration.milliseconds(500)
-    /// revealFile 协议值；与Dart常量及持久化调用方同步。
     static let revealFileMethod = "revealFile"
-    /// rollback_failed 协议值；与Dart常量及持久化调用方同步。
     static let rollbackFailedError = "rollback_failed"
-    /// saveScreenshot 协议值；与Dart常量及持久化调用方同步。
     static let saveScreenshotMethod = "saveScreenshot"
-    /// save_failed 协议值；与Dart常量及持久化调用方同步。
     static let saveFailedError = "save_failed"
-    /// screenshotChanged 协议值；与Dart常量及持久化调用方同步。
     static let screenshotChangedMethod = "screenshotChanged"
-    /// screenshotShortcutKeyCode 协议值；与Dart常量及持久化调用方同步。
     static let screenshotShortcutKeyCodeKey = "screenshotShortcutKeyCode"
-    /// screenshotShortcutLabel 协议值；与Dart常量及持久化调用方同步。
     static let screenshotShortcutLabelKey = "screenshotShortcutLabel"
-    /// screenshotShortcutModifiers 协议值；与Dart常量及持久化调用方同步。
     static let screenshotShortcutModifiersKey = "screenshotShortcutModifiers"
-    /// selectionCaptured 协议值；与Dart常量及持久化调用方同步。
     static let selectionCapturedEvent = "selectionCaptured"
-    /// selectionInvalidated 协议值；与Dart常量及持久化调用方同步。
     static let selectionInvalidatedEvent = "selectionInvalidated"
-    /// setOverlaySize 协议值；与Dart常量及持久化调用方同步。
     static let setOverlaySizeMethod = "setOverlaySize"
-    /// settingsMain 协议值；与Dart常量及持久化调用方同步。
     static let settingsEntrypoint = "settingsMain"
-    /// settings_failed 协议值；与Dart常量及持久化调用方同步。
     static let settingsFailedError = "settings_failed"
-    /// shortcutKeyCode 协议值；与Dart常量及持久化调用方同步。
     static let shortcutKeyCodeKey = "shortcutKeyCode"
-    /// shortcutLabel 协议值；与Dart常量及持久化调用方同步。
     static let shortcutLabelKey = "shortcutLabel"
-    /// shortcutModifiers 协议值；与Dart常量及持久化调用方同步。
     static let shortcutModifiersKey = "shortcutModifiers"
     /// inputShortcutKeyCode 协议值；输入翻译快捷键键码，与Dart常量同步。
     static let inputShortcutKeyCodeKey = "inputShortcutKeyCode"
@@ -300,13 +230,9 @@ enum AppConstants {
     static let inputShortcutLabelKey = "inputShortcutLabel"
     /// inputShortcutModifiers 协议值；输入翻译快捷键修饰键，与Dart常量同步。
     static let inputShortcutModifiersKey = "inputShortcutModifiers"
-    /// shortcut_invalid 协议值；与Dart常量及持久化调用方同步。
     static let shortcutInvalidError = "shortcut_invalid"
-    /// showOverlay 协议值；与Dart常量及持久化调用方同步。
     static let showOverlayMethod = "showOverlay"
-    /// stale_capture 协议值；与Dart常量及持久化调用方同步。
     static let staleCaptureError = "stale_capture"
-    /// systemStatus 协议值；与Dart常量及持久化调用方同步。
     static let systemStatusMethod = "systemStatus"
     /// rememberScreenshotRegion 协议值；截图导出成功后 Dart 发送选区像素矩形，供「截取上次区域」复用（#105）。与Dart常量同步。
     static let rememberScreenshotRegionMethod = "rememberScreenshotRegion"
@@ -352,9 +278,7 @@ enum AppConstants {
     static let systemTranslationUnsupported = "unsupported"
     /// 系统翻译高保真策略；与Dart SystemTranslationStrategy同步，其余值按低延迟处理。
     static let systemTranslationHighFidelity = "highFidelity"
-    /// toggleAutomatic 协议值；与Dart常量及持久化调用方同步。
     static let toggleAutomaticMethod = "toggleAutomatic"
-    /// translatePlainText 协议值；与Dart常量及持久化调用方同步。
     static let translatePlainTextMethod = "translatePlainText"
     /// translate_failed 协议值；与Dart常量同步。
     static let translateFailedError = "translate_failed"
@@ -362,15 +286,10 @@ enum AppConstants {
     static let translationNotInstalledError = "translation_not_installed"
     /// translation_unsupported 协议值；系统翻译不支持该语言对，与Dart常量同步。
     static let translationUnsupportedError = "translation_unsupported"
-    /// translateapp/appearance 协议值；与Dart常量及持久化调用方同步。
     static let appearanceChannel = "translateapp/appearance"
-    /// translateapp/macos 协议值；与Dart常量及持久化调用方同步。
     static let macosChannel = "translateapp/macos"
-    /// translateapp/macos/events 协议值；与Dart常量及持久化调用方同步。
     static let macosEventsChannel = "translateapp/macos/events"
-    /// translateapp/native-glass 协议值；与Dart常量及持久化调用方同步。
     static let nativeGlassViewType = "translateapp/native-glass"
-    /// undoPressed 协议值；与Dart常量及持久化调用方同步。
     static let undoPressedMethod = "undoPressed"
 
     /// App 在用户 Application Support 下的数据目录名；历史库与 MCP socket 共用。

@@ -26,7 +26,7 @@ class TranslationSnapshot {
   final String translatedText;
   final String? message;
 
-  /// 设备识别出的来源语言；写入历史时必须用这次识别结果，不能再 resolve(null)。
+  /// 设备识别出的来源语言；写入历史时使用这次识别结果，不另行 resolve(null)。
   final String? detectedLanguage;
   final List<TranslationPair> pairs;
 

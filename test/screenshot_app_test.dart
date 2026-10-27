@@ -246,7 +246,7 @@ void main() {
     await tester.pumpWidget(const ScreenshotApp(channel: channel));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('screenshot-canvas')), findsOneWidget);
-    // 固定目录 UI 已迁到设置，编辑窗不再展示路径选择。
+    // 保存目录在设置中配置，编辑窗不展示路径选择。
     expect(find.text('/tmp/screenshots'), findsNothing);
     expect(find.text('固定目录…'), findsNothing);
 
@@ -330,10 +330,12 @@ void main() {
     const channel = MethodChannel('test/screenshot-pin');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final calls = <MethodCall>[];
-    Uint8List? pinnedBytes;
+    // 替身模拟原生侧状态：贴出的图片、剪贴板、已保存文件与编辑窗是否关闭。
+    final pinned = <Uint8List>[];
+    var copied = false;
+    var saved = false;
+    var closed = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call);
       switch (call.method) {
         case MethodNames.getScreenshot:
           return {
@@ -354,9 +356,16 @@ void main() {
           expect(args['bytes'], isA<Uint8List>());
           expect(args['x'], 100.0);
           expect(args['y'], 200.0);
-          pinnedBytes = args['bytes'] as Uint8List;
+          pinned.add(args['bytes'] as Uint8List);
           return 'pin-live-1';
+        case MethodNames.copyScreenshot:
+          copied = true;
+          return null;
+        case MethodNames.saveScreenshot:
+          saved = true;
+          return null;
         case MethodNames.closeScreenshot:
+          closed = true;
           return null;
         default:
           return null;
@@ -368,27 +377,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('screenshot-canvas')), findsOneWidget);
 
-    calls.clear();
     await _tapExport(tester, const Key('screenshot-pin'));
-    final pinCalls = calls
-        .where((call) => call.method == MethodNames.pinScreenshot)
-        .toList();
-    expect(pinCalls, hasLength(1));
-    expect(pinnedBytes, isNotNull);
-    expect(pinnedBytes!.length, greaterThan(32));
-    // 贴图成功关闭编辑会话，不隐式保存或复制。
-    expect(
-      calls.where((call) => call.method == MethodNames.copyScreenshot),
-      isEmpty,
-    );
-    expect(
-      calls.where((call) => call.method == MethodNames.saveScreenshot),
-      isEmpty,
-    );
-    expect(
-      calls.where((call) => call.method == MethodNames.closeScreenshot),
-      isNotEmpty,
-    );
+    // 贴出恰好一张有效 PNG，编辑窗关闭，剪贴板与保存目录不变。
+    expect(pinned, hasLength(1));
+    expect(pinned.single.length, greaterThan(32));
+    expect(closed, isTrue);
+    expect(copied, isFalse);
+    expect(saved, isFalse);
   });
 
   testWidgets('无屏幕录制权限时不进入编辑画布', (tester) async {
@@ -435,9 +430,9 @@ void main() {
     const markdown = '# Hello\n\n| World |\n| --- |';
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final calls = <MethodCall>[];
+    // 替身模拟系统剪贴板中的文字。
+    String? clipboard;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call);
       if (call.method == MethodNames.getScreenshot) {
         return {
           'id': 'shot-ocr',
@@ -451,28 +446,24 @@ void main() {
       if (call.method == MethodNames.recognizeText) {
         return {'text': markdown, 'codes': <Object>[]};
       }
-      if (call.method == MethodNames.copyText) return null;
+      if (call.method == MethodNames.copyText) {
+        clipboard = (call.arguments as Map)['text'] as String;
+        return null;
+      }
       return null;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const ScreenshotApp(channel: channel));
     await tester.pump();
     await _tapExport(tester, const Key('screenshot-ocr-copy'));
-    expect(
-      calls.where((c) => c.method == MethodNames.recognizeText),
-      isNotEmpty,
-    );
     // 识别完成只打开弹窗，不写剪贴板；弹窗渲染 Markdown，不显示标记符号。
-    expect(calls.where((c) => c.method == MethodNames.copyText), isEmpty);
+    expect(clipboard, isNull);
     expect(find.text('Hello'), findsOneWidget);
     expect(find.text('World'), findsOneWidget);
     expect(find.textContaining('# '), findsNothing);
     await tester.tap(find.byTooltip('复制全部'));
     await tester.pump();
-    expect(
-      calls.where((c) => c.method == MethodNames.copyText).single.arguments,
-      {'text': markdown},
-    );
+    expect(clipboard, markdown);
     expect(find.text('已复制文字'), findsOneWidget);
     // 复制后弹窗不自动关闭；点关闭才消失。
     await tester.pump(const Duration(seconds: 2));
@@ -689,9 +680,9 @@ void main() {
     };
     final requested = Completer<void>();
     final reply = Completer<List<Object?>>();
-    final calls = <String>[];
+    // 替身模拟主引擎收到的翻译原文；迟到结果不应产生任何翻译请求。
+    String? translatedSource;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call.method);
       switch (call.method) {
         case MethodNames.getScreenshot:
           return snapshot;
@@ -699,6 +690,7 @@ void main() {
           requested.complete();
           return reply.future;
         case MethodNames.translatePlainText:
+          translatedSource = (call.arguments as Map)['text'] as String;
           return '你好';
         default:
           return null;
@@ -738,7 +730,7 @@ void main() {
       {'text': 'Hello', 'x': 0, 'y': 0, 'width': 4, 'height': 2},
     ]);
     await tester.pumpAndSettle();
-    expect(calls, isNot(contains(MethodNames.translatePlainText)));
+    expect(translatedSource, isNull);
     expect(find.text('你好'), findsNothing);
     expect(find.text('已在图上显示译文'), findsNothing);
   });

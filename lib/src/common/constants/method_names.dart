@@ -1,4 +1,4 @@
-/// 平台方法协议；与Swift对应值保持一致，调用方不重复定义。
+/// Dart 使用的平台方法名协议值；与 Swift AppConstants 同名值字面量一致，改名须两端同步。
 abstract final class MethodNames {
   /// 媒体采集协议，与Swift AppConstants逐项对应。
   static const getCaptureState = 'getCaptureState';
@@ -45,151 +45,105 @@ abstract final class MethodNames {
   static const screenshotToolbarChanged = 'screenshotToolbarChanged';
   static const screenshotToolbarAction = 'screenshotToolbarAction';
 
-  /// appReady 的稳定协议值，变更须同步两端及持久化调用方。
   static const appReady = 'appReady';
 
-  /// appearanceChanged 的稳定协议值，变更须同步两端及持久化调用方。
   static const appearanceChanged = 'appearanceChanged';
 
-  /// applicationSupportPath 的稳定协议值，变更须同步两端及持久化调用方。
   static const applicationSupportPath = 'applicationSupportPath';
 
-  /// applySettings 的稳定协议值，变更须同步两端及持久化调用方。
   static const applySettings = 'applySettings';
 
-  /// chooseExcludedApp 的稳定协议值，变更须同步两端及持久化调用方。
   static const chooseExcludedApp = 'chooseExcludedApp';
 
-  /// chooseScreenshotDirectory 的稳定协议值，变更须同步两端及持久化调用方。
   static const chooseScreenshotDirectory = 'chooseScreenshotDirectory';
 
-  /// closePermissionWizard 的稳定协议值，变更须同步两端及持久化调用方。
   static const closePermissionWizard = 'closePermissionWizard';
 
-  /// closeScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const closeScreenshot = 'closeScreenshot';
 
-  /// confirmScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const confirmScreenshot = 'confirmScreenshot';
 
-  /// copyScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const copyScreenshot = 'copyScreenshot';
 
-  /// copyText 的稳定协议值，变更须同步两端及持久化调用方。
   static const copyText = 'copyText';
 
-  /// credentialIds 的稳定协议值，变更须同步两端及持久化调用方。
   static const credentialIds = 'credentialIds';
 
-  /// detectLanguage 的稳定协议值，变更须同步两端及持久化调用方。
   static const detectLanguage = 'detectLanguage';
 
-  /// dragOverlay 的稳定协议值，变更须同步两端及持久化调用方。
   static const dragOverlay = 'dragOverlay';
 
-  /// escapePressed 的稳定协议值，变更须同步两端及持久化调用方。
   static const escapePressed = 'escapePressed';
 
-  /// finishPermissionWizard 的稳定协议值，变更须同步两端及持久化调用方。
   static const finishPermissionWizard = 'finishPermissionWizard';
 
-  /// getAppearance 的稳定协议值，变更须同步两端及持久化调用方。
   static const getAppearance = 'getAppearance';
 
-  /// getScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const getScreenshot = 'getScreenshot';
 
-  /// getSettings 的稳定协议值，变更须同步两端及持久化调用方。
   static const getSettings = 'getSettings';
 
-  /// hideOverlay 的稳定协议值，变更须同步两端及持久化调用方。
   static const hideOverlay = 'hideOverlay';
 
-  /// historyPage 的稳定协议值，变更须同步两端及持久化调用方。
   static const historyPage = 'historyPage';
 
   /// 设置页读取 MCP helper 完整路径；与原生 AppConstants.mcpHelperPathMethod 一致。
   static const mcpHelperPath = 'mcpHelperPath';
 
-  /// historyRecording 的稳定协议值，变更须同步两端及持久化调用方。
   static const historyRecording = 'historyRecording';
 
-  /// isCurrentScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const isCurrentScreenshot = 'isCurrentScreenshot';
 
-  /// loadSettings 的稳定协议值，变更须同步两端及持久化调用方。
   static const loadSettings = 'loadSettings';
 
-  /// openAccessibility 的稳定协议值，变更须同步两端及持久化调用方。
   static const openAccessibility = 'openAccessibility';
 
-  /// openLoginItems 的稳定协议值，变更须同步两端及持久化调用方。
   static const openLoginItems = 'openLoginItems';
 
-  /// permissionStatusChanged 的稳定协议值，变更须同步两端及持久化调用方。
   static const permissionStatusChanged = 'permissionStatusChanged';
 
-  /// permissionWizardStatus 的稳定协议值，变更须同步两端及持久化调用方。
   static const permissionWizardStatus = 'permissionWizardStatus';
 
-  /// pinScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const pinScreenshot = 'pinScreenshot';
 
-  /// readCredentials 的稳定协议值，变更须同步两端及持久化调用方。
   static const readCredentials = 'readCredentials';
 
-  /// readSelectionForTranslation 的稳定协议值，变更须同步两端及持久化调用方。
   static const readSelectionForTranslation = 'readSelectionForTranslation';
 
-  /// recognizeBlocks 的稳定协议值，变更须同步两端及持久化调用方。
   static const recognizeBlocks = 'recognizeBlocks';
 
-  /// recognizeText 的稳定协议值，变更须同步两端及持久化调用方。
   static const recognizeText = 'recognizeText';
 
   /// openLink 的稳定协议值；截图识别结果中的链接交给默认浏览器（#108），变更须同步两端。
   static const openLink = 'openLink';
 
-  /// recordShortcut 的稳定协议值，变更须同步两端及持久化调用方。
   static const recordShortcut = 'recordShortcut';
 
-  /// redoPressed 的稳定协议值，变更须同步两端及持久化调用方。
   static const redoPressed = 'redoPressed';
 
-  /// refreshSettings 的稳定协议值，变更须同步两端及持久化调用方。
   static const refreshSettings = 'refreshSettings';
 
-  /// requestScreenAccess 的稳定协议值，变更须同步两端及持久化调用方。
   static const requestScreenAccess = 'requestScreenAccess';
 
-  /// retainOverlay 的稳定协议值，变更须同步两端及持久化调用方。
   static const retainOverlay = 'retainOverlay';
 
   /// 输入翻译完成后把译文粘贴回来源应用；参数含 sessionId 与 text，返回是否已替换。
   static const replaceSelection = 'replaceSelection';
 
-  /// revealFile 的稳定协议值，变更须同步两端及持久化调用方。
   static const revealFile = 'revealFile';
 
-  /// saveScreenshot 的稳定协议值，变更须同步两端及持久化调用方。
   static const saveScreenshot = 'saveScreenshot';
 
-  /// saveSettings 的稳定协议值，变更须同步两端及持久化调用方。
   static const saveSettings = 'saveSettings';
 
-  /// screenshotChanged 的稳定协议值，变更须同步两端及持久化调用方。
   static const screenshotChanged = 'screenshotChanged';
 
-  /// setHistoryRecording 的稳定协议值，变更须同步两端及持久化调用方。
   static const setHistoryRecording = 'setHistoryRecording';
 
-  /// setOverlaySize 的稳定协议值，变更须同步两端及持久化调用方。
   static const setOverlaySize = 'setOverlaySize';
 
-  /// showOverlay 的稳定协议值，变更须同步两端及持久化调用方。
   static const showOverlay = 'showOverlay';
 
-  /// systemStatus 的稳定协议值，变更须同步两端及持久化调用方。
   static const systemStatus = 'systemStatus';
 
   /// 截图窗口在导出成功后记住选区，供「截取上次区域」复用；参数 id 与选区像素 x、y、width、height（#105）。
@@ -267,15 +221,11 @@ abstract final class MethodNames {
   /// 查询 Apple 系统翻译语言对的安装状态；参数 pairs 为 [源语言, 目标语言] 列表。
   static const systemTranslationStatus = 'systemTranslationStatus';
 
-  /// testService 的稳定协议值，变更须同步两端及持久化调用方。
   static const testService = 'testService';
 
-  /// toggleAutomatic 的稳定协议值，变更须同步两端及持久化调用方。
   static const toggleAutomatic = 'toggleAutomatic';
 
-  /// translatePlainText 的稳定协议值，变更须同步两端及持久化调用方。
   static const translatePlainText = 'translatePlainText';
 
-  /// undoPressed 的稳定协议值，变更须同步两端及持久化调用方。
   static const undoPressed = 'undoPressed';
 }

@@ -273,7 +273,7 @@ void main() {
   });
 
   testWidgets('GIF直接导出全视频，取消和保存反馈在工具栏外仅停留一秒', (tester) async {
-    // 非整数源时长由原生元数据决定；结果页不再要求用户重复输入尺寸和片段。
+    // 非整数源时长由原生元数据决定；结果页不要求用户输入尺寸和片段。
     state = {
       'id': 'video',
       'phase': 'videoReady',
@@ -796,7 +796,7 @@ void main() {
   });
 
   testWidgets('实时翻译是顶层工具，任意工具下点击都进入目标选择并可开始', (tester) async {
-    // 作用：实时翻译不再依赖先选中截图工具。
+    // 作用：实时翻译不依赖先选中截图工具。
     // 边界：当前工具为画笔时点击实时翻译，直接出现目标选择行；开始请求带 live 且不再携带录制参数。
     final png = await tester.runAsync(_selectionImage);
     const selectionChannel = MethodChannel('test/live-top-level');
