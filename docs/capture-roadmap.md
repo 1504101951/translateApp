@@ -59,7 +59,7 @@ Codex-Thread: 01a0db40-8de9-76f2-91d6-674a344135ee
 
 | 功能 | 用途 | 参考 | 工单 |
 | --- | --- | --- | --- |
-| 延时截屏、重复截取上次区域、指定显示器、是否包含鼠标 | 展开菜单与悬停提示、处理固定位置内容、多屏截图 | Flameshot、ksnip | [#105](https://github.com/1504101951/translateApp/issues/105) |
+| 指定显示器、是否包含鼠标 | 展开菜单与悬停提示、处理固定位置内容、多屏截图 | Flameshot、ksnip | [#105](https://github.com/1504101951/translateApp/issues/105) |
 | 键盘微调框选区域、固定比例 | 精确控制边界和尺寸 | Flameshot | [#106](https://github.com/1504101951/translateApp/issues/106) |
 | 步骤编号、荧光笔 | 制作教程和反馈截图，扩展 #27 标注工具 | ShareX、Flameshot | [#107](https://github.com/1504101951/translateApp/issues/107) |
 | 屏幕二维码与条码识别 | 从画面提取链接或文本 | ShareX | [#108](https://github.com/1504101951/translateApp/issues/108) |

@@ -11,8 +11,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var automaticItem: NSMenuItem?
     private var accessItem: NSMenuItem?
     private var stopCaptureItem: NSMenuItem?
-    /// 「截取上次区域」只在有记录时可用；显示器子菜单在菜单打开时重建（#105）。
-    private var lastRegionItem: NSMenuItem?
+    /// 显示器子菜单在菜单打开时重建（#105）。
     private var displayMenu: NSMenu?
     /// 录制倒计时的剩余秒数；没有倒计时时为 nil（#129）。
     private var countdown: Int?
@@ -59,11 +58,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let screenshot = NSMenuItem(title: "区域截图…", action: #selector(captureScreenshot), keyEquivalent: "")
         screenshot.target = self
         menu.addItem(screenshot)
-        let lastRegion = NSMenuItem(title: "截取上次区域", action: #selector(captureLastRegion), keyEquivalent: "")
-        lastRegion.target = self
-        lastRegion.isEnabled = ScreenshotRegion.saved != nil
-        lastRegionItem = lastRegion
-        menu.addItem(lastRegion)
         let displays = NSMenuItem(title: "截取显示器", action: nil, keyEquivalent: "")
         let displayMenu = NSMenu()
         displayMenu.autoenablesItems = false
@@ -169,10 +163,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         automaticItem?.state = enabled ? .off : .on
     }
 
-    /// menu 为即将展示的菜单；即时读取权限、采集停止能力、上次区域与显示器列表，无返回值。
+    /// menu 为即将展示的菜单；即时读取权限、采集停止能力与显示器列表，无返回值。
     func menuWillOpen(_ menu: NSMenu) {
         stopCaptureItem?.isEnabled = MacPlatformBridge.Shared.instance?.capture.canStop == true
-        lastRegionItem?.isEnabled = ScreenshotRegion.saved != nil
         // 显示器可能在两次打开菜单之间接入或断开，按当前系统顺序重建。
         displayMenu?.removeAllItems()
         for screen in NSScreen.screens {
@@ -207,13 +200,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// 无参数；菜单关闭后进入系统区域框选，不触发翻译，无返回值。
     @objc private func captureScreenshot() {
         DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture() }
-    }
-
-    /// 无参数；冻结上次导出选区所在显示器并选中同一区域，无返回值（#105）。
-    @objc private func captureLastRegion() {
-        // 菜单项只在已有上次区域时可用。
-        let region = ScreenshotRegion.saved!
-        DispatchQueue.main.async { MacPlatformBridge.Shared.instance?.screenshot.capture(.lastRegion(region)) }
     }
 
     /// sender 的 tag 为显示器 ID；冻结该显示器并选中整屏，无返回值（#105）。

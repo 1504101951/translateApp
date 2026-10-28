@@ -141,8 +141,6 @@ enum AppConstants {
     static let recordingShowsClicksKey = "recordingShowsClicks"
     /// scrollCaptureMode 偏好键；长截图滚动方式 manual/automatic，开始长截图时读取（#112），与Dart常量同步。
     static let scrollCaptureModeKey = "scrollCaptureMode"
-    /// 上次导出的截图选区（显示器 ID、显示器像素尺寸与选区像素矩形），只由原生读写（#105）。
-    static let lastScreenshotRegionKey = "lastScreenshotRegion"
     /// recordingDelay 偏好键；开始录制前的倒计时秒数，随截图快照与工具栏变更通知交给截图引擎（#129），与Dart常量同步。
     static let recordingDelayKey = "recordingDelay"
     /// 录制延时的可选秒数，0 为不延时；prepareCapture 的 delay 只接受这些值（#129），与Dart常量同步。
@@ -248,8 +246,6 @@ enum AppConstants {
     static let showOverlayMethod = "showOverlay"
     static let staleCaptureError = "stale_capture"
     static let systemStatusMethod = "systemStatus"
-    /// rememberScreenshotRegion 协议值；截图导出成功后 Dart 发送选区像素矩形，供「截取上次区域」复用（#105）。与Dart常量同步。
-    static let rememberScreenshotRegionMethod = "rememberScreenshotRegion"
     /// recordScreenshotHistory 协议值；截图导出成功后转发主引擎记录，与Dart常量同步。
     static let recordScreenshotHistoryMethod = "recordScreenshotHistory"
     /// stitchScreenshots 协议值；按顺序拼接截图历史图片（#109），与Dart常量同步。

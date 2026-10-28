@@ -205,7 +205,7 @@ void main() {
     await mouse.removePointer();
   });
 
-  testWidgets('整屏与上次区域的初始选区直接选中：控制点可拉伸，内部可拖动', (tester) async {
+  testWidgets('整屏初始选区直接选中：控制点可拉伸，内部可拖动', (tester) async {
     // 边界：与窗口预览相同的初始矩形，cropSelected 为 true 时角点立即是拉伸光标、内部为抓手，
     // 拖动右下角后新角点仍可拉伸（#105）。
     tester.view.physicalSize = const Size(960, 740);
@@ -1248,7 +1248,9 @@ _pumpSelectedCrop(WidgetTester tester, String name) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  final png = await tester.runAsync(() => _image(width: 960, height: 740));
+  final png = await tester.runAsync(
+    () => _coordinateImage(width: 960, height: 740),
+  );
   final channel = MethodChannel(name);
   final calls = <MethodCall>[];
   final snapshot = <String, Object?>{
@@ -1294,7 +1296,37 @@ Future<void> _arrow(
   await tester.pumpAndSettle();
 }
 
-/// tester 为测试驱动，calls 为通道调用记录；点击复制，返回导出图像素尺寸与记住的截图区域。
+/// width/height 为像素尺寸；返回每个像素以颜色编码自身坐标的 PNG：R 为 x 低 8 位、G 为 y 低 8 位、
+/// B 低 4 位为 x 高位、高 4 位为 y 高位，导出图左上角像素即可还原选区位置。
+Future<Uint8List> _coordinateImage({
+  required int width,
+  required int height,
+}) async {
+  final pixels = Uint8List(width * height * 4);
+  for (var y = 0; y < height; y++) {
+    for (var x = 0; x < width; x++) {
+      final offset = (y * width + x) * 4;
+      pixels[offset] = x & 0xFF;
+      pixels[offset + 1] = y & 0xFF;
+      pixels[offset + 2] = (x >> 8) | ((y >> 8) << 4);
+      pixels[offset + 3] = 0xFF;
+    }
+  }
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    pixels,
+    width,
+    height,
+    ui.PixelFormat.rgba8888,
+    completer.complete,
+  );
+  final image = await completer.future;
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return bytes!.buffer.asUint8List();
+}
+
+/// tester 为测试驱动，calls 为通道调用记录；点击复制，返回导出图像素尺寸与按左上角像素坐标还原的选区。
 Future<(Size, Rect)> _copyCrop(
   WidgetTester tester,
   List<MethodCall> calls,
@@ -1303,7 +1335,7 @@ Future<(Size, Rect)> _copyCrop(
   final copy = find.byKey(const Key(ScreenshotActions.copy));
   await tester.ensureVisible(copy);
   // 导出与 PNG 解码使用真实图像线程。
-  final size = await tester.runAsync(() async {
+  final rect = await tester.runAsync(() async {
     await tester.tap(copy);
     await Future<void>.delayed(const Duration(milliseconds: 100));
     final bytes =
@@ -1316,29 +1348,21 @@ Future<(Size, Rect)> _copyCrop(
             as Uint8List;
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
-    final size = Size(
+    // 左上角像素按 _coordinateImage 的编码还原截图坐标。
+    final rgba = (await frame.image.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    ))!;
+    final blue = rgba.getUint8(2);
+    final rect = Rect.fromLTWH(
+      (rgba.getUint8(0) | ((blue & 0x0F) << 8)).toDouble(),
+      (rgba.getUint8(1) | ((blue >> 4) << 8)).toDouble(),
       frame.image.width.toDouble(),
       frame.image.height.toDouble(),
     );
     frame.image.dispose();
     codec.dispose();
-    return size;
+    return rect;
   });
   await tester.pumpAndSettle();
-  final region =
-      calls
-              .firstWhere(
-                (call) => call.method == MethodNames.rememberScreenshotRegion,
-              )
-              .arguments
-          as Map;
-  return (
-    size!,
-    Rect.fromLTWH(
-      (region['x'] as num).toDouble(),
-      (region['y'] as num).toDouble(),
-      (region['width'] as num).toDouble(),
-      (region['height'] as num).toDouble(),
-    ),
-  );
+  return (rect!.size, rect);
 }

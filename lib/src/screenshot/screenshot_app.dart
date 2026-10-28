@@ -424,7 +424,7 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               cropH,
             ),
           );
-          // 前台窗口只提供初始范围预览，首次拖动重新框选；整屏与上次区域直接选中，可拖控制点调整（#105）。
+          // 前台窗口只提供初始范围预览，首次拖动重新框选；整屏直接选中，可拖控制点调整（#105）。
           _cropSelected = value['cropSelected'] == true;
         }
       } else {
@@ -1045,19 +1045,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
     if (mounted) _showCopyFeedback('已复制 $hex');
   }
 
-  /// id 为本次截图身份，bytes 为刚导出成功的图片；记住本次选区（#105）并请求主引擎按「记录截图历史」开关写入（#29），无返回值。
-  /// 两者都是导出成功后的附带记录：不等待回复，复制、保存、贴图的反馈与关闭不受其影响。
+  /// id 为本次截图身份，bytes 为刚导出成功的图片；请求主引擎按「记录截图历史」开关写入（#29），无返回值。
+  /// 这是导出成功后的附带记录：不等待回复，复制、保存、贴图的反馈与关闭不受其影响。
   void _afterExport(Object id, Uint8List bytes) {
-    final crop = _document.cropRect;
-    unawaited(
-      widget.channel.invokeMethod<void>(MethodNames.rememberScreenshotRegion, {
-        'id': id,
-        'x': crop.left,
-        'y': crop.top,
-        'width': crop.width,
-        'height': crop.height,
-      }),
-    );
     unawaited(
       widget.channel.invokeMethod<void>(MethodNames.recordScreenshotHistory, {
         'id': id,
