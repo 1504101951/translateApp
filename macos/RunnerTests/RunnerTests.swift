@@ -757,7 +757,7 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual((response as? FlutterError)?.code, AppConstants.badArgsError)
     }
 
-    /// 无参数；没有对应会话时替换请求返回 false，不向任何应用粘贴，无返回值。
+    /// 无参数；没有对应会话时替换请求返回未替换原因，不向任何应用粘贴，无返回值（#99）。
     @MainActor
     func testReplaceSelectionRejectsStaleSession() {
         let bridge = MacPlatformBridge(overlay: OverlayPanelController(), selectionMonitor: SelectionMonitor())
@@ -766,7 +766,22 @@ class RunnerTests: XCTestCase {
         bridge.handle(FlutterMethodCall(methodName: AppConstants.replaceSelectionMethod, arguments: [
             "sessionId": "stale", "text": "译文",
         ])) { response = $0 }
-        XCTAssertEqual(response as? Bool, false)
+        XCTAssertEqual(response as? String, "输入已结束，未替换原文。")
+    }
+
+    /// 无参数；失败气泡放在锚点下方 8pt，下方放不下放上方 8pt，左对齐并限制在可用区水平范围内，无返回值（#99）。
+    func testInputFailureBubbleFrameAvoidsAnchor() {
+        let visible = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let size = NSSize(width: 120, height: 28)
+        // 边界：下方剩余 100pt 足够，紧贴锚点下方 8pt 且与锚点左对齐。
+        XCTAssertEqual(InputFailureBubble.frame(size: size, anchor: NSRect(x: 50, y: 100, width: 80, height: 20), visible: visible),
+                       NSRect(x: 50, y: 64, width: 120, height: 28))
+        // 边界：锚点底部距可用区底 20pt，放不下 8+28，改放上方 8pt，不压住锚点。
+        XCTAssertEqual(InputFailureBubble.frame(size: size, anchor: NSRect(x: 50, y: 20, width: 80, height: 20), visible: visible),
+                       NSRect(x: 50, y: 48, width: 120, height: 28))
+        // 边界：锚点靠右，左对齐会越出右边，水平收回到 400-120=280。
+        XCTAssertEqual(InputFailureBubble.frame(size: size, anchor: NSRect(x: 350, y: 100, width: 30, height: 20), visible: visible),
+                       NSRect(x: 280, y: 64, width: 120, height: 28))
     }
 
     /// 无参数；从实际应用PID生成并编解码原生事件，验证来源不是Dart测试手工补入的值。

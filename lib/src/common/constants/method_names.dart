@@ -145,6 +145,9 @@ abstract final class MethodNames {
   /// 输入翻译完成后把译文粘贴回来源应用；参数含 sessionId 与 text，返回是否已替换。
   static const replaceSelection = 'replaceSelection';
 
+  /// 输入翻译失败时请求原生在选中区域附近显示失败气泡；参数 sessionId、message（#99）。
+  static const showInputFailure = 'showInputFailure';
+
   static const revealFile = 'revealFile';
 
   static const saveScreenshot = 'saveScreenshot';

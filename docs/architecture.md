@@ -51,7 +51,7 @@ flowchart TD
 - 选区、失效事件和窗口命令携带 sessionId。系统设置命令不属于选区会话，使用独立方法和设置修订号。
 - 「仅使用快捷键」开启表示 automatic=false；菜单与表单均反向显示底层自动捕获状态。自动捕获关闭时保留 Escape、外部点击和前台变化监听，使快捷键产生的会话仍能正常关闭。
 - 全局热键使用 RegisterEventHotKey；翻译、输入翻译与截图三个用途按 `GlobalHotKey` 表在同一事务注册，同一组合不重复注册，新组合注册成功后才释放旧组合。
-- 输入翻译快捷键以 `inputHotkey` 手势进入与全局翻译快捷键相同的会话：读不到选区时在非安全文本输入框内先发送 ⌘A。完整成功后 Dart 调用 `replaceSelection`，Swift 核对会话、来源前台与安全输入后经剪贴板粘贴，`AppConstants.pasteRestoreDelay` 后在剪贴板未被改写时还原。
+- 输入翻译快捷键以 `inputHotkey` 手势进入与全局翻译快捷键相同的会话，但不显示浮层：读不到选区时在非安全文本输入框内先发送 ⌘A；读取完成时 `AccessibilitySelection.inputAnchor` 依次取选中文字矩形、焦点元素矩形或鼠标位置作为失败气泡锚点，保存在 `MacPlatformBridge` 当前会话。完整成功后 Dart 调用 `replaceSelection`，Swift 核对会话、来源前台与安全输入后经剪贴板粘贴，`AppConstants.pasteRestoreDelay` 后在剪贴板未被改写时还原；返回 null 为已替换，字符串为未替换原因。翻译失败或未替换时 Dart 调用 `showInputFailure`，由 `InputFailureBubble` 在锚点下方 8pt（放不下放上方）显示 2.5 秒。
 
 ## 服务与凭据
 

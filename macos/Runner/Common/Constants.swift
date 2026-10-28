@@ -224,6 +224,11 @@ enum AppConstants {
     static let retainOverlayMethod = "retainOverlay"
     /// replaceSelection 协议值；输入翻译完成后把译文粘贴回来源应用，与Dart常量同步。
     static let replaceSelectionMethod = "replaceSelection"
+    /// showInputFailure 协议值；输入翻译失败时 Dart 发送 sessionId 与 message，原生在选中区域附近显示失败气泡（#99），与Dart常量同步。
+    static let showInputFailureMethod = "showInputFailure"
+    /// 输入翻译失败气泡的显示时长（毫秒）与距锚点的间距（#99）。
+    static let inputFailureDurationMs = 2500
+    static let inputFailureGap: CGFloat = 8
     /// 输入翻译粘贴后等待来源应用读取剪贴板的时长，之后才还原原剪贴板（#99）。
     static let pasteRestoreDelay = Duration.milliseconds(500)
     static let revealFileMethod = "revealFile"

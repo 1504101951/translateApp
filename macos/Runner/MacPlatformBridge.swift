@@ -54,6 +54,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         }
     }
     private var pendingAppReady = false
+    /// 当前输入翻译会话的失败气泡锚点（AppKit 全局坐标），非输入翻译会话为 nil（#99）。
+    private var inputAnchor: NSRect?
     var closePermissionWizard: (() -> Void)?
     var shortcutRecorder: ((UInt32, UInt32) -> Void)?
     private var currentSessionId: String?
@@ -211,14 +213,28 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
             guard let sessionId = args["sessionId"] as? String, let text = args["text"] as? String else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "替换选区需要 sessionId/text", details: nil)); return
             }
-            // 只替换仍属于本会话、仍在前台且未开启安全输入的来源应用；其余情况保留卡片供手动复制。
-            guard currentSessionId == sessionId, let pid = sourceProcessIdentifier,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-                  !IsSecureEventInputEnabled() else { result(false); return }
+            // 只替换仍属于本会话、仍在前台且未开启安全输入的来源应用；返回 nil 表示已替换，字符串为未替换原因（#99）。
+            guard currentSessionId == sessionId, let pid = sourceProcessIdentifier else {
+                result("输入已结束，未替换原文。"); return
+            }
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+                result("来源应用已切换，未替换原文。"); return
+            }
+            guard !IsSecureEventInputEnabled() else { result("安全输入已开启，未替换原文。"); return }
             Task { @MainActor in
                 // pasteReplacingSelection 经剪贴板粘贴，并在来源应用读取后还原原剪贴板。
-                result(await AccessibilitySelection.pasteReplacingSelection(text, pasteboard: .general, paste: AccessibilitySelection.postPasteKey))
+                let pasted = await AccessibilitySelection.pasteReplacingSelection(text, pasteboard: .general, paste: AccessibilitySelection.postPasteKey)
+                result(pasted ? nil : "无法写入剪贴板，未替换原文。")
             }
+        case AppConstants.showInputFailureMethod:
+            guard let sessionId = args["sessionId"] as? String, let message = args["message"] as? String else {
+                result(FlutterError(code: AppConstants.badArgsError, message: "showInputFailure 需要 sessionId/message", details: nil)); return
+            }
+            // 只为仍属于当前输入翻译的会话显示；锚点在读取完成时取得（#99）。
+            if currentSessionId == sessionId, let inputAnchor {
+                MainActor.assumeIsolated { InputFailureBubble.shared.show(message, anchor: inputAnchor) }
+            }
+            result(nil)
         case AppConstants.isCurrentScreenshotMethod:
             guard let id = args["id"] as? String else {
                 result(FlutterError(code: AppConstants.badArgsError, message: "核对截图需要 id", details: nil)); return
@@ -659,7 +675,7 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
     }
 
     /// text 为选中文字，gesture 为手势，x/y 为屏幕锚点，sourcePID 为来源进程、sourceAppName为采集时冻结的应用名；发送新会话，无返回值。
-    func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat, sourcePID: pid_t, sourceAppName: String?) {
+    func emitSelectionCaptured(text: String, gesture: String, x: CGFloat, y: CGFloat, sourcePID: pid_t, sourceAppName: String?, inputAnchor: NSRect? = nil) {
         guard !retainsResult || SelectionGesture(rawValue: gesture)?.isExplicit == true else { return }
         // 只有显式热键可以替换保留的结果；被动手势不打断阅读或正在进行的翻译。
         retainsResult = false
@@ -668,6 +684,8 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         let sessionId = UUID().uuidString
         currentSessionId = sessionId
         sourceProcessIdentifier = sourcePID
+        // 输入翻译失败气泡的锚点属于本会话；其他手势为 nil（#99）。
+        self.inputAnchor = inputAnchor
         emit([
             "type": AppConstants.selectionCapturedEvent,
             "sessionId": sessionId,

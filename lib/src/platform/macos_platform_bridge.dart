@@ -91,14 +91,23 @@ class MacosPlatformBridge implements SettingsPlatform {
   }
 
   /// sessionId 为输入翻译会话，text 为完整译文；请求原生粘贴替换来源应用中的原文。
-  /// 返回是否已替换：来源已切换、会话已结束或开启安全输入时为 false。
-  Future<bool> replaceSelection({
+  /// 返回 null 表示已替换；来源已切换、会话已结束、开启安全输入或写入剪贴板失败时返回未替换原因（#99）。
+  Future<String?> replaceSelection({
     required String sessionId,
     required String text,
-  }) async => (await _methods.invokeMethod<bool>(MethodNames.replaceSelection, {
+  }) => _methods.invokeMethod<String>(MethodNames.replaceSelection, {
     'sessionId': sessionId,
     'text': text,
-  }))!;
+  });
+
+  /// sessionId 为输入翻译会话，message 为失败原因；请求原生在选中区域附近显示失败气泡，返回调度完成的 Future（#99）。
+  Future<void> showInputFailure({
+    required String sessionId,
+    required String message,
+  }) => _methods.invokeMethod<void>(MethodNames.showInputFailure, {
+    'sessionId': sessionId,
+    'message': message,
+  });
 
   /// text 为卡片一栏全文，language 为该栏语言码；同一段正在朗读时停止，否则改读该段。
   /// 返回调用后是否处于朗读状态。

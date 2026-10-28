@@ -886,8 +886,8 @@ final class CaptureShadeView: NSView {
                       width: inside.width, height: inside.height)
     }
 
-    /// text/isError为提示内容与语义；返回正文13/18、居中的富文本。
-    private static func hintText(_ text: String, isError: Bool) -> NSAttributedString {
+    /// text/isError为提示内容与语义；返回正文13/18、居中的富文本；输入翻译失败气泡共用（#99）。
+    static func hintText(_ text: String, isError: Bool) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = 18
         paragraph.maximumLineHeight = 18
@@ -899,8 +899,8 @@ final class CaptureShadeView: NSView {
         ])
     }
 
-    /// text为提示，width为可用文字宽；返回换行后的整点文字尺寸，宽度不超过width。
-    private static func hintTextSize(_ text: String, width: CGFloat) -> NSSize {
+    /// text为提示，width为可用文字宽；返回换行后的整点文字尺寸，宽度不超过width；输入翻译失败气泡共用（#99）。
+    static func hintTextSize(_ text: String, width: CGFloat) -> NSSize {
         let bounds = hintText(text, isError: false).boundingRect(
             with: NSSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading])

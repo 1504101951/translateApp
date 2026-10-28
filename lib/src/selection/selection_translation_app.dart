@@ -109,6 +109,8 @@ class _TranslateAppState extends State<TranslateApp> {
         if (explicit) {
           unawaited(_activate(readSelection: false));
         }
+        // 输入翻译全过程不显示按钮或卡片，结果只体现在来源输入框或失败气泡（#99）。
+        if (_replaceSessionId == sessionId) return;
         widget.bridge.showOverlay(
           sessionId: sessionId,
           x: x,
@@ -133,7 +135,8 @@ class _TranslateAppState extends State<TranslateApp> {
   /// 无参数；按当前会话阶段更新原生窗口尺寸，无返回值。
   void _syncOverlaySize() {
     final id = widget.session.sessionId;
-    if (id == null) return;
+    // 输入翻译会话没有浮层，结束时由 _finishInput 释放会话（#99）。
+    if (id == null || id == _replaceSessionId) return;
     final phase = widget.session.snapshot.phase;
     if (phase == TranslationPhase.idle) {
       widget.bridge.hideOverlay(sessionId: id);
@@ -189,8 +192,30 @@ class _TranslateAppState extends State<TranslateApp> {
             : null,
       );
     }
-    // _recordAndReplace 只在翻译模式完整成功时记录历史，并完成输入翻译的替换。
-    await _recordAndReplace(id, activeProvider, activeLanguage, sourceLabel);
+    // _record 只在翻译模式完整成功时记录历史。
+    _record(id, activeProvider, activeLanguage, sourceLabel);
+    // _finishInput 完成输入翻译的替换或失败提示并结束会话（#99）。
+    if (_replaceSessionId == id) await _finishInput(id);
+  }
+
+  /// id 为输入翻译会话；完整成功时粘贴替换原文，翻译失败或未替换时请求原生在选中区域附近显示原因，
+  /// 随后结束会话；会话已被替换或取消时不做任何事，返回结束的 Future（#99）。
+  Future<void> _finishInput(String id) async {
+    if (widget.session.sessionId != id) return;
+    final snapshot = widget.session.snapshot;
+    // replaceSelection 返回 null 表示已替换，否则为未替换原因；翻译未完成时直接使用失败说明。
+    final failure = snapshot.phase == TranslationPhase.completed
+        ? await widget.bridge.replaceSelection(
+            sessionId: id,
+            text: snapshot.translatedText,
+          )
+        : snapshot.message ?? '翻译失败';
+    if (widget.session.sessionId != id) return;
+    // showInputFailure 需要原生会话仍在，必须先于 _dismiss 释放会话。
+    if (failure != null) {
+      await widget.bridge.showInputFailure(sessionId: id, message: failure);
+    }
+    _dismiss();
   }
 
   /// 无参数；把卡片的单词、译文与词典释义加入生词本，同一单词已存在时更新，无返回值。
@@ -234,7 +259,7 @@ class _TranslateAppState extends State<TranslateApp> {
     unawaited(widget.bridge.stopSpeech());
     final sourceLabel = _sourceAppName;
     await widget.session.switchMode(mode);
-    await _recordAndReplace(
+    _record(
       id,
       widget.session.activeProvider,
       widget.session.activeLanguage,
@@ -243,13 +268,13 @@ class _TranslateAppState extends State<TranslateApp> {
   }
 
   /// id 为发起时的会话，provider/language 为冻结的服务与方向，sourceLabel 为来源应用名。
-  /// 仅在会话未被替换、处于翻译模式且完整成功时写入历史；输入翻译会话随后粘贴替换原文，成功即关闭卡片。
-  Future<void> _recordAndReplace(
+  /// 仅在会话未被替换、处于翻译模式且完整成功时写入历史，无返回值。
+  void _record(
     String id,
     TranslationProvider provider,
     LanguageDirection language,
     String? sourceLabel,
-  ) async {
+  ) {
     // 旧请求结束时新会话可能已经完成，必须核对 ID，不能重复记录新会话。
     if (widget.session.sessionId != id ||
         widget.session.mode != TextMode.translate ||
@@ -269,15 +294,6 @@ class _TranslateAppState extends State<TranslateApp> {
       sourceLabel: sourceLabel,
       completedAt: DateTime.now().millisecondsSinceEpoch,
     );
-    // 输入翻译成功后粘贴替换原文；替换失败时保留卡片，用户仍可复制译文。
-    if (_replaceSessionId == id &&
-        await widget.bridge.replaceSelection(
-          sessionId: id,
-          text: widget.session.snapshot.translatedText,
-        ) &&
-        widget.session.sessionId == id) {
-      _dismiss();
-    }
   }
 
   /// 无参数；关闭当前会话及其原生窗口，无返回值。

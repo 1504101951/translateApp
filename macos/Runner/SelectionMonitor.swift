@@ -297,10 +297,11 @@ final class SelectionMonitor {
                 MacPlatformBridge.Shared.instance?.invalidateSelection()
                 return
             }
-            // 异步读取完成后以最新鼠标位置定位新会话。
+            // 异步读取完成后以最新鼠标位置定位新会话；输入翻译另取选中区域作为失败气泡锚点（#99）。
             let anchor = NSEvent.mouseLocation
             MacPlatformBridge.Shared.instance?.emitSelectionCaptured(
-                text: text, gesture: gesture.rawValue, x: anchor.x, y: anchor.y, sourcePID: pid, sourceAppName: sourceAppName
+                text: text, gesture: gesture.rawValue, x: anchor.x, y: anchor.y, sourcePID: pid, sourceAppName: sourceAppName,
+                inputAnchor: gesture == .inputHotkey ? AccessibilitySelection.inputAnchor(sourcePID: pid) : nil
             )
             // 选区通知覆盖程序清空与控件焦点变化，不需要轮询剪贴板。
             self?.watchSelection(sourcePID: pid, selectionElement: selection.element)

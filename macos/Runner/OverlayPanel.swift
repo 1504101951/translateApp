@@ -144,3 +144,77 @@ final class OverlayHostViewController: NSViewController {
         ])
     }
 }
+
+/// 输入翻译失败气泡：非激活玻璃提示，显示在选中区域附近，不抢焦点，样式与长截图提示相同（#99）。
+@MainActor
+final class InputFailureBubble {
+    static let shared = InputFailureBubble()
+    private var panel: NSPanel?
+    private var generation = 0
+
+    /// message 为失败原因，anchor 为选中区域（AppKit 全局坐标）；替换旧气泡，到时或点击后关闭，无返回值。
+    func show(_ message: String, anchor: NSRect) {
+        close()
+        let padding = AppConstants.scrollHintPadding
+        // hintTextSize/hintText 与长截图提示共用文字排版：13/18、最大宽 240pt 换行。
+        let textSize = CaptureShadeView.hintTextSize(message, width: AppConstants.scrollHintMaxWidth - padding.width * 2)
+        let size = NSSize(width: textSize.width + padding.width * 2, height: textSize.height + padding.height * 2)
+        // 锚点所在屏；锚点不在任何屏幕上时按主屏放置。
+        let screen = NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.screens[0]
+        let frame = Self.frame(size: size, anchor: anchor, visible: screen.visibleFrame)
+        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hidesOnDeactivate = false
+        let label = NSTextField(wrappingLabelWithString: message)
+        label.attributedStringValue = CaptureShadeView.hintText(message, isError: true)
+        label.frame = NSRect(origin: NSPoint(x: padding.width, y: padding.height), size: textSize)
+        let content = BubbleClickView(frame: NSRect(origin: .zero, size: size))
+        content.onClick = { [weak self] in self?.close() }
+        content.addSubview(label)
+        let glass = NSGlassEffectView(frame: NSRect(origin: .zero, size: size))
+        glass.cornerRadius = AppConstants.scrollHintRadius
+        glass.contentView = content
+        panel.contentView = glass
+        panel.orderFrontRegardless()
+        self.panel = panel
+        NSAccessibility.post(element: glass, notification: .announcementRequested,
+                             userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        generation += 1
+        let current = generation
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(AppConstants.inputFailureDurationMs))
+            guard let self, self.generation == current else { return }
+            self.close()
+        }
+    }
+
+    /// 无参数；关闭当前气泡，没有气泡时保持原状，无返回值。
+    func close() {
+        panel?.orderOut(nil)
+        panel = nil
+    }
+
+    /// size 为气泡尺寸，anchor 为选中区域，visible 为锚点所在屏可用区（均为 AppKit 坐标）；
+    /// 返回锚点下方 8pt、放不下时上方 8pt、左边对齐并限制在可用区水平范围内的整点位置。
+    nonisolated static func frame(size: NSSize, anchor: NSRect, visible: NSRect) -> NSRect {
+        let gap = AppConstants.inputFailureGap
+        let below = anchor.minY - gap - size.height
+        let y = below >= visible.minY ? below : anchor.maxY + gap
+        let x = min(max(anchor.minX, visible.minX), visible.maxX - size.width)
+        return NSRect(x: x.rounded(), y: y.rounded(), width: size.width, height: size.height)
+    }
+}
+
+/// 失败气泡内容视图：非激活面板首次点击即关闭气泡。
+private final class BubbleClickView: NSView {
+    var onClick: (() -> Void)?
+
+    /// event 为首次点击；非激活面板不先激活应用，返回 true 直接处理。
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// event 为鼠标按下；关闭气泡，无返回值。
+    override func mouseDown(with event: NSEvent) { onClick?() }
+}

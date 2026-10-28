@@ -282,6 +282,48 @@ enum AccessibilitySelection {
         return nil
     }
 
+    /// sourcePID 为输入翻译的来源进程；返回失败气泡锚点（AppKit 全局坐标）：依次为选中文字矩形、焦点元素矩形，
+    /// 都取不到时为当前鼠标位置的 1×1 矩形（#99）。部分自绘或 Electron 应用不提供文字矩形，此时退到下一级。
+    static func inputAnchor(sourcePID: pid_t) -> NSRect {
+        if let focused = focusedElement(from: AXUIElementCreateApplication(sourcePID)) {
+            // 选中文字矩形：先取选区范围，再按范围取屏幕矩形（左上原点的全局坐标）。
+            var range: CFTypeRef?
+            var bounds: CFTypeRef?
+            if AXUIElementCopyAttributeValue(focused, kAXSelectedTextRangeAttribute as CFString, &range) == .success,
+               let range,
+               AXUIElementCopyParameterizedAttributeValue(
+                   focused, kAXBoundsForRangeParameterizedAttribute as CFString, range, &bounds) == .success,
+               let rect = axRect(bounds), !rect.isEmpty {
+                return appKitRect(rect)
+            }
+            // 焦点元素矩形：输入框整体位置与尺寸。
+            var position = CGPoint.zero
+            var size = CGSize.zero
+            if let value = attribute(focused, kAXPositionAttribute as CFString),
+               AXValueGetValue(value as! AXValue, .cgPoint, &position),
+               let value = attribute(focused, kAXSizeAttribute as CFString),
+               AXValueGetValue(value as! AXValue, .cgSize, &size),
+               size.width > 0, size.height > 0 {
+                return appKitRect(CGRect(origin: position, size: size))
+            }
+        }
+        let mouse = NSEvent.mouseLocation
+        return NSRect(x: mouse.x, y: mouse.y, width: 1, height: 1)
+    }
+
+    /// value 为 AX 返回的矩形值；返回其中的 CGRect，类型不符时返回 nil。
+    private static func axRect(_ value: CFTypeRef?) -> CGRect? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        return AXValueGetValue(value as! AXValue, .cgRect, &rect) ? rect : nil
+    }
+
+    /// rect 为左上原点的全局屏幕矩形；返回以主屏左下为原点的 AppKit 全局矩形。
+    private static func appKitRect(_ rect: CGRect) -> NSRect {
+        let height = NSScreen.screens[0].frame.maxY
+        return NSRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
+    }
+
     /// sourcePID 为来源进程；焦点为非安全的文本输入控件且未开启安全输入时发送 Command-A，返回是否已全选。
     /// 只在输入翻译读不到选区时调用，非文本控件不发送，避免全选文件列表等其他内容。
     static func selectAllInFocusedTextInput(sourcePID: pid_t) -> Bool {

@@ -144,19 +144,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('输入翻译完整成功后替换原文并关闭卡片，替换被拒时保留译文卡片', (tester) async {
+  testWidgets('输入翻译全程不显示卡片：成功替换后结束会话，未替换时把原因交给失败气泡（#99）', (tester) async {
     const methods = MethodChannel('test/input-translation/methods');
     const events = EventChannel('test/input-translation/events');
     const codec = StandardMethodCodec();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    // 原生是否接受替换：模拟来源仍在前台（true）与已切换应用或安全输入（false）两种边界。
-    var replaceAccepted = true;
-    messenger.setMockMethodCallHandler(
-      methods,
-      (call) async =>
-          call.method == MethodNames.replaceSelection ? replaceAccepted : null,
-    );
+    // 原生替换结果：null 为已替换，字符串为未替换原因（如来源应用已切换）。
+    String? replaceFailure;
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(methods, (call) async {
+      calls.add(call);
+      return call.method == MethodNames.replaceSelection
+          ? replaceFailure
+          : null;
+    });
     messenger.setMockMethodCallHandler(
       MethodChannel(events.name),
       (_) async => null,
@@ -211,17 +213,38 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    /// 返回本次通道调用中出现过的方法名集合。
+    Set<String> methodNames() => calls.map((call) => call.method).toSet();
+
     await sendInput('replaced');
-    // 替换成功：卡片关闭，翻译仍记入历史。
+    // 边界：替换成功时会话结束、写入历史，且从未请求显示或缩放浮层，也没有失败气泡。
     expect(session.snapshot.phase, TranslationPhase.idle);
     expect(history.page(), hasLength(1));
+    expect(
+      methodNames(),
+      isNot(
+        anyOf(
+          contains(MethodNames.showOverlay),
+          contains(MethodNames.setOverlaySize),
+          contains(MethodNames.showInputFailure),
+        ),
+      ),
+    );
 
-    replaceAccepted = false;
+    calls.clear();
+    replaceFailure = '来源应用已切换，未替换原文。';
     await sendInput('kept');
-    // 替换被拒：卡片保留完整译文，用户仍可手动复制。
-    expect(session.snapshot.phase, TranslationPhase.completed);
-    expect(session.snapshot.translatedText, 'Hello');
+    // 边界：替换被拒时同样不显示卡片，原因原样交给失败气泡，会话结束；翻译成功仍记入历史。
+    expect(session.snapshot.phase, TranslationPhase.idle);
     expect(history.page(), hasLength(2));
+    expect(methodNames(), isNot(contains(MethodNames.showOverlay)));
+    final failure = calls.singleWhere(
+      (call) => call.method == MethodNames.showInputFailure,
+    );
+    expect(failure.arguments, {
+      'sessionId': 'kept',
+      'message': '来源应用已切换，未替换原文。',
+    });
     expect(tester.takeException(), isNull);
   });
   testWidgets('卡片切换为润色只显示结果不写历史，切回翻译成功后再记录一条', (tester) async {
