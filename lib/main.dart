@@ -26,10 +26,22 @@ import 'src/settings/settings_controller.dart';
 import 'src/translation/live_region_session.dart';
 import 'src/translation/provider_selection.dart';
 
-/// 无参数；装配主引擎唯一的配置、翻译会话、历史存储与跨窗口请求入口，无返回值。
+/// 无参数；启动主引擎，初始化失败时让原生弹出实际错误后再抛出，返回启动完成的 Future（#126）。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final bridge = MacosPlatformBridge();
+  try {
+    // _startApplication 装配配置、存储、会话与跨窗口请求入口。
+    await _startApplication(bridge);
+  } catch (error) {
+    // 未完成初始化时主通道没有处理器，窗口请求会一直等待；先让原生提示原因并退出，再保留原异常。
+    await bridge.appStartFailed('$error');
+    rethrow;
+  }
+}
+
+/// bridge 为主引擎平台桥；装配主引擎唯一的配置、翻译会话、历史存储与跨窗口请求入口，返回装配完成的 Future。
+Future<void> _startApplication(MacosPlatformBridge bridge) async {
   final initial = AppSettings.fromMap(await bridge.loadSettings());
   final support = await bridge.applicationSupportPath();
   Directory(support).createSync(recursive: true);

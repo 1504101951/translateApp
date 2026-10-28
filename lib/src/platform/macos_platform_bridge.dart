@@ -164,4 +164,10 @@ class MacosPlatformBridge implements SettingsPlatform {
 
   /// 无参数；通知原生首次启动界面可用，Future 在窗口调度后完成。
   Future<void> appReady() => _methods.invokeMethod<void>(MethodNames.appReady);
+
+  /// message 为主引擎初始化失败的错误文本；原生弹出启动失败提示，用户确认后退出 App，返回提示调度完成的 Future（#126）。
+  Future<void> appStartFailed(String message) => _methods.invokeMethod<void>(
+    MethodNames.appStartFailed,
+    {'message': message},
+  );
 }

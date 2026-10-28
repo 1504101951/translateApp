@@ -162,6 +162,8 @@ enum AppConstants {
     /// nudgeScreenshotCrop 协议值；原生按键路由把方向键交给截图引擎微调选区，参数 id、dx、dy、shift、option（#106），与Dart常量同步。
     static let nudgeScreenshotCropMethod = "nudgeScreenshotCrop"
     static let appReadyMethod = "appReady"
+    /// appStartFailed 协议值；主 Dart 引擎初始化失败时发送错误文本，原生提示后退出（#126），与Dart常量同步。
+    static let appStartFailedMethod = "appStartFailed"
     static let appearanceChangedMethod = "appearanceChanged"
     static let applicationSupportPathMethod = "applicationSupportPath"
     static let applySettingsMethod = "applySettings"

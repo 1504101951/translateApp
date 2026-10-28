@@ -53,6 +53,9 @@ abstract final class MethodNames {
 
   static const appReady = 'appReady';
 
+  /// 主引擎初始化失败；参数 message 为错误文本，原生弹出提示后退出（#126）。
+  static const appStartFailed = 'appStartFailed';
+
   static const appearanceChanged = 'appearanceChanged';
 
   static const applicationSupportPath = 'applicationSupportPath';
