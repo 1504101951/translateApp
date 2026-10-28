@@ -470,6 +470,10 @@ final class MacPlatformBridge: NSObject, FlutterStreamHandler {
         case AppConstants.openLoginItemsMethod:
             SMAppService.openSystemSettingsLoginItems()
             result(nil)
+        case AppConstants.openTranslationLanguagesMethod:
+            // 只把用户带到「语言与地区」，下载由系统完成，App 内不触发下载（#98）。
+            NSWorkspace.shared.open(AppConstants.translationLanguagesSettingsURL)
+            result(nil)
         case AppConstants.chooseExcludedAppMethod:
             let picker = NSOpenPanel()
             picker.allowedContentTypes = [.applicationBundle]

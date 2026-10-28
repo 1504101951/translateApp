@@ -632,6 +632,29 @@ class _SettingsPageState extends State<_SettingsPage>
                       ),
                     ],
                   ),
+                  // Apple 系统翻译的离线语言包由系统下载，按钮只打开对应设置页（#98）。
+                  NativeGlassGroup(
+                    children: [
+                      ListTile(
+                        key: const ValueKey('离线翻译语言'),
+                        minTileHeight: 56,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          '在打开的页面点“翻译语言…”下载',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        trailing: NativeGlassSurface(
+                          material: true,
+                          child: TextButton(
+                            onPressed: () => _channel.invokeMethod<void>(
+                              MethodNames.openTranslationLanguages,
+                            ),
+                            child: const Text('下载离线翻译语言…'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ] else if (_section == SettingsSection.translation) ...[
                   NativeGlassGroup(
                     children: [

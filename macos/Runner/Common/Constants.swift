@@ -200,6 +200,10 @@ enum AppConstants {
     static let ocrFailedError = "ocr_failed"
     static let openAccessibilityMethod = "openAccessibility"
     static let openLoginItemsMethod = "openLoginItems"
+    /// openTranslationLanguages 协议值；设置页打开系统「语言与地区」下载离线翻译语言（#98），与Dart常量同步。
+    static let openTranslationLanguagesMethod = "openTranslationLanguages"
+    /// 系统设置「通用 → 语言与地区」面板；「翻译语言…」在该面板内（#98）。
+    static let translationLanguagesSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension")!
     /// openLink 协议值；截图识别结果中的链接交给默认浏览器（#108），与Dart常量同步。
     static let openLinkMethod = "openLink"
     /// 识别结果中允许打开的链接协议；其他协议只可复制（#108），与Dart常量同步。

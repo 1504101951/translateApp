@@ -54,6 +54,25 @@ void main() {
       find.descendant(of: accessibilityGroup, matching: find.text('登录时启动')),
       findsNothing,
     );
+    // 边界：「下载离线翻译语言…」不在权限卡片内，而是卡片下方间距 20pt 的独立组，行高不小于 56pt（#98）。
+    final languagesRow = find.byKey(const ValueKey('离线翻译语言'));
+    expect(
+      find.descendant(
+        of: accessibilityGroup,
+        matching: find.text('下载离线翻译语言…'),
+      ),
+      findsNothing,
+    );
+    expect(tester.getSize(languagesRow).height, greaterThanOrEqualTo(56));
+    final languagesGroup = find.ancestor(
+      of: languagesRow,
+      matching: find.byType(NativeGlassGroup),
+    );
+    // 分组外框含 20pt 底部间距，按分组内的材料背景测量两卡片间距。
+    Rect card(Finder group) => tester.getRect(
+      find.descendant(of: group, matching: find.byType(Material)).first,
+    );
+    expect(card(languagesGroup).top - card(accessibilityGroup).bottom, 20);
 
     await tester.tap(find.text('截图'));
     await tester.pumpAndSettle();

@@ -112,6 +112,9 @@ abstract final class MethodNames {
 
   static const openLoginItems = 'openLoginItems';
 
+  /// 设置页打开「系统设置 → 通用 → 语言与地区」，用户在其中下载离线翻译语言（#98）。
+  static const openTranslationLanguages = 'openTranslationLanguages';
+
   static const permissionStatusChanged = 'permissionStatusChanged';
 
   static const permissionWizardStatus = 'permissionWizardStatus';
